@@ -1,0 +1,81 @@
+
+
+generator client {
+    provider = "prisma-client-js"
+}
+
+datasource db {
+    provider = "sqlite"
+}
+
+model Sucursal {
+    id        String   @id @default(cuid())
+    nombre    String
+    createdAt DateTime @default(now())
+    users     User[]
+}
+
+model Roles {
+    id        String   @id @default(cuid())
+    rol       String   @unique
+    createdAt DateTime @default(now())
+    users     User[]
+}
+
+model User {
+    id         String    @id @default(cuid())
+    username   String    @unique
+    password   String?
+    roleId     String?
+    role       Roles?    @relation(fields: [roleId], references: [id])
+    sucursalId String?
+    sucursal   Sucursal? @relation(fields: [sucursalId], references: [id])
+    createdAt  DateTime  @default(now())
+}
+
+model Seller {
+    id        String   @id @default(cuid())
+    name      String   @unique
+    code      String?  @unique
+    createdAt DateTime @default(now())
+    orders    Order[]
+}
+
+model Order {
+    id                 String      @id @default(cuid())
+    folio              String
+    sellerId           String?
+    seller             Seller?     @relation(fields: [sellerId], references: [id])
+    clientId           String?
+    client             Client?     @relation(fields: [clientId], references: [id])
+    direccion          String?
+    encargado          String?
+    telefono           String?
+    fecha              DateTime
+    fecha_comprometida DateTime?
+    status             String?
+    createdAt          DateTime    @default(now())
+    items              OrderItem[]
+
+    @@unique([folio, sellerId])
+    @@index([fecha])
+}
+
+model OrderItem {
+    id          String  @id @default(cuid())
+    orderId     String
+    order       Order   @relation(fields: [orderId], references: [id])
+    code        String?
+    producto    String
+    unidades    Int
+    descripcion String?
+}
+
+model Client {
+    id         String   @id @default(cuid())
+    parrandaId String   @unique
+    nombre     String
+    zona       String?
+    createdAt  DateTime @default(now())
+    orders     Order[]
+}

@@ -1,0 +1,13 @@
+.card-warning {
+    &:hover {
+        .card-warning__icon-wrapper {
+            background-color: var(--heroui-warning-500);
+            border-color: black;
+            outline: 2px solid var(--heroui-warning-500);
+        }
+
+        .card-warning__icon {
+            color: black;
+        }
+    }
+}

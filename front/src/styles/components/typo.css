@@ -1,0 +1,64 @@
+@import "tailwindcss";
+
+body {
+    scrollbar-gutter: stable;
+}
+
+[role="dialog"] {
+    scrollbar-gutter: stable;
+}
+
+.btn {
+    @apply text-xl font-semibold min-h-16;
+}
+
+.heading {
+    @apply text-xl md:text-3xl font-bold;
+}
+
+.heading-title {
+    @apply text-3xl md:text-4xl font-bold;
+}
+
+.subheading {
+    @apply text-lg md:text-2xl font-semibold;
+}
+
+.paragraph {
+    @apply text-base md:text-lg;
+}
+
+.description {
+    @apply text-base md:text-lg;
+}
+
+.details {
+    @apply text-sm md:text-base;
+}
+
+.page-content {
+    @apply w-full min-h-svh inline-block relative;
+}
+
+@media (min-width:768px) {
+    [data-slot="label"] {
+        font-size: 16px !important;
+        font-weight: 500 !important;
+    }
+
+    [data-slot="error-message"] {
+        font-size: 14px !important;
+        font-weight: 500 !important;
+        margin-top: 4px !important;
+    }
+}
+
+.card-warning:hover .card-warning__icon-wrapper {
+    background-color: rgb(245, 165, 36);
+    border-color: black;
+    outline: 2px solid rgb(245, 165, 36);
+}
+
+.card-warning:hover .card-warning__icon {
+    color: black;
+}
