@@ -12,21 +12,21 @@ export default function SucursalesPanelPage() {
       />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         <ActionCard
-          color="warning"
+          color="primary"
           description="Registrar una nueva sucursal"
           href="/panel/panel-sucursal/nuevo"
           icon="add"
           title="Nueva Sucursal"
         />
         <ActionCard
-          color="warning"
+          color="primary"
           description="Ver detalles de sucursales"
           href="/panel/panel-sucursal/visualizar"
           icon="eye"
           title="Visualizar Sucursales"
         />
         <ActionCard
-          color="warning"
+          color="primary"
           description="Generar reportes de sucursales"
           href="/panel/panel-sucursal/reportes"
           icon="reports"

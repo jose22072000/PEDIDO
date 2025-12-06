@@ -90,14 +90,14 @@ export default function SincronizacionPage() {
           </div>
           <div className="flex gap-2 items-center">
             <span>Estado:</span>
-            <Chip color={isSyncing ? "warning" : "default"} variant="flat">
+            <Chip color={isSyncing ? "primary" : "default"} variant="flat">
               {isSyncing ? "Sincronizando..." : "Inactivo"}
             </Chip>
           </div>
           <div className="flex gap-2 items-center">
             <span>Pendientes:</span>
             <Chip
-              color={queueItems.length > 0 ? "warning" : "success"}
+              color={queueItems.length > 0 ? "primary" : "success"}
               variant="flat"
             >
               {queueItems.length}
@@ -143,7 +143,7 @@ export default function SincronizacionPage() {
                           item.operacion === "CREATE"
                             ? "success"
                             : item.operacion === "UPDATE"
-                              ? "warning"
+                              ? "primary"
                               : "danger"
                         }
                         size="sm"
@@ -195,7 +195,7 @@ export default function SincronizacionPage() {
                           item.operacion === "CREATE"
                             ? "success"
                             : item.operacion === "UPDATE"
-                              ? "warning"
+                              ? "primary"
                               : "danger"
                         }
                         size="sm"

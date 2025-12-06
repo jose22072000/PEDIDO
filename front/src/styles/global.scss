@@ -1,12 +1,12 @@
-.card-warning {
+.card-primary {
     &:hover {
-        .card-warning__icon-wrapper {
-            background-color: var(--heroui-warning-500);
+        .card-primary__icon-wrapper {
+            background-color: var(--heroui-primary-500);
             border-color: black;
-            outline: 2px solid var(--heroui-warning-500);
+            outline: 2px solid var(--heroui-primary-500);
         }
 
-        .card-warning__icon {
+        .card-primary__icon {
             color: black;
         }
     }

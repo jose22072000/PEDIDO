@@ -229,7 +229,7 @@ export default function VisualizarSucursalPage() {
                     <Divider />
                     <div className="flex gap-4 justify-end">
                       <Button
-                        color="warning"
+                        color="primary"
                         startContent={<Icons.edit className="size-5" />}
                         variant="flat"
                         onPress={handleEdit}
@@ -344,7 +344,7 @@ export default function VisualizarSucursalPage() {
               <Button color="default" variant="flat" onPress={onEditClose}>
                 Cancelar
               </Button>
-              <Button color="warning" isLoading={isSubmitting} type="submit">
+              <Button color="primary" isLoading={isSubmitting} type="submit">
                 Guardar Cambios
               </Button>
             </ModalFooter>

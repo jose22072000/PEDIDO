@@ -175,7 +175,7 @@ export default function CrearPedidoForm() {
                     </Button>
                     <Button
                       className="flex-1"
-                      color="warning"
+                      color="primary"
                       isLoading={isSubmitting}
                       type="submit"
                     >

@@ -16,7 +16,7 @@ export const CrearPedidoHeader = () => {
             <Avatar
               isBordered
               className="size-14 md:size-16"
-              color="warning"
+              color="primary"
               icon={<Icons.partners className="size-12" />}
               radius="md"
               size="md"
@@ -25,7 +25,7 @@ export const CrearPedidoHeader = () => {
               <h2 className="text-lg md:text-2xl font-bold">
                 Rigoberto Fernández
               </h2>
-              <Chip color="warning" size="sm" variant="bordered">
+              <Chip color="primary" size="sm" variant="bordered">
                 TCP KANGA
               </Chip>
             </div>
@@ -39,7 +39,7 @@ export const CrearPedidoHeader = () => {
             <Avatar
               isBordered
               className="size-14 md:size-16"
-              color="warning"
+              color="primary"
               icon={<Icons.workers className="size-12" />}
               radius="md"
               size="md"
@@ -48,7 +48,7 @@ export const CrearPedidoHeader = () => {
               <h2 className="text-lg md:text-2xl font-bold">
                 {auth.user.username}
               </h2>
-              <Chip color="warning" size="sm" variant="bordered">
+              <Chip color="primary" size="sm" variant="bordered">
                 {auth.user.role || "Usuario"}
               </Chip>
             </div>

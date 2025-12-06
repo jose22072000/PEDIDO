@@ -12,28 +12,28 @@ export default function ProductosPanelPage() {
       />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         <ActionCard
-          color="warning"
+          color="primary"
           description="Visualizar catálogo de productos"
           href="/panel/panel-productos/catalogo"
           icon="catalogo"
           title="Catalogo"
         />
         <ActionCard
-          color="warning"
+          color="primary"
           description="Control y administración de productos"
           href="/panel/panel-productos/gestion-productos"
           icon="product"
           title="Gestionar Productos"
         />
         <ActionCard
-          color="warning"
+          color="primary"
           description="Control y administración grupos de productos"
           href="/panel/panel-productos/gestion-grupos"
           icon="tag"
           title="Gestionar Grupos"
         />
         <ActionCard
-          color="warning"
+          color="primary"
           description="Control y administración de proveedores"
           href="/panel/panel-productos/gestion-proveedores"
           icon="partners"

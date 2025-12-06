@@ -15,7 +15,7 @@ export default function ProtectedRoute() {
   if (isLoading) {
     return (
       <div className="flex h-screen w-full items-center justify-center">
-        <Spinner color="warning" size="lg" />
+        <Spinner color="primary" size="lg" />
       </div>
     );
   }

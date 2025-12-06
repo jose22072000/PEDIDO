@@ -10,8 +10,13 @@ import prisma from './prismaClient';
 const app = express();
 const port = process.env.PORT ? Number(process.env.PORT) : 4000;
 
+// Configure CORS from environment variable
+const corsOrigin = process.env.CORS_ORIGIN 
+  ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim())
+  : true; // Allow all origins if not specified
+
 app.use(cors({
-  origin: true, // Allow all origins in development, specify domain in production
+  origin: corsOrigin,
   credentials: true, // Allow cookies to be sent
 }));
 app.use(cookieParser());

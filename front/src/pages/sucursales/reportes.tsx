@@ -131,7 +131,7 @@ export default function ReportesSucursalPage() {
       <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
         <Card>
           <CardBody className="flex flex-col items-center justify-center py-6">
-            <span className="text-3xl font-bold text-warning">
+            <span className="text-3xl font-bold text-primary">
               {estadisticas.totalSucursales}
             </span>
             <span className="text-sm text-default-500">Total Sucursales</span>
@@ -183,7 +183,7 @@ export default function ReportesSucursalPage() {
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold">Detalle de Sucursales</h3>
             <Button
-              color="warning"
+              color="primary"
               isLoading={isExporting}
               startContent={<Icons.download className="size-5" />}
               variant="flat"

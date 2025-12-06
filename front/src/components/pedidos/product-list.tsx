@@ -84,7 +84,7 @@ export const CatalogSelection = () => {
             className={cn(
               selectedProducts.has(String(producto.id))
                 ? cards({ border: "successHover" })
-                : cards({ border: "warningHover" }),
+                : cards({ border: "primaryHover" }),
             )}
             onPress={() => toggleSelected(String(producto.id), 1)}
           >
@@ -158,11 +158,11 @@ export const CatalogSelection = () => {
             showControls
             showShadow
             classNames={{
-              wrapper: "shadow-xl shadow-warning/5",
+              wrapper: "shadow-xl shadow-primary/5",
               item: "cursor-pointer font-semibold",
               cursor: "font-semibold",
             }}
-            color="warning"
+            color="primary"
             page={page}
             siblings={0}
             size="lg"

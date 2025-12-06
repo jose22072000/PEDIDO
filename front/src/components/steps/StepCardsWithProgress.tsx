@@ -7,7 +7,7 @@ type Step = { title: string; description?: string };
 type Props = {
   steps: Step[];
   currentStep?: number; // 1-based
-  color?: "primary" | "warning" | "danger" | string;
+  color?: "primary" | "primary" | "danger" | string;
   className?: string;
   onStepClick?: (index: number) => void; // 0-based
 };
@@ -15,7 +15,7 @@ type Props = {
 export default function StepCardsWithProgress({
   steps,
   currentStep = 1,
-  color = "warning",
+  color = "primary",
   className = "",
   onStepClick,
 }: Props) {
@@ -56,7 +56,7 @@ export default function StepCardsWithProgress({
               <div className="flex items-start gap-3 w-full">
                 <div className="flex-shrink-0">
                   <div
-                    className={`w-10 h-10 rounded-full flex items-center justify-center border ${completed ? "bg-warning border-warning" : active ? "ring-2 ring-warning-500 border-warning-500" : "border-default-300"}`}
+                    className={`w-10 h-10 rounded-full flex items-center justify-center border ${completed ? "bg-primary border-primary" : active ? "ring-2 ring-primary-500 border-primary-500" : "border-default-300"}`}
                   >
                     {completed ? (
                       <svg
@@ -75,7 +75,7 @@ export default function StepCardsWithProgress({
                       </svg>
                     ) : (
                       <div
-                        className={`${active ? "text-warning-400 font-semibold" : "text-default-500"}`}
+                        className={`${active ? "text-primary-400 font-semibold" : "text-default-500"}`}
                       >
                         {index1}
                       </div>

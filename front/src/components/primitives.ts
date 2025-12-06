@@ -59,10 +59,10 @@ export const cards = tv({
     border: {
       default: "border-2 border-default-100 bg-content1",
       true: "bg-content1/75 ",
-      warningHover: "bg-content1/75 hover:bg-warning-50",
+      primaryHover: "bg-content1/75 hover:bg-primary-50",
       successHover:
         "border-2 border-success-200/75 bg-success-50 hover:bg-success-100",
-      warning: "border-2 border-warning-200/75 bg-warning-50/10",
+      primary: "border-2 border-primary-200/75 bg-primary-50/10",
     },
   },
 });

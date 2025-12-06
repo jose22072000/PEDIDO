@@ -54,7 +54,7 @@ export const NegocioList = ({
                       <div className="relative min-w-12">
                         <Tooltip content="Negocio">
                           <span>
-                            <CardIconComp className="size-12 text-warning" />
+                            <CardIconComp className="size-12 text-primary" />
                           </span>
                         </Tooltip>
                       </div>
@@ -119,10 +119,10 @@ export const NegocioList = ({
             showControls
             showShadow
             classNames={{
-              wrapper: "shadow-xl shadow-warning/5",
+              wrapper: "shadow-xl shadow-primary/5",
               item: "cursor-pointer font-semibold",
             }}
-            color="warning"
+            color="primary"
             page={page}
             siblings={0}
             size="lg"

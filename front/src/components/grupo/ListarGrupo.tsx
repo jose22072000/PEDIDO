@@ -104,7 +104,7 @@ export default function GruposList({ onSelect, className = "" }: Props) {
             <Card
               key={g.id}
               isPressable
-              className={cards({ border: "warningHover" })}
+              className={cards({ border: "primaryHover" })}
               onPress={() => handleSelect(g)}
             >
               <CardBody className="p-0">
@@ -129,7 +129,7 @@ export default function GruposList({ onSelect, className = "" }: Props) {
                   <div className="relative min-w-8">
                     <Tooltip content="Ver detalles">
                       <span>
-                        <Icons.maximize className="size-8 text-warning" />
+                        <Icons.maximize className="size-8 text-primary" />
                       </span>
                     </Tooltip>
                   </div>
@@ -146,14 +146,14 @@ export default function GruposList({ onSelect, className = "" }: Props) {
           {() => (
             <>
               <ModalHeader>
-                <Icons.tag className="size-12 text-warning" />
+                <Icons.tag className="size-12 text-primary" />
                 <span className="heading">Grupo</span>
               </ModalHeader>
               <ModalBody className="gap-4 pb-6">
                 {selected ? (
                   <div className="flex flex-col gap-3">
                     <div>
-                      <div className="text-lg text-warning font-semibold">
+                      <div className="text-lg text-primary font-semibold">
                         NOMBRE
                       </div>
                       <div className="font-bold text-xl md:text-2xl">
@@ -161,7 +161,7 @@ export default function GruposList({ onSelect, className = "" }: Props) {
                       </div>
                     </div>
                     <div>
-                      <div className="text-lg text-warning font-semibold">
+                      <div className="text-lg text-primary font-semibold">
                         Código
                       </div>
                       <div className="font-bold text-xl md:text-2xl">
@@ -169,7 +169,7 @@ export default function GruposList({ onSelect, className = "" }: Props) {
                       </div>
                     </div>
                     <div>
-                      <div className="text-lg text-warning font-semibold">
+                      <div className="text-lg text-primary font-semibold">
                         Estado
                       </div>
                       <div className="mt-1">

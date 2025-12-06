@@ -99,7 +99,7 @@ export default function ForgotPasswordPage() {
             />
             <Button
               className="btn"
-              color="warning"
+              color="primary"
               isDisabled={!online || isSubmitting}
               isLoading={isSubmitting}
               size="lg"
@@ -115,7 +115,7 @@ export default function ForgotPasswordPage() {
             <div className="flex justify-start pt-2">
               <Link
                 className="cursor-pointer hover:underline flex items-center gap-1 font-semibold"
-                color="warning"
+                color="primary"
                 href="/"
                 size="sm"
               >
@@ -125,7 +125,7 @@ export default function ForgotPasswordPage() {
             </div>
           </form>
           {!online && (
-            <div className="p-3 rounded-lg text-sm mt-3 bg-warning-50 text-warning-700">
+            <div className="p-3 rounded-lg text-sm mt-3 bg-primary-50 text-primary-700">
               Necesitas conexión para solicitar el código
             </div>
           )}

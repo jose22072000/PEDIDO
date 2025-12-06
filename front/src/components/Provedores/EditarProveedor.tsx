@@ -104,7 +104,7 @@ export default function EditarProveedor({
     <>
       <Button
         className="btn w-full"
-        color="warning"
+        color="primary"
         size="lg"
         startContent={<Icons.edit className="size-6" />}
         onPress={handleOpen}
@@ -117,7 +117,7 @@ export default function EditarProveedor({
           {() => (
             <>
               <ModalHeader>
-                <Icons.users className="size-12 text-warning" />
+                <Icons.users className="size-12 text-primary" />
                 <span className="heading">Editar Proveedor</span>
               </ModalHeader>
 
@@ -184,7 +184,7 @@ export default function EditarProveedor({
                 </Button>
                 <Button
                   className="btn w-full"
-                  color="warning"
+                  color="primary"
                   isLoading={isSubmitting}
                   size="lg"
                   type="submit"

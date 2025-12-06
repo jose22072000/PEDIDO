@@ -22,14 +22,14 @@ export const useNegocioDetail = () => {
         {() => (
           <>
             <ModalHeader className="flex items-center gap-2">
-              <Icons.store className="size-12 text-warning" />
+              <Icons.store className="size-12 text-primary" />
               <span className="heading">Negocio</span>
             </ModalHeader>
             <ModalBody className="gap-4 pb-6">
               {negocio ? (
                 <div className="flex flex-col gap-4">
                   <div>
-                    <div className="text-lg text-warning font-semibold">
+                    <div className="text-lg text-primary font-semibold">
                       NOMBRE
                     </div>
                     <h3 className="font-bold text-xl md:text-2xl">

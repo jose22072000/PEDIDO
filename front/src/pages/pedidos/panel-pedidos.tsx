@@ -11,35 +11,35 @@ export default function PedidosPanelPage() {
       />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         <ActionCard
-          color="warning"
+          color="primary"
           description="Iniciar un nuevo pedido"
           href="/panel/panel-pedidos/nuevo"
           icon="add"
           title="Nuevo Pedido"
         />
         <ActionCard
-          color="warning"
+          color="primary"
           description="Visualizar mis pedidos"
           href="/panel/panel-pedidos/mios"
           icon="pedido"
           title="Mis Pedidos"
         />
         <ActionCard
-          color="warning"
+          color="primary"
           description="Visualizar pedidos de la sucursal"
           href="/panel/panel-pedidos/sucursal"
           icon="pedido"
           title="Pedidos de la Sucursal"
         />
         <ActionCard
-          color="warning"
+          color="primary"
           description="Visualizar pedidos de la empresa"
           href="/panel/panel-pedidos/empresa"
           icon="pedido"
           title="Pedidos de la Empresa"
         />
         <ActionCard
-          color="warning"
+          color="primary"
           description="Visualizar reportes de pedidos"
           href="/panel/panel-pedidos/reportes"
           icon="reports"

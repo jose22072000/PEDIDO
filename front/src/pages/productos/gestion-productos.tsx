@@ -137,7 +137,7 @@ export default function GestionProductosPage() {
 
       {isLoading ? (
         <div className="flex justify-center items-center py-20">
-          <Spinner color="warning" size="lg" />
+          <Spinner color="primary" size="lg" />
         </div>
       ) : productos.length === 0 ? (
         <Card className="p-10">
@@ -145,7 +145,7 @@ export default function GestionProductosPage() {
             <p className="text-default-500">No hay productos registrados</p>
             <Button
               className="mt-4"
-              color="warning"
+              color="primary"
               variant="flat"
               onPress={onOpen}
             >
@@ -280,7 +280,7 @@ export default function GestionProductosPage() {
                   Cancelar
                 </Button>
                 <Button
-                  color="warning"
+                  color="primary"
                   isDisabled={isSubmitting}
                   isLoading={isSubmitting}
                   type="submit"

@@ -205,7 +205,7 @@ export default function NuevaSucursalPage() {
               >
                 Cancelar
               </Button>
-              <Button color="warning" isLoading={isSubmitting} type="submit">
+              <Button color="primary" isLoading={isSubmitting} type="submit">
                 Crear Sucursal
               </Button>
             </div>

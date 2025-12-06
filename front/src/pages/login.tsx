@@ -101,13 +101,13 @@ export default function LoginPage() {
             <div className="flex flex-row gap-3 items-center mb-6">
               <Avatar
                 className="size-14 md:size-16"
-                color="warning"
+                color="primary"
                 icon={<Icons.workers className="size-8" />}
                 size="lg"
               />
               <div className="flex flex-col gap-1">
                 <h2 className="text-2xl font-bold">{auth.user.username}</h2>
-                <Chip color="warning" size="sm" variant="bordered">
+                <Chip color="primary" size="sm" variant="bordered">
                   {auth.user.role || "Usuario"}
                 </Chip>
               </div>
@@ -124,7 +124,7 @@ export default function LoginPage() {
                 <Button
                   as={Link}
                   className="col-span-3 btn"
-                  color="warning"
+                  color="primary"
                   href="/panel"
                   size="lg"
                   startContent={<Icons.panel className="size-8" />}

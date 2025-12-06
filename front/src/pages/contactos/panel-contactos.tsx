@@ -11,35 +11,35 @@ export default function ContactosPanelPage() {
       />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         <ActionCard
-          color="warning"
+          color="primary"
           description="Iniciar un nuevo contacto"
           href="/panel/panel-contactos/nuevo"
           icon="add"
           title="Nuevo Contacto"
         />
         <ActionCard
-          color="warning"
+          color="primary"
           description="Visualizar mis contactos"
           href="/panel/panel-contactos/mios"
           icon="contact"
           title="Mis Contactos"
         />
         <ActionCard
-          color="warning"
+          color="primary"
           description="Visualizar contactos de la sucursal"
           href="/panel/panel-contactos/sucursal"
           icon="contact"
           title="Contactos de la Sucursal"
         />
         <ActionCard
-          color="warning"
+          color="primary"
           description="Visualizar contactos de la empresa"
           href="/panel/panel-contactos/empresa"
           icon="contact"
           title="Contactos de la Empresa"
         />
         <ActionCard
-          color="warning"
+          color="primary"
           description="Visualizar reportes de contactos de la empresa o sucursal."
           href="/panel/panel-contactos/reportes"
           icon="reports"

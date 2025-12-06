@@ -59,14 +59,14 @@ export default function PanelPage() {
             </div>
             <div className="flex gap-2 items-center">
               <span>Sincronización:</span>
-              <Chip color={isSyncing ? "warning" : "default"} variant="flat">
+              <Chip color={isSyncing ? "primary" : "default"} variant="flat">
                 {isSyncing ? "Sincronizando..." : "Inactivo"}
               </Chip>
             </div>
             <div className="flex gap-2 items-center">
               <span>Pendientes por sincronizar:</span>
               <Chip
-                color={pendingCount > 0 ? "warning" : "success"}
+                color={pendingCount > 0 ? "primary" : "success"}
                 variant="flat"
               >
                 {pendingCount}

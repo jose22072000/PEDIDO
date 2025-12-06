@@ -10,7 +10,7 @@ import Icons from "@/components/icons/iconify";
 export type ActionCardProps = CardProps & {
   icon: keyof typeof Icons | string;
   title: string;
-  color?: "primary" | "secondary" | "warning" | "danger";
+  color?: "primary" | "secondary" | "primary" | "danger";
   description?: string;
   href?: string;
 };
@@ -34,12 +34,12 @@ const ActionCard = React.forwardRef<HTMLDivElement, ActionCardProps>(
             iconWrapper: "bg-secondary-50 border-secondary-100",
             icon: "text-secondary",
           };
-        case "warning":
+        case "primary":
           return {
-            card: "border-white/20 bg-warning-50/25 hover:bg-warning-50/80 transition card-warning",
+            card: "border-white/20 bg-primary-50/25 hover:bg-primary-50/80 transition card-primary",
             iconWrapper:
-              "card-warning__icon-wrapper bg-warning-50 border-warning-100",
-            icon: "card-warning__icon text-warning-600",
+              "card-primary__icon-wrapper bg-primary-50 border-primary-100",
+            icon: "card-primary__icon text-primary-600",
           };
         case "danger":
           return {

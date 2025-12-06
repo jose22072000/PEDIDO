@@ -133,7 +133,7 @@ export default function ResetPasswordPage() {
               variant="bordered"
             />
             <Button
-              color="warning"
+              color="primary"
               isLoading={isSubmitting}
               size="lg"
               startContent={
@@ -147,7 +147,7 @@ export default function ResetPasswordPage() {
           <div className="flex justify-start pt-2">
             <Link
               className="cursor-pointer hover:underline flex items-center gap-1 font-semibold"
-              color="warning"
+              color="primary"
               href="/"
               size="sm"
             >

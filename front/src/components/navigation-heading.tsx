@@ -27,7 +27,7 @@ export const NavigationHeading = ({
             <Avatar
               isBordered
               className="size-14 md:size-16 p-3"
-              color="warning"
+              color="primary"
               icon={<CardIconComp className="size-12" />}
               radius="md"
               size="md"
@@ -48,7 +48,7 @@ export const NavigationHeading = ({
         <Button
           as={Link}
           className="btn w-full max-w-[300px] min-w-[300px] text-center"
-          color="warning"
+          color="primary"
           href={cta.href}
           size="lg"
           startContent={<Icons.back className="size-12! md:size-16!" />}

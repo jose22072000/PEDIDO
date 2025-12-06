@@ -21,84 +21,84 @@ export default function PanelPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
         <ActionCard
-          color="warning"
+          color="primary"
           description="Ver y gestionar catálogo"
           href="/panel/panel-productos"
           icon="product"
           title="Productos"
         />
         <ActionCard
-          color="warning"
+          color="primary"
           description="Ver y gestionar pedidos"
           href="/panel/panel-pedidos"
           icon="pedido"
           title="Pedidos"
         />
         <ActionCard
-          color="warning"
+          color="primary"
           description="Ver y gestionar visitas"
           href="/panel/visitas"
           icon="visita"
           title="Visitas"
         />
         <ActionCard
-          color="warning"
+          color="primary"
           description="Ver y gestionar ventas"
           href="/panel/ventas"
           icon="ventas"
           title="Ventas"
         />
         <ActionCard
-          color="warning"
+          color="primary"
           description="Ver y gestionar trabajadores"
           href="/panel/trabajadores"
           icon="workers"
           title="Trabajadores"
         />
         <ActionCard
-          color="warning"
+          color="primary"
           description="Ver y gestionar proveedores"
           href="/panel/proveedores"
           icon="partners"
           title="Proveedores"
         />
         {/* <ActionCard
-          color="warning"
+          color="primary"
           description="Ver y gestionar negocios"
           href="/panel/panel-negocio"
           icon="store"
           title="Negocios"
         />
         <ActionCard
-          color="warning"
+          color="primary"
           description="Ver y gestionar contactos"
           href="/panel/panel-contactos"
           icon="contact"
           title="Contactos"
         /> */}
         <ActionCard
-          color="warning"
+          color="primary"
           description="Ver y gestionar sucursales"
           href="/panel/panel-sucursal"
           icon="locales"
           title="Sucursales"
         />
         {/* <ActionCard
-          color="warning"
+          color="primary"
           description="Ver y gestionar usuarios"
           href="/panel/usuarios"
           icon="users"
           title="Usuarios"
         /> */}
         <ActionCard
-          color="warning"
+          color="primary"
           description="Ver y gestionar reportes"
           href="/panel/reportes"
           icon="reports"
           title="Reportes"
         />
         <ActionCard
-          color="warning"
+          color="primary"
           description="Ajustes del sistema"
           href="/panel/config"
           icon="configuracion"
@@ -121,7 +121,7 @@ export default function PanelPage() {
               </div>
               <div className="flex justify-between">
                 <span>Pendientes:</span>
-                <Chip color="warning" size="sm">{pendingCount}</Chip>
+                <Chip color="primary" size="sm">{pendingCount}</Chip>
               </div>
               <div className="flex justify-between">
                 <span>Fallidos:</span>
@@ -153,7 +153,7 @@ export default function PanelPage() {
               </div>
               <div className="flex flex-col">
                 <span className="text-sm text-default-500">Rol:</span>
-                <Chip color="warning" size="sm">{session?.rol || 'N/A'}</Chip>
+                <Chip color="primary" size="sm">{session?.rol || 'N/A'}</Chip>
               </div>
               <Button color="danger" size="sm" onClick={handleLogout}>
                 Cerrar Sesión

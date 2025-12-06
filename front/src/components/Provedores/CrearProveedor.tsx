@@ -88,7 +88,7 @@ export default function CrearProveedor({ className = "", onCreated }: Props) {
     <div className={cn("flex items-center", className)}>
       <Button
         className="btn"
-        color="warning"
+        color="primary"
         size="lg"
         startContent={<Icons.add className="size-8" />}
         onPress={handleOpen}
@@ -101,7 +101,7 @@ export default function CrearProveedor({ className = "", onCreated }: Props) {
           {() => (
             <>
               <ModalHeader>
-                <Icons.users className="size-12 text-warning" />
+                <Icons.users className="size-12 text-primary" />
                 <span className="heading">Crear Proveedor</span>
               </ModalHeader>
 
@@ -168,7 +168,7 @@ export default function CrearProveedor({ className = "", onCreated }: Props) {
                 </Button>
                 <Button
                   className="btn w-full"
-                  color="warning"
+                  color="primary"
                   isLoading={isSubmitting}
                   size="lg"
                   type="submit"

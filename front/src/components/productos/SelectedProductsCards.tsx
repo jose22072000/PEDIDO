@@ -57,7 +57,7 @@ export default function SelectedProductsCards({
                         </Chip>
                       )}
                       {p.proveedorNombre && (
-                        <Chip color="warning" size="sm" variant="flat">
+                        <Chip color="primary" size="sm" variant="flat">
                           {p.proveedorNombre}
                         </Chip>
                       )}

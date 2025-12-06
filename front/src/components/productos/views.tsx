@@ -30,14 +30,14 @@ export const useProductDetail = () => {
         {() => (
           <>
             <ModalHeader className="flex items-center gap-2">
-              <Icons.product className="size-12 text-warning" />
+              <Icons.product className="size-12 text-primary" />
               <span className="heading">Producto</span>
             </ModalHeader>
             <ModalBody className="gap-4 pb-6">
               {productoConRelaciones ? (
                 <div className="flex flex-col gap-4">
                   <div>
-                    <div className="text-lg text-warning font-semibold">
+                    <div className="text-lg text-primary font-semibold">
                       NOMBRE
                     </div>
                     <h3 className="font-bold text-xl md:text-2xl">
@@ -45,7 +45,7 @@ export const useProductDetail = () => {
                     </h3>
                   </div>
                   <div>
-                    <div className="text-lg text-warning font-semibold">
+                    <div className="text-lg text-primary font-semibold">
                       SKU
                     </div>
                     <h3 className="font-bold text-xl md:text-2xl">
@@ -53,7 +53,7 @@ export const useProductDetail = () => {
                     </h3>
                   </div>
                   <div>
-                    <div className="text-lg text-warning font-semibold">
+                    <div className="text-lg text-primary font-semibold">
                       GRUPO
                     </div>
                     <h3 className="font-bold text-xl md:text-2xl">
@@ -61,7 +61,7 @@ export const useProductDetail = () => {
                     </h3>
                   </div>
                   <div>
-                    <div className="text-lg text-warning font-semibold">
+                    <div className="text-lg text-primary font-semibold">
                       PROVEEDOR
                     </div>
                     <h3 className="font-bold text-xl md:text-2xl">
@@ -69,7 +69,7 @@ export const useProductDetail = () => {
                     </h3>
                   </div>
                   <div>
-                    <div className="text-lg text-warning font-semibold mb-2">
+                    <div className="text-lg text-primary font-semibold mb-2">
                       ESTADO
                     </div>
                     <Chip
@@ -177,7 +177,7 @@ export const CatalogoList = ({
           <Card
             key={producto.id}
             isPressable
-            className={cards({ border: "warningHover" })}
+            className={cards({ border: "primaryHover" })}
             onPress={() => pressAction && pressAction(producto.id)}
           >
             <CardBody className="p-0">
@@ -196,7 +196,7 @@ export const CatalogoList = ({
 
                   <div className="relative min-w-8">
                     <Tooltip content="Ver detalles">
-                      <CardIconComp className="size-8 text-warning" />
+                      <CardIconComp className="size-8 text-primary" />
                     </Tooltip>
                   </div>
                 </div>
@@ -246,11 +246,11 @@ export const CatalogoList = ({
             showControls
             showShadow
             classNames={{
-              wrapper: "shadow-xl shadow-warning/5",
+              wrapper: "shadow-xl shadow-primary/5",
               item: "cursor-pointer font-semibold",
               cursor: "font-semibold",
             }}
-            color="warning"
+            color="primary"
             page={page}
             siblings={0}
             size="lg"

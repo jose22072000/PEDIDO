@@ -100,7 +100,7 @@ export default function EditarGrupo({
     <>
       <Button
         className="btn w-full"
-        color="warning"
+        color="primary"
         size="lg"
         startContent={<Icons.edit className="size-6" />}
         onPress={handleOpen}
@@ -113,7 +113,7 @@ export default function EditarGrupo({
           {() => (
             <>
               <ModalHeader>
-                <Icons.tag className="size-12 text-warning" />
+                <Icons.tag className="size-12 text-primary" />
                 <span className="heading">Editar Grupo</span>
               </ModalHeader>
 
@@ -162,7 +162,7 @@ export default function EditarGrupo({
                 </Button>
                 <Button
                   className="btn w-full"
-                  color="warning"
+                  color="primary"
                   isLoading={isSubmitting}
                   size="lg"
                   type="submit"

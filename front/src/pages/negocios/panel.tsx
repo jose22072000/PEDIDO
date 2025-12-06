@@ -12,35 +12,35 @@ export default function NegociosPanelPage() {
       />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         <ActionCard
-          color="warning"
+          color="primary"
           description="Registrar un nuevo negocio"
           href="/panel/panel-negocio/nuevo"
           icon="add"
           title="Nuevo Negocio"
         />
         <ActionCard
-          color="warning"
+          color="primary"
           description="Visualizar negocios asignados"
           href="/panel/panel-negocio/asignados"
           icon="store"
           title="Negocios Asignados"
         />
         <ActionCard
-          color="warning"
+          color="primary"
           description="Visualizar negocios de la sucursal"
           href="/panel/panel-negocio/sucursal"
           icon="store"
           title="Negocios de la Sucursal"
         />
         <ActionCard
-          color="warning"
+          color="primary"
           description="Visualizar negocios de la empresa"
           href="/panel/panel-negocio/empresa"
           icon="store"
           title="Negocios de la Empresa"
         />
         <ActionCard
-          color="warning"
+          color="primary"
           description="Visualizar reportes de negocios"
           href="/panel/panel-negocio/reportes"
           icon="reports"

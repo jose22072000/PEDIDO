@@ -53,12 +53,12 @@ body {
     }
 }
 
-.card-warning:hover .card-warning__icon-wrapper {
+.card-primary:hover .card-primary__icon-wrapper {
     background-color: rgb(245, 165, 36);
     border-color: black;
     outline: 2px solid rgb(245, 165, 36);
 }
 
-.card-warning:hover .card-warning__icon {
+.card-primary:hover .card-primary__icon {
     color: black;
 }

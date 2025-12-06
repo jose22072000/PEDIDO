@@ -64,7 +64,7 @@ export const ContactosList = ({
                   <div className="flex gap-2 items-start">
                     <div className="relative min-w-12">
                       <Tooltip content="Contacto">
-                        <Icons.contact className="size-12 text-warning" />
+                        <Icons.contact className="size-12 text-primary" />
                       </Tooltip>
                     </div>
                     <div>
@@ -83,7 +83,7 @@ export const ContactosList = ({
 
                   <div className="relative min-w-8">
                     <Tooltip content="Ver">
-                      <CardIconComp className="size-8 text-warning" />
+                      <CardIconComp className="size-8 text-primary" />
                     </Tooltip>
                   </div>
                 </div>
@@ -127,7 +127,7 @@ export const ContactosList = ({
               wrapper: "shadow-xl",
               item: "cursor-pointer font-semibold",
             }}
-            color="warning"
+            color="primary"
             page={page}
             siblings={0}
             size="lg"

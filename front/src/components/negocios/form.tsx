@@ -178,7 +178,7 @@ export const NegocioForm = ({ id, onSaved, onCancel }: Props) => {
           </Button>
           <Button
             className="flex-1"
-            color="warning"
+            color="primary"
             isLoading={isSubmitting}
             onPress={() => handleSubmit()}
           >

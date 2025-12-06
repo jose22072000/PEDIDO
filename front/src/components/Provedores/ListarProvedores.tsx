@@ -102,7 +102,7 @@ export default function ListarProvedores({ onSelect, className = "" }: Props) {
             <Card
               key={p.id}
               isPressable
-              className={cards({ border: "warningHover" })}
+              className={cards({ border: "primaryHover" })}
               onPress={() => handleSelect(p)}
             >
               <CardBody className="p-0">
@@ -130,7 +130,7 @@ export default function ListarProvedores({ onSelect, className = "" }: Props) {
                   <div className="relative min-w-8">
                     <Tooltip content="Ver detalles">
                       <span>
-                        <Icons.maximize className="size-8 text-warning" />
+                        <Icons.maximize className="size-8 text-primary" />
                       </span>
                     </Tooltip>
                   </div>
@@ -146,14 +146,14 @@ export default function ListarProvedores({ onSelect, className = "" }: Props) {
           {() => (
             <>
               <ModalHeader>
-                <Icons.users className="size-12 text-warning mr-2" />
+                <Icons.users className="size-12 text-primary mr-2" />
                 <span className="heading">Proveedor</span>
               </ModalHeader>
               <ModalBody className="gap-4 pb-6">
                 {selected ? (
                   <div className="flex flex-col gap-3">
                     <div>
-                      <div className="text-lg text-warning font-semibold">
+                      <div className="text-lg text-primary font-semibold">
                         NOMBRE
                       </div>
                       <div className="font-bold text-xl md:text-2xl">
@@ -161,7 +161,7 @@ export default function ListarProvedores({ onSelect, className = "" }: Props) {
                       </div>
                     </div>
                     <div>
-                      <div className="text-lg text-warning font-semibold">
+                      <div className="text-lg text-primary font-semibold">
                         Correo
                       </div>
                       <div className="font-bold text-xl md:text-2xl">
@@ -169,7 +169,7 @@ export default function ListarProvedores({ onSelect, className = "" }: Props) {
                       </div>
                     </div>
                     <div>
-                      <div className="text-lg text-warning font-semibold">
+                      <div className="text-lg text-primary font-semibold">
                         Teléfono
                       </div>
                       <div className="font-bold text-xl md:text-2xl">
@@ -177,7 +177,7 @@ export default function ListarProvedores({ onSelect, className = "" }: Props) {
                       </div>
                     </div>
                     <div>
-                      <div className="text-lg text-warning font-semibold">
+                      <div className="text-lg text-primary font-semibold">
                         Dirección
                       </div>
                       <div className="font-bold text-xl md:text-2xl">
@@ -185,7 +185,7 @@ export default function ListarProvedores({ onSelect, className = "" }: Props) {
                       </div>
                     </div>
                     <div>
-                      <div className="text-lg text-warning font-semibold">
+                      <div className="text-lg text-primary font-semibold">
                         Estado
                       </div>
                       <div className="mt-1">
