@@ -74,24 +74,24 @@ const ActionCard = React.forwardRef<HTMLDivElement, ActionCardProps>(
           >
             {icon
               ? (() => {
-                  const IconComp = (Icons as any)[icon as string] as
-                    | React.ElementType
-                    | undefined;
+                const IconComp = (Icons as any)[icon as string] as
+                  | React.ElementType
+                  | undefined;
 
-                  if (IconComp)
-                    return React.createElement(IconComp, {
-                      className: colors?.icon,
-                      width: 40,
-                      height: 40,
-                    });
+                if (IconComp)
+                  return React.createElement(IconComp, {
+                    className: colors?.icon,
+                    width: 40,
+                    height: 40,
+                  });
 
-                  return null;
-                })()
+                return null;
+              })()
               : null}
           </div>
           <div className="flex flex-col">
-            <p className="subheading">{title}</p>
-            <p className="paragraph text-foreground/50">
+            <p className="subheading !font-bold text-primary">{title}</p>
+            <p className="paragraph text-primary !font-semibold">
               {description || children}
             </p>
           </div>

@@ -12,10 +12,10 @@ export default function PedidosPanelPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         <ActionCard
           color="primary"
-          description="Iniciar un nuevo pedido"
+          description="Importar pedidos desde archivo csv"
           href="/panel/panel-pedidos/nuevo"
           icon="add"
-          title="Nuevo Pedido"
+          title="Importar Pedido"
         />
         <ActionCard
           color="primary"

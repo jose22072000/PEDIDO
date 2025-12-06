@@ -34,10 +34,10 @@ export const NavigationHeading = ({
             />
           </div>
           <div>
-            <h2 className="text-3xl md:text-4xl font-bold text-pretty">
+            <h2 className="text-3xl md:text-4xl font-bold text-pretty text-primary">
               {title}
             </h2>
-            <p className="hidden md:block text-lg text-default-500">
+            <p className="hidden md:block text-lg font-semibold text-primary">
               {paragraph}
             </p>
           </div>
