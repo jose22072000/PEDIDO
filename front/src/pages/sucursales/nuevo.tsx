@@ -21,13 +21,13 @@ type NuevaSucursalForm = z.infer<typeof NuevaSucursalSchema>;
 
 export default function NuevaSucursalPage() {
   const navigate = useNavigate();
-  const session = useAuthStore((state) => state.session);
+  const user = useAuthStore((state) => state.user);
   const { create: createOne } = useSucursalStore();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Verificar permisos administrativos
-  const isAdmin = session?.rol === "ADMIN" || session?.rol === "DIRECTIVO";
+  const isAdmin = user?.role === "ADMIN" || user?.role === "DIRECTIVO";
 
   const {
     control,

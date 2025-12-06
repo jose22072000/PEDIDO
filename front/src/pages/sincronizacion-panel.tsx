@@ -14,14 +14,14 @@ export default function PanelPage() {
   const { isLoading } = useAuthGuard();
   const { isOnline, isSyncing, pendingCount, failedCount, updateStats } =
     useSyncStore();
-  const { session, clearSession } = useAuthStore();
+  const { user, logout } = useAuthStore();
 
   useEffect(() => {
     updateStats();
   }, [updateStats]);
 
   const handleLogout = async () => {
-    await clearSession();
+    await logout();
     navigate("/");
   };
 
@@ -81,16 +81,16 @@ export default function PanelPage() {
                 {failedCount}
               </Chip>
             </div>
-            {session && (
+            {user && (
               <>
                 <div className="flex gap-2 items-center">
                   <span>Usuario:</span>
-                  <span className="text-default-500">{session.usuarioId}</span>
+                  <span className="text-default-500">{user.username}</span>
                 </div>
                 <div className="flex gap-2 items-center">
                   <span>Rol:</span>
                   <Chip color="primary" variant="flat">
-                    {session.rol}
+                    {user.role || "Usuario"}
                   </Chip>
                 </div>
               </>

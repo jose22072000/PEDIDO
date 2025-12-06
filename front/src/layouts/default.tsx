@@ -9,7 +9,7 @@ export default function DefaultLayout({
     <div className="relative flex flex-col h-screen">
       <PageBackground />
       <div className="fixed top-0 pt-5 md:pt-10 px-10 flex justify-center md:justify-start w-full">
-        <div className="px-8 py-6 rounded-2xl bg-white/5 backdrop-blur-sm border-2 border-white/50 shadow-lg">
+        <div className="px-8 py-6 rounded-2xl bg-primary backdrop-blur-sm border-2 border-black shadow-lg">
           <div className="w-[150px] md:w-[200px]">
             <img alt="PROCOVAR LOGO" className="w-full h-auto" src={Logo} />
           </div>

@@ -1,6 +1,6 @@
 export const PageBackground = () => {
   return (
-    <div className="fixed w-full min-h-svh -z-50 bg-black top-0 left-0 overflow-hidden">
+    <div className="fixed w-full min-h-svh -z-50 bg-gray-100 top-0 left-0 overflow-hidden">
       <div
         aria-hidden="true"
         className="fixed block opacity-100 -bottom-[30%] -left-[30%] -z-40"
@@ -21,7 +21,7 @@ export const PageBackground = () => {
           src="/images/bg-right.png"
         />
       </div>
-      <div className="fixed block top-0 left-0 right-0 bottom-0 bg-black/10 backdrop:blur-md z-0" />
+      <div className="fixed block top-0 left-0 right-0 bottom-0 bg-white/10 backdrop:blur-md z-0" />
     </div>
   );
 };

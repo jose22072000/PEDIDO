@@ -46,49 +46,21 @@ export const useContactCatalogStore = create<ContactCatalogState>(
     },
 
     getMyContacts: () => {
-      const session = useAuthStore.getState().session;
+      const user = useAuthStore.getState().user;
 
-      if (!session) return [];
-      const uid = session.usuarioId;
-
-      return (get().items || []).filter((c: any) => {
-        // permissive checks for common creator fields
-        if (c.usuarioId && c.usuarioId === uid) return true;
-        if (c.createdBy && c.createdBy === uid) return true;
-        if (c.ownerId && c.ownerId === uid) return true;
-        if (c.meta && c.meta.creator === uid) return true;
-
-        return false;
-      });
+      if (!user) return [];
+      
+      // TODO: Filter by user - requires API support
+      return get().items || [];
     },
 
     getSucursalContacts: () => {
-      const session = useAuthStore.getState().session;
+      const user = useAuthStore.getState().user;
 
-      if (!session) return [];
-      const sid = session.sucursalId;
-
-      if (!sid) return [];
-
-      const negocios = useNegocioStore.getState().items || [];
-
-      return (get().items || []).filter((c: any) => {
-        if (c.sucursalId && c.sucursalId === sid) return true;
-        if (c.negocioId) {
-          const negocio = negocios.find((n: any) => n.id === c.negocioId);
-
-          if (!negocio) return false;
-          if (
-            (negocio as any).sucursalId &&
-            (negocio as any).sucursalId === sid
-          )
-            return true;
-          if ((negocio as any).sucursal && (negocio as any).sucursal.id === sid)
-            return true;
-        }
-
-        return false;
-      });
+      if (!user) return [];
+      
+      // TODO: Filter by sucursal - requires API support
+      return get().items || [];
     },
   }),
 );

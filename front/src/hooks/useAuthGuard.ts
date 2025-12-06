@@ -5,8 +5,7 @@ import { useAuthStore } from "@/stores/authStore";
 
 export function useAuthGuard() {
   const navigate = useNavigate();
-  const { isAuthenticated, isLoading, loadSession, checkSession } =
-    useAuthStore();
+  const { isAuthenticated, isLoading, loadSession } = useAuthStore();
 
   useEffect(() => {
     loadSession();
@@ -17,16 +16,6 @@ export function useAuthGuard() {
       navigate("/");
     }
   }, [isAuthenticated, isLoading, navigate]);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (!checkSession()) {
-        navigate("/");
-      }
-    }, 60000); // Verificar cada minuto
-
-    return () => clearInterval(interval);
-  }, [checkSession, navigate]);
 
   return { isAuthenticated, isLoading };
 }

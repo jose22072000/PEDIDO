@@ -9,7 +9,7 @@ import { useAuthStore } from "@/stores/authStore";
 import useNegocioCatalogStore from "@/stores/negocioCatalogStore";
 
 export default function NegociosAsignadosPage() {
-  const session = useAuthStore((s) => s.session);
+  const user = useAuthStore((s) => s.user);
   const setFilterTrabajador = useNegocioCatalogStore(
     (s) => s.setFilterTrabajador,
   );
@@ -18,17 +18,17 @@ export default function NegociosAsignadosPage() {
   useEffect(() => {
     // Solo auto-filtrar para VENDEDORES
     // ADMIN/DIRECTIVO/GERENTE/etc pueden ver todos y filtrar manualmente
-    const isVendedor = session?.rol === "VENDEDOR";
+    const isVendedor = user?.role === "VENDEDOR";
 
-    if (isVendedor && session?.usuarioId) {
-      setFilterTrabajador(session.usuarioId);
+    if (isVendedor && user?.id) {
+      setFilterTrabajador(user.id);
     }
 
     // Clean up filter on unmount
     return () => {
       setFilterTrabajador(undefined);
     };
-  }, [session?.usuarioId, session?.rol, setFilterTrabajador]);
+  }, [user?.id, user?.role, setFilterTrabajador]);
 
   return (
     <NegociosLoader>

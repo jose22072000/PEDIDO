@@ -36,7 +36,7 @@ const EditSucursalSchema = z.object({
 type EditSucursalForm = z.infer<typeof EditSucursalSchema>;
 
 export default function VisualizarSucursalPage() {
-  const session = useAuthStore((state) => state.session);
+  const user = useAuthStore((state) => state.user);
   const {
     items: sucursales,
     loadAll,
@@ -57,7 +57,7 @@ export default function VisualizarSucursalPage() {
   } = useDisclosure();
 
   // Verificar permisos administrativos
-  const isAdmin = session?.rol === "ADMIN" || session?.rol === "DIRECTIVO";
+  const isAdmin = user?.role === "ADMIN" || user?.role === "DIRECTIVO";
 
   useEffect(() => {
     loadAll();

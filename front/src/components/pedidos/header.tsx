@@ -11,7 +11,7 @@ export const CrearPedidoHeader = () => {
     <div className="w-full mb-8 flex items-start justify-between gap-6">
       <div className="flex flex-col gap-2">
         <h3>Cliente</h3>
-        {auth.session && (
+        {auth.user && (
           <div className="flex flex-row gap-4 items-center">
             <Avatar
               isBordered
@@ -34,7 +34,7 @@ export const CrearPedidoHeader = () => {
       </div>
       <div className="flex flex-col gap-2">
         <h3>Vendedor</h3>
-        {auth.session && (
+        {auth.user && (
           <div className="flex flex-row gap-4 items-center">
             <Avatar
               isBordered
@@ -46,10 +46,10 @@ export const CrearPedidoHeader = () => {
             />
             <div className="flex flex-col gap-1">
               <h2 className="text-lg md:text-2xl font-bold">
-                {auth.session.trabajadorNombre}
+                {auth.user.username}
               </h2>
               <Chip color="warning" size="sm" variant="bordered">
-                {auth.session.rol}
+                {auth.user.role || "Usuario"}
               </Chip>
             </div>
           </div>

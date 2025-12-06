@@ -29,7 +29,7 @@ export default function NuevoNegocioPage() {
   const [error, setError] = useState<string | null>(null);
 
   const createNegocio = useNegocioStore((s) => s.create);
-  const session = useAuthStore((s) => s.session);
+  const user = useAuthStore((s) => s.user);
 
   const {
     control,
@@ -70,7 +70,7 @@ export default function NuevoNegocioPage() {
         coordenadas: data.coordenadas || undefined,
         descripcion: data.descripcion || undefined,
         alias: data.alias || undefined,
-        trabajadorAsignado: session?.usuarioId, // Siempre el usuario autenticado
+        trabajadorAsignado: user?.id, // Siempre el usuario autenticado
         lat: undefined,
         lng: undefined,
       };
