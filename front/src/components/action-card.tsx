@@ -10,7 +10,13 @@ import Icons from "@/components/icons/iconify";
 export type ActionCardProps = CardProps & {
   icon: keyof typeof Icons | string;
   title: string;
-  color?: "primary" | "secondary" | "primary" | "danger";
+  color?:
+    | "primary"
+    | "secondary"
+    | "primary"
+    | "danger"
+    | "success"
+    | "warning";
   description?: string;
   href?: string;
 };
@@ -22,30 +28,40 @@ const ActionCard = React.forwardRef<HTMLDivElement, ActionCardProps>(
   ) => {
     const colors = React.useMemo(() => {
       switch (color) {
-        case "primary":
+        case "success":
           return {
-            card: "border-default-200",
-            iconWrapper: "bg-primary-50 border-primary-100",
-            icon: "text-primary",
+            card: "border-success-100 bg-success-50/25 hover:bg-success-50/80 card-success",
+            iconWrapper:
+              "card-success__icon-wrapper bg-success-50 border-success-100",
+            icon: "card-success__icon text-success",
           };
         case "secondary":
           return {
-            card: "border-secondary-100",
-            iconWrapper: "bg-secondary-50 border-secondary-100",
-            icon: "text-secondary",
+            card: "border-secondary-100 bg-secondary-50/25 hover:bg-secondary-50/80 card-secondary",
+            iconWrapper:
+              "card-secondary__icon-wrapper bg-secondary-50 border-secondary-100",
+            icon: "card-secondary__icon text-secondary",
           };
         case "primary":
           return {
-            card: "border-white/20 bg-primary-50/25 hover:bg-primary-50/80 transition card-primary",
+            card: "border-primary-100 bg-primary-50/25 hover:bg-primary-50/80 transition card-primary",
             iconWrapper:
               "card-primary__icon-wrapper bg-primary-50 border-primary-100",
             icon: "card-primary__icon text-primary-600",
           };
+        case "warning":
+          return {
+            card: "border-warning-100 bg-warning-50/25 hover:bg-warning-50/80 transition card-warning",
+            iconWrapper:
+              "card-warning__icon-wrapper bg-warning-50 border-warning-100",
+            icon: "card-warning__icon text-warning-600",
+          };
         case "danger":
           return {
-            card: "border-danger-300",
-            iconWrapper: "bg-danger-50 border-danger-100",
-            icon: "text-danger",
+            card: "border-danger-100 bg-danger-50/25 hover:bg-danger-50/80 card-danger",
+            iconWrapper:
+              "card-danger__icon-wrapper bg-danger-50 border-danger-100",
+            icon: "card-danger__icon text-danger",
           };
 
         default:
@@ -74,19 +90,19 @@ const ActionCard = React.forwardRef<HTMLDivElement, ActionCardProps>(
           >
             {icon
               ? (() => {
-                const IconComp = (Icons as any)[icon as string] as
-                  | React.ElementType
-                  | undefined;
+                  const IconComp = (Icons as any)[icon as string] as
+                    | React.ElementType
+                    | undefined;
 
-                if (IconComp)
-                  return React.createElement(IconComp, {
-                    className: colors?.icon,
-                    width: 40,
-                    height: 40,
-                  });
+                  if (IconComp)
+                    return React.createElement(IconComp, {
+                      className: colors?.icon,
+                      width: 40,
+                      height: 40,
+                    });
 
-                return null;
-              })()
+                  return null;
+                })()
               : null}
           </div>
           <div className="flex flex-col">

@@ -24,20 +24,20 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
   failedCount: 0,
 
   startSync: async () => {
-    if (!get().isOnline || get().isSyncing) return;
+    // if (!get().isOnline || get().isSyncing) return;
 
-    set({ isSyncing: true });
-    try {
-      await pullChanges();
-      await pushQueue();
-      await get().updateStats();
-      set({ lastSync: Date.now() });
-    } catch (error) {
-      // eslint-disable-next-line no-console
-      console.error("Error during sync:", error);
-    } finally {
-      set({ isSyncing: false });
-    }
+    // set({ isSyncing: true });
+    // try {
+    //   await pullChanges();
+    //   await pushQueue();
+    //   await get().updateStats();
+    //   set({ lastSync: Date.now() });
+    // } catch (error) {
+    //   // eslint-disable-next-line no-console
+    //   console.error("Error during sync:", error);
+    // } finally {
+    //   set({ isSyncing: false });
+    // }
   },
 
   forceSync: async () => {

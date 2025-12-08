@@ -9,34 +9,40 @@ const adapter = new PrismaBetterSqlite3({ url: dbPath });
 const prisma = new PrismaClient({ adapter });
 
 async function main() {
-  // Ensure the Roles (model name `Roles`) contains the three default roles.
+  // Ensure the Roles contains the three default roles.
   const roles = [
-    { rol: 'user' },
-    { rol: 'admin' },
-    { rol: 'supervisor' },
+    { nombre: 'user' },
+    { nombre: 'admin' },
+    { nombre: 'supervisor' },
   ];
 
-  await prisma.roles.createMany({ data: roles });
+  for (const role of roles) {
+    await prisma.rol.upsert({
+      where: { nombre: role.nombre },
+      update: {},
+      create: role,
+    });
+  }
 
-  console.log('Seeded roles:', roles.map(r => r.rol).join(', '));
+  console.log('Seeded roles:', roles.map(r => r.nombre).join(', '));
 
   // Create default admin user with password '123456' and role 'admin'
   const adminPassword = '123456';
   const hashed = await bcrypt.hash(adminPassword, 10);
 
   // Find admin role id
-  const adminRole = await prisma.roles.findUnique({ where: { rol: 'admin' } });
+  const adminRole = await prisma.rol.findFirst({ where: { nombre: 'admin' } });
 
-  await prisma.user.upsert({
+  await prisma.usuario.upsert({
     where: { username: 'admin' },
     update: {
       password: hashed,
-      roleId: adminRole ? adminRole.id : undefined,
+      rolId: adminRole ? adminRole.id : undefined,
     },
     create: {
       username: 'admin',
       password: hashed,
-      roleId: adminRole ? adminRole.id : undefined,
+      rolId: adminRole ? adminRole.id : undefined,
     },
   });
 

@@ -6,10 +6,18 @@ export default function PedidosPanelPage() {
     <section className="flex flex-col gap-4 p-4">
       <NavigationHeading
         cta={{ href: "/panel", label: "Ir a Panel de Control" }}
+        icon="pedido"
         paragraph="Visualiza todas las acciones a realizar en este panel"
         title="Gestión de Pedidos"
       />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+        <ActionCard
+          color="warning"
+          description="Filtrar y gestionar pedidos en proceso"
+          href="/panel/panel-pedidos/pedido-proceso"
+          icon="pedido"
+          title="Pedidos en Proceso"
+        />
         <ActionCard
           color="primary"
           description="Importar pedidos desde archivo csv"
@@ -17,33 +25,20 @@ export default function PedidosPanelPage() {
           icon="add"
           title="Importar Pedido"
         />
+
         <ActionCard
-          color="primary"
-          description="Visualizar mis pedidos"
-          href="/panel/panel-pedidos/mios"
+          color="success"
+          description="Filtrar y visualizar pedidos completados"
+          href="/panel/panel-pedidos/pedido-completados"
           icon="pedido"
-          title="Mis Pedidos"
+          title="Pedidos Completados"
         />
         <ActionCard
-          color="primary"
-          description="Visualizar pedidos de la sucursal"
-          href="/panel/panel-pedidos/sucursal"
+          color="danger"
+          description="Filtrar y visualizar pedidos expirados"
+          href="/panel/panel-pedidos/pedido-expirados"
           icon="pedido"
-          title="Pedidos de la Sucursal"
-        />
-        <ActionCard
-          color="primary"
-          description="Visualizar pedidos de la empresa"
-          href="/panel/panel-pedidos/empresa"
-          icon="pedido"
-          title="Pedidos de la Empresa"
-        />
-        <ActionCard
-          color="primary"
-          description="Visualizar reportes de pedidos"
-          href="/panel/panel-pedidos/reportes"
-          icon="reports"
-          title="Reportes"
+          title="Pedidos Expirados"
         />
       </div>
     </section>

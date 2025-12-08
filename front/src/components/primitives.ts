@@ -58,11 +58,18 @@ export const cards = tv({
   variants: {
     border: {
       default: "border-2 border-default-100 bg-content1",
+      warning: "border-2 border-warning-100 bg-content1 hover:bg-warning-50/50",
+      success: "border-2 border-success-100 bg-content1 hover:bg-success-50/50",
+      danger: "border-2 border-danger-100 bg-content1 hover:bg-danger-50/50",
+      primary: "border-2 border-primary-100 bg-content1 hover:bg-primary-50/50",
+    },
+    hoverEffect: {
       true: "bg-content1/75 ",
       primaryHover: "bg-content1/75 hover:bg-primary-50",
       successHover:
         "border-2 border-success-200/75 bg-success-50 hover:bg-success-100",
-      primary: "border-2 border-primary-200/75 bg-primary-50/10",
+      primary: "border-2 border-primary-200/75 bg-primary-100/10",
+      warning: "border-2 border-warning-200/75 bg-warning-100/10",
     },
   },
 });

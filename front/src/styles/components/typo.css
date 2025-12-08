@@ -54,11 +54,68 @@ body {
 }
 
 .card-primary:hover .card-primary__icon-wrapper {
-    background-color: rgb(245, 165, 36);
-    border-color: black;
-    outline: 2px solid rgb(245, 165, 36);
+    background-color: #054C74;
+    border-color: white;
+    outline: 2px solid #054C74;
 }
 
 .card-primary:hover .card-primary__icon {
-    color: black;
+    color: white;
+}
+
+
+.card-secondary:hover .card-secondary__icon-wrapper {
+    background-color: #9050D1;
+    border-color: white;
+    outline: 2px solid #9050D1;
+}
+
+.card-secondary:hover .card-secondary__icon {
+    color: white;
+}
+
+.card-danger:hover .card-danger__icon-wrapper {
+    background-color: #F33F7E;
+    border-color: white;
+    outline: 2px solid #F33F7E;
+}
+
+.card-danger:hover .card-danger__icon {
+    color: white;
+}
+
+.card-success:hover .card-success__icon-wrapper {
+    background-color: #28a745;
+    border-color: white;
+    outline: 2px solid #28a745;
+}
+
+.card-success:hover .card-success__icon {
+    color: white;
+}
+
+.card-warning:hover .card-warning__icon-wrapper {
+    background-color: #FFC107;
+    border-color: white;
+    outline: 2px solid #FFC107;
+}
+
+.card-warning:hover .card-warning__icon {
+    color: white;
+}
+
+.chip-success {
+    @apply bg-green-50 border-green-200 [&_span]:uppercase [&_span]:text-green-800 [&_span]:font-bold;
+}
+
+.chip-primary {
+    @apply bg-blue-50 border-blue-200 [&_span]:uppercase [&_span]:text-blue-800 [&_span]:font-bold;
+}
+
+.chip-warning {
+    @apply bg-yellow-50 border-yellow-200 [&_span]:uppercase [&_span]:text-yellow-800 [&_span]:font-bold;
+}
+
+.chip-danger {
+    @apply bg-red-50 border-red-200 [&_span]:uppercase [&_span]:text-red-800 [&_span]:font-bold;
 }

@@ -9,7 +9,7 @@ import type {
 import { getAll, put, getById, del } from "../db";
 
 const API_BASE_URL =
-  import.meta.env.VITE_API_URL || "http://localhost:3400/api";
+  import.meta.env.VITE_API_URL || "http://localhost:8400";
 const MAX_ATTEMPTS = 5;
 const BACKOFF_BASE = 2000;
 

@@ -852,7 +852,26 @@ export function SolarPenNewSquareLinear(props: SVGProps<SVGSVGElement>) {
 }
 
 export function SolarImportBold(props: SVGProps<SVGSVGElement>) {
-  return (<svg xmlns="http://www.w3.org/2000/svg" width={24} height={24} viewBox="0 0 24 24" {...props}><path fill="currentColor" fillRule="evenodd" d="M15.53 10.47a.75.75 0 0 0-1.06 0l-1.72 1.72V4a.75.75 0 0 0-1.5 0v8.19l-1.72-1.72a.75.75 0 0 0-1.06 1.06l3 3a.75.75 0 0 0 1.06 0l3-3a.75.75 0 0 0 0-1.06" clipRule="evenodd"></path><path fill="currentColor" d="M17.748 12c-.448 0-.84.274-1.157.591l-3 3a2.25 2.25 0 0 1-3.182 0l-3-3C7.092 12.274 6.7 12 6.252 12H4a8 8 0 1 0 16 0z"></path></svg>);
+  return (
+    <svg
+      height={24}
+      viewBox="0 0 24 24"
+      width={24}
+      xmlns="http://www.w3.org/2000/svg"
+      {...props}
+    >
+      <path
+        clipRule="evenodd"
+        d="M15.53 10.47a.75.75 0 0 0-1.06 0l-1.72 1.72V4a.75.75 0 0 0-1.5 0v8.19l-1.72-1.72a.75.75 0 0 0-1.06 1.06l3 3a.75.75 0 0 0 1.06 0l3-3a.75.75 0 0 0 0-1.06"
+        fill="currentColor"
+        fillRule="evenodd"
+      />
+      <path
+        d="M17.748 12c-.448 0-.84.274-1.157.591l-3 3a2.25 2.25 0 0 1-3.182 0l-3-3C7.092 12.274 6.7 12 6.252 12H4a8 8 0 1 0 16 0z"
+        fill="currentColor"
+      />
+    </svg>
+  );
 }
 
 export function EntypoCheck(props: SVGProps<SVGSVGElement>) {
@@ -871,9 +890,232 @@ export function EntypoCheck(props: SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+export function IwwaFileCsv(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      height={40}
+      viewBox="0 0 40 40"
+      width={40}
+      xmlns="http://www.w3.org/2000/svg"
+      {...props}
+    >
+      <path
+        d="M30.918 15.983h-.678v-3.271l-.006-.062a.54.54 0 0 0-.132-.358L24.66 6.075l-.004-.004a.6.6 0 0 0-.11-.092l-.036-.022a.6.6 0 0 0-.109-.046l-.03-.01a.5.5 0 0 0-.127-.016H10.867c-.611 0-1.107.497-1.107 1.107v8.99h-.678c-.874 0-1.582.708-1.582 1.582v8.228c0 .873.709 1.582 1.582 1.582h.678v5.632c0 .61.496 1.107 1.107 1.107h18.266c.61 0 1.107-.497 1.107-1.107v-5.632h.678c.873 0 1.582-.708 1.582-1.582v-8.228c0-.873-.708-1.581-1.582-1.581M10.867 6.992H23.69v5.664c0 .306.248.553.554.553h4.89v2.773H10.867zm8.282 15.168c-1.344-.48-2.231-1.224-2.231-2.399c0-1.379 1.164-2.422 3.059-2.422c.924 0 1.583.18 2.063.407l-.408 1.463a3.8 3.8 0 0 0-1.679-.383c-.792 0-1.176.371-1.176.779c0 .516.443.743 1.499 1.139c1.428.528 2.087 1.271 2.087 2.411c0 1.356-1.031 2.507-3.25 2.507c-.924 0-1.835-.252-2.291-.504l.372-1.499a4.6 4.6 0 0 0 2.026.504c.84 0 1.284-.349 1.284-.876c0-.504-.383-.791-1.355-1.127m-9.526-.552c0-2.747 1.967-4.27 4.413-4.27c.948 0 1.667.191 1.991.348l-.384 1.451a3.85 3.85 0 0 0-1.535-.3c-1.439 0-2.566.875-2.566 2.674c0 1.607.959 2.627 2.578 2.627c.564 0 1.164-.107 1.535-.264l.265 1.439c-.324.155-1.092.348-2.063.348c-2.795.001-4.234-1.75-4.234-4.053m19.51 11.1H10.867v-5.333h18.266zm-1.478-7.166H25.52l-2.59-8.084h2.003l.983 3.419c.275.971.527 1.883.719 2.89h.036a36 36 0 0 1 .731-2.854l1.032-3.454h1.942z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
+export function IconoirRemoveEmpty(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      height={24}
+      viewBox="0 0 24 24"
+      width={24}
+      xmlns="http://www.w3.org/2000/svg"
+      {...props}
+    >
+      <path
+        d="M8 12h8m-4 10c5.523 0 10-4.477 10-10S17.523 2 12 2S2 6.477 2 12s4.477 10 10 10"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={1.5}
+      />
+    </svg>
+  );
+}
+
+export function StreamlinePlumpShipmentUploadSolid(
+  props: SVGProps<SVGSVGElement>,
+) {
+  return (
+    <svg
+      height={48}
+      viewBox="0 0 48 48"
+      width={48}
+      xmlns="http://www.w3.org/2000/svg"
+      {...props}
+    >
+      <path
+        clipRule="evenodd"
+        d="M12.238 2.02c1.897-.242 5.057-.478 10.263-.516v9.498c-6.445.025-11.237.216-14.388.396a9.37 9.37 0 0 0-5.279 1.991q.132-.318.281-.634c1.383-2.93 3.077-5.711 4.242-7.512c1.074-1.662 2.739-2.95 4.88-3.223m32.648 10.735q.15.316.281.634a9.37 9.37 0 0 0-5.28-1.99c-3.15-.181-7.942-.371-14.386-.397V1.504c5.205.038 8.365.274 10.262.516c2.143.273 3.807 1.561 4.882 3.223c1.164 1.8 2.858 4.582 4.24 7.512m-36.63 33.35c3.342.19 8.586.395 15.744.395s12.402-.204 15.744-.395c3.292-.189 6.006-2.626 6.324-5.99c.227-2.402.432-5.772.432-10.115s-.205-7.713-.432-10.115c-.318-3.364-3.032-5.801-6.324-5.99c-3.342-.19-8.585-.395-15.744-.395s-12.402.204-15.744.396c-3.292.188-6.006 2.625-6.324 5.989C1.705 22.287 1.5 25.657 1.5 30s.205 7.713.432 10.115c.318 3.364 3.032 5.801 6.324 5.99m8.487-17.429c-.971 1.24-.296 2.726 1.278 2.818c.703.041 1.557.078 2.59.104c.073 1.83.168 3.67.237 4.928c.053.98.685 1.838 1.655 1.99c.437.067.945.117 1.497.117s1.06-.05 1.498-.118c.971-.15 1.604-1.01 1.657-1.991c.068-1.259.162-3.097.235-4.926a78 78 0 0 0 2.588-.104c1.574-.092 2.25-1.578 1.278-2.818a62 62 0 0 0-2.347-2.804c-1.539-1.743-2.716-2.783-3.532-3.396c-.84-.632-1.914-.632-2.755 0c-.815.613-1.992 1.653-3.531 3.396a62 62 0 0 0-2.348 2.804"
+        fill="currentColor"
+        fillRule="evenodd"
+      />
+    </svg>
+  );
+}
+
+export function SolarMagnifierLinear(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      height={24}
+      viewBox="0 0 24 24"
+      width={24}
+      xmlns="http://www.w3.org/2000/svg"
+      {...props}
+    >
+      <circle
+        cx={11.5}
+        cy={11.5}
+        fill="none"
+        r={9.5}
+        stroke="currentColor"
+        strokeWidth={1.5}
+      />
+      <path
+        d="M18.5 18.5L22 22"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeWidth={1.5}
+      />
+    </svg>
+  );
+}
+
+export function SolarCloseCircleBold(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      height={24}
+      viewBox="0 0 24 24"
+      width={24}
+      xmlns="http://www.w3.org/2000/svg"
+      {...props}
+    >
+      <path
+        clipRule="evenodd"
+        d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2S2 6.477 2 12s4.477 10 10 10m3.536-13.536a.75.75 0 0 1 0 1.061L13.06 12l2.475 2.475a.75.75 0 1 1-1.06 1.06L12 13.061l-2.475 2.475a.75.75 0 0 1-1.06-1.061L10.938 12l-2.474-2.475a.75.75 0 0 1 1.06-1.06L12 10.938l2.475-2.474a.75.75 0 0 1 1.06 0"
+        fill="currentColor"
+        fillRule="evenodd"
+      />
+    </svg>
+  );
+}
+
+export function SolarUserCircleBold(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      height={24}
+      viewBox="0 0 24 24"
+      width={24}
+      xmlns="http://www.w3.org/2000/svg"
+      {...props}
+    >
+      <path
+        d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10s10-4.477 10-10S17.523 2 12 2"
+        fill="currentColor"
+        opacity={0.5}
+      />
+      <path
+        d="M15.5 10a3.5 3.5 0 1 1-7 0a3.5 3.5 0 0 1 7 0"
+        fill="currentColor"
+      />
+      <path
+        d="M19.5 18.169c0-.493-.181-.972-.5-1.326c-.802-.887-2.059-1.656-3.65-2.139c-1.558-.473-3.463-.704-5.35-.704s-3.792.231-5.35.704c-1.591.483-2.848 1.252-3.65 2.139c-.319.354-.5.833-.5 1.326C3.99 20.263 7.683 22 12 22s8.01-1.737 8.5-3.831"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
+export function HugeiconsAiUser(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      height={24}
+      viewBox="0 0 24 24"
+      width={24}
+      xmlns="http://www.w3.org/2000/svg"
+      {...props}
+    >
+      <g fill="none" stroke="currentColor" strokeWidth={1.5}>
+        <path
+          d="M13 3.002Q12.295 3 11.5 3C7.022 3 4.782 3 3.391 4.391S2 8.021 2 12.5c0 4.478 0 6.718 1.391 8.109S7.021 22 11.5 22c4.478 0 6.718 0 8.109-1.391S21 16.979 21 12.5q0-.795-.002-1.5"
+          strokeLinecap="round"
+        />
+        <path
+          d="m18.5 2l.258.697c.338.914.507 1.371.84 1.704c.334.334.791.503 1.705.841L22 5.5l-.697.258c-.914.338-1.371.507-1.704.84c-.334.334-.503.791-.841 1.705L18.5 9l-.258-.697c-.338-.914-.507-1.371-.84-1.704c-.334-.334-.791-.503-1.705-.841L15 5.5l.697-.258c.914-.338 1.371-.507 1.704-.84c.334-.334.503-.791.841-1.705z"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M7 17.5c2.332-2.442 6.643-2.557 9 0M13.995 10c0 1.38-1.12 2.5-2.503 2.5A2.5 2.5 0 0 1 8.988 10c0-1.38 1.12-2.5 2.504-2.5a2.5 2.5 0 0 1 2.503 2.5Z"
+          strokeLinecap="round"
+        />
+      </g>
+    </svg>
+  );
+}
+
+export function FluentReceiptCube20Regular(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      height={20}
+      viewBox="0 0 20 20"
+      width={20}
+      xmlns="http://www.w3.org/2000/svg"
+      {...props}
+    >
+      <path
+        d="M4 5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v7h3v2a3 3 0 0 1-3 3H9.938a2 2 0 0 0 .062-.496V16h4V5a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v4a2 2 0 0 0-.894.211L4 9.264zm3.5 5h-.03l-.352-.177A.5.5 0 0 1 7.5 9h4a.5.5 0 0 1 0 1zm7.5 3v3a2 2 0 0 0 2-2v-1zM7 6.5a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 0 1h-4a.5.5 0 0 1-.5-.5m1.447 5.106l-3-1.5a1 1 0 0 0-.894 0l-3 1.5A1 1 0 0 0 1 12.5v4.004a1 1 0 0 0 .553.894l3 1.5a1 1 0 0 0 .894 0l3-1.5A1 1 0 0 0 9 16.504V12.5a1 1 0 0 0-.553-.894M2.04 12.732a.5.5 0 0 1 .657-.263L5 13.456l2.303-.987a.5.5 0 0 1 .394.92l-2.197.94V17a.5.5 0 1 1-1 0v-2.67l-2.197-.942a.5.5 0 0 1-.263-.656"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
+export function TablerCopy(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      height={24}
+      viewBox="0 0 24 24"
+      width={24}
+      xmlns="http://www.w3.org/2000/svg"
+      {...props}
+    >
+      <g
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+      >
+        <path d="M7 9.667A2.667 2.667 0 0 1 9.667 7h8.666A2.667 2.667 0 0 1 21 9.667v8.666A2.667 2.667 0 0 1 18.333 21H9.667A2.667 2.667 0 0 1 7 18.333z" />
+        <path d="M4.012 16.737A2 2 0 0 1 3 15V5c0-1.1.9-2 2-2h10c.75 0 1.158.385 1.5 1" />
+      </g>
+    </svg>
+  );
+}
+
+export function TablerCopyCheckFilled(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      height={24}
+      viewBox="0 0 24 24"
+      width={24}
+      xmlns="http://www.w3.org/2000/svg"
+      {...props}
+    >
+      <path
+        d="M18.333 6A3.667 3.667 0 0 1 22 9.667v8.666A3.667 3.667 0 0 1 18.333 22H9.667A3.667 3.667 0 0 1 6 18.333V9.667A3.667 3.667 0 0 1 9.667 6zM15 2c1.094 0 1.828.533 2.374 1.514a1 1 0 1 1-1.748.972C15.405 4.088 15.284 4 15 4H5c-.548 0-1 .452-1 1v9.998c0 .32.154.618.407.805l.1.065a1 1 0 1 1-.99 1.738A3 3 0 0 1 2 15V5c0-1.652 1.348-3 3-3zm1.293 9.293L13 14.585l-1.293-1.292a1 1 0 0 0-1.414 1.414l2 2a1 1 0 0 0 1.414 0l4-4a1 1 0 0 0-1.414-1.414"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
 // Final Icons mapping (exported as default) so all icon components above are available
 const Icons = {
+  copy: TablerCopy,
+  copyCheck: TablerCopyCheckFilled,
+  receipt: FluentReceiptCube20Regular,
+  csv: IwwaFileCsv,
+  client: HugeiconsAiUser,
+  upload: StreamlinePlumpShipmentUploadSolid,
   checkLine: EntypoCheck,
+  empty: IconoirRemoveEmpty,
   //edit: SolarPenNewSquareLinear,
   add: SolarAddSquareBold,
   addLine: SolarAddSquareLinear,
@@ -911,12 +1153,15 @@ const Icons = {
   users: Fa7SolidUsersViewfinder,
   reports: UimGraphBar,
   visita: SolarMapPointRotateOutline,
-  pedido: SolarDeliveryBold,
+  pedido: FluentReceiptCube20Regular,
   product: FluentBoxMultiple20Filled,
   tag: SolarTagBold,
   group: SolarTagHorizontalBold,
   back: SolarMultipleForwardLeftBoldDuotone,
   panel: SolarLibraryBold,
+  search: SolarMagnifierLinear,
+  close: SolarCloseCircleBold,
+  user: SolarUserCircleBold,
 };
 
 export default Icons;

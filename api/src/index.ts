@@ -20,15 +20,15 @@ app.use(cors({
   credentials: true, // Allow cookies to be sent
 }));
 app.use(cookieParser());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 // Use urlencoded parser for simple form submissions. We avoid a global JSON
 // body-parser to keep compatibility with multipart/form-data uploads handled
 // via multer on specific routes.
-app.use(express.urlencoded({ extended: true }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Multer setup for file uploads. Use per-route middleware like
 // `upload.single('file')` or `upload.array('files')` in route handlers.
-const upload = multer({ dest: 'uploads/' });
+const upload = multer({ dest: 'uploads/temp' });
 app.locals.upload = upload;
 
 app.get('/health', (req, res) => res.json({ ok: true }));

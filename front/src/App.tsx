@@ -1,4 +1,6 @@
 import { Route, Routes } from "react-router-dom";
+import { useEffect } from "react";
+import { Spinner } from "@heroui/react";
 
 import CatalogoProductosPage from "./pages/productos/catalogo";
 import GruposProductosPage from "./pages/productos/gestion-grupos";
@@ -13,6 +15,9 @@ import SucursalesPanelPage from "./pages/sucursales/panel";
 import NuevaSucursalPage from "./pages/sucursales/nuevo";
 import VisualizarSucursalPage from "./pages/sucursales/visualizar";
 import ReportesSucursalPage from "./pages/sucursales/reportes";
+import PedidoProcesoPage from "./pages/pedidos/pedido-proceso";
+import PedidoCompletadoPage from "./pages/pedidos/pedido-completados";
+import PedidoExpiradosPage from "./pages/pedidos/pedido-expirados";
 
 import ProtectedRoute from "@/components/ProtectedRoute";
 import ProductosPanelPage from "@/pages/productos/panel-productos";
@@ -21,34 +26,32 @@ import PanelPage from "@/pages/panel";
 import ResetPasswordPage from "@/pages/reset-password";
 import ForgotPasswordPage from "@/pages/forgot-password";
 import LoginPage from "@/pages/login";
+import { useAuthStore } from "@/stores/authStore";
 
 function App() {
+  const { loadSession, isLoading } = useAuthStore();
+
+  useEffect(() => {
+    loadSession();
+  }, []);
+
+  if (isLoading) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center">
+        <Spinner color="primary" size="lg" />
+      </div>
+    );
+  }
+
   return (
     <Routes>
       {/* Rutas públicas (autenticación) */}
       <Route element={<LoginPage />} path="/" />
-      <Route element={<ForgotPasswordPage />} path="/forgot-password" />
-      <Route element={<ResetPasswordPage />} path="/reset-password" />
 
       {/* Rutas protegidas */}
       <Route element={<ProtectedRoute />}>
         <Route element={<PanelPage />} path="/panel" />
         <Route element={<SincronizacionPage />} path="/panel/sincronizacion" />
-
-        {/* Productos */}
-        <Route element={<ProductosPanelPage />} path="/panel/panel-productos" />
-        <Route
-          element={<CatalogoProductosPage />}
-          path="/panel/panel-productos/catalogo"
-        />
-        <Route
-          element={<GruposProductosPage />}
-          path="/panel/panel-productos/gestion-grupos"
-        />
-        <Route
-          element={<ProveedoresProductosPage />}
-          path="/panel/panel-productos/gestion-proveedores"
-        />
 
         {/* Pedidos */}
         <Route element={<PedidosPanelPage />} path="/panel/panel-pedidos" />
@@ -56,35 +59,18 @@ function App() {
           element={<NuevoPedidoPage />}
           path="/panel/panel-pedidos/nuevo"
         />
-
-        {/* Negocios */}
-        <Route element={<NegociosPanelPage />} path="/panel/panel-negocio" />
         <Route
-          element={<NegociosAsignadosPage />}
-          path="/panel/panel-negocio/asignados"
+          element={<PedidoProcesoPage />}
+          path="/panel/panel-pedidos/pedido-proceso"
         />
         <Route
-          element={<NuevoNegocioPage />}
-          path="/panel/panel-negocio/nuevo"
-        />
-
-        {/* Sucursales */}
-        <Route element={<SucursalesPanelPage />} path="/panel/panel-sucursal" />
-        <Route
-          element={<NuevaSucursalPage />}
-          path="/panel/panel-sucursal/nuevo"
+          element={<PedidoCompletadoPage />}
+          path="/panel/panel-pedidos/pedido-completados"
         />
         <Route
-          element={<VisualizarSucursalPage />}
-          path="/panel/panel-sucursal/visualizar"
+          element={<PedidoExpiradosPage />}
+          path="/panel/panel-pedidos/pedido-expirados"
         />
-        <Route
-          element={<ReportesSucursalPage />}
-          path="/panel/panel-sucursal/reportes"
-        />
-
-        {/* Contactos */}
-        <Route element={<ContactosPanelPage />} path="/panel/panel-contactos" />
       </Route>
     </Routes>
   );

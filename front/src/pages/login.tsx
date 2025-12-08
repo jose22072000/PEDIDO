@@ -30,14 +30,6 @@ export default function LoginPage() {
   } | null>(null);
   const [isClosingSession, setIsClosingSession] = React.useState(false);
 
-  React.useEffect(() => {
-    const loadSession = async () => {
-      await auth.loadSession();
-    };
-
-    loadSession();
-  }, []);
-
   const toggleVisibility = () => setIsVisible(!isVisible);
 
   const {
@@ -78,21 +70,6 @@ export default function LoginPage() {
     }
   };
 
-  // Mostrar loading mientras se carga la sesión inicial
-  if (auth.isLoading) {
-    return (
-      <DefaultLayout>
-        <div className="flex justify-center">
-          <div className="flex flex-col items-center gap-4">
-            <Icons.shield className="size-24 text-primary animate-pulse" />
-            <h2 className="text-2xl font-bold text-primary">PROCOVAR</h2>
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary" />
-          </div>
-        </div>
-      </DefaultLayout>
-    );
-  }
-
   if (auth.isAuthenticated && auth.user) {
     return (
       <DefaultLayout>
@@ -120,10 +97,10 @@ export default function LoginPage() {
                 title="Sesión activa"
                 variant="flat"
               />
-              <div className="grid grid-cols-5 gap-2">
+              <div className="flex flex-col gap-4">
                 <Button
                   as={Link}
-                  className="col-span-3 btn"
+                  className="btn w-full"
                   color="primary"
                   href="/panel"
                   size="lg"
@@ -133,14 +110,14 @@ export default function LoginPage() {
                   Ir al Panel
                 </Button>
                 <Button
-                  className="col-span-2 btn"
+                  className="btn w-full"
                   isDisabled={isClosingSession}
                   isLoading={isClosingSession}
                   size="lg"
                   variant="ghost"
                   onPress={handleCerrarSesion}
                 >
-                  Cerrar Sesión
+                  Salir del Sistema
                 </Button>
               </div>
             </div>

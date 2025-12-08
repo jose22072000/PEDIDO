@@ -9,73 +9,84 @@ datasource db {
 }
 
 model Sucursal {
-    id        String   @id @default(cuid())
+    id        String    @id @default(cuid())
     nombre    String
-    createdAt DateTime @default(now())
-    users     User[]
+    createdAt DateTime  @default(now())
+    usuarios  Usuario[]
 }
 
-model Roles {
-    id        String   @id @default(cuid())
-    rol       String   @unique
-    createdAt DateTime @default(now())
-    users     User[]
+model Rol {
+    id        String    @id @default(cuid())
+    nombre    String    @unique @map("rol")
+    createdAt DateTime  @default(now())
+    usuarios  Usuario[]
+
+    @@map("Roles")
 }
 
-model User {
+model Usuario {
     id         String    @id @default(cuid())
     username   String    @unique
     password   String?
-    roleId     String?
-    role       Roles?    @relation(fields: [roleId], references: [id])
+    rolId      String?   @map("roleId")
+    rol        Rol?      @relation(fields: [rolId], references: [id])
     sucursalId String?
     sucursal   Sucursal? @relation(fields: [sucursalId], references: [id])
     createdAt  DateTime  @default(now())
+
+    @@map("User")
 }
 
-model Seller {
+model Vendedor {
     id        String   @id @default(cuid())
-    name      String   @unique
-    code      String?  @unique
+    nombre    String   @unique @map("name")
+    codigo    String?  @unique @map("code")
     createdAt DateTime @default(now())
-    orders    Order[]
+    pedidos   Pedido[]
+
+    @@map("Seller")
 }
 
-model Order {
-    id                 String      @id @default(cuid())
+model Pedido {
+    id                 String        @id @default(cuid())
     folio              String
-    sellerId           String?
-    seller             Seller?     @relation(fields: [sellerId], references: [id])
-    clientId           String?
-    client             Client?     @relation(fields: [clientId], references: [id])
+    vendedorId         String?       @map("sellerId")
+    vendedor           Vendedor?     @relation(fields: [vendedorId], references: [id])
+    clienteId          String?       @map("clientId")
+    cliente            Cliente?      @relation(fields: [clienteId], references: [id])
     direccion          String?
     encargado          String?
     telefono           String?
     fecha              DateTime
     fecha_comprometida DateTime?
-    status             String?
-    createdAt          DateTime    @default(now())
-    items              OrderItem[]
+    estado             String?       @map("status")
+    createdAt          DateTime      @default(now())
+    items              PedidoItem[]
 
-    @@unique([folio, sellerId])
+    @@unique([folio, vendedorId])
     @@index([fecha])
+    @@map("Order")
 }
 
-model OrderItem {
+model PedidoItem {
     id          String  @id @default(cuid())
-    orderId     String
-    order       Order   @relation(fields: [orderId], references: [id])
-    code        String?
+    pedidoId    String  @map("orderId")
+    pedido      Pedido  @relation(fields: [pedidoId], references: [id])
+    codigo      String? @map("code")
     producto    String
     unidades    Int
     descripcion String?
+
+    @@map("OrderItem")
 }
 
-model Client {
+model Cliente {
     id         String   @id @default(cuid())
-    parrandaId String   @unique
+    codigo     String?   @unique @map("parrandaId")
     nombre     String
     zona       String?
     createdAt  DateTime @default(now())
-    orders     Order[]
+    pedidos    Pedido[]
+
+    @@map("Client")
 }

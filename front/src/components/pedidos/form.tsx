@@ -1,193 +1,259 @@
 import {
+  Alert,
   Button,
   Card,
   CardBody,
   CardFooter,
-  Textarea,
-
-  Link,
+  Progress,
+  addToast
 } from "@heroui/react";
 // import { Calendar } from "@heroui/react";
-import { useState, useEffect } from "react";
-// import {
-//   today,
-//   parseDate,
-//   toCalendarDate,
-//   getLocalTimeZone,
-//   getDayOfWeek,
-// } from "@internationalized/date";
-import { useNavigate } from "react-router-dom";
+import { useState } from "react";
+import { FileUploader } from "react-drag-drop-files";
+import Papa from "papaparse";
 
+import Icons from "../icons/iconify";
 
-import { cards } from "../primitives";
-
-import { CatalogSelection, ProductSelectionQuantity } from "./product-list";
-import { PedidoProductFilter } from "./product-filter";
-import { PedidoProvider } from "./provider";
-
-import { useAuthStore } from "@/stores/authStore";
-import { useProductCatalogStore } from "@/stores/productCatalogStore";
-import {
-  useNegocioStore,
-  usePedidoStore,
-  useDetallePedidoStore,
-} from "@/stores/entityStores";
-// (Zod schemas for validation can be added here if/when integrating RHF)
+const fileTypes: string[] = ["CSV"];
 
 export default function CrearPedidoForm() {
-  const negocios = useNegocioStore((s) => s.items);
-  const pedidoStore = usePedidoStore();
-  const detalleStore = useDetallePedidoStore();
-  const selected = useProductCatalogStore((s) => s.selected);
-  const clearSelection = useProductCatalogStore((s) => s.clearSelection);
-  const totalQuantity = useProductCatalogStore(
-    (s) => s.getSelectedTotalQuantity,
-  );
-  const auth = useAuthStore((s) => s.session);
+  const [isSending, setIsSending] = useState(false);
+  const [files, setFiles] = useState<File[]>([]);
+  const [showError, setShowError] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [currentFile, setCurrentFile] = useState("");
 
-  const [negocioId, setNegocioId] = useState<string>(
-    () => negocios?.[0]?.id ?? "",
-  );
-  // const [fechaPago, setFechaPago] = useState<string>(() => {
-  //   try {
-  //     const tz = getLocalTimeZone();
+  const handleFilesChange = (incoming: File | File[] | FileList) => {
+    // Convertir FileList a array si es necesario
+    const newFiles =
+      incoming instanceof FileList
+        ? Array.from(incoming)
+        : Array.isArray(incoming)
+          ? incoming
+          : [incoming];
 
-  //     return today(tz).add({ days: 1 }).toString().slice(0, 10);
-  //   } catch (err) {
-  //     return "";
-  //   }
-  // });
-  const [observacion, setObservacion] = useState<string>("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const navigate = useNavigate();
+    setFiles((prev) => [...prev, ...newFiles]);
+    setShowError(false); // Ocultar error cuando se añadan archivos
+  };
 
-  // const _tz = getLocalTimeZone();
-  // const minPaymentDate = useMemo(() => {
-  //   return today(_tz).add({ days: 1 });
-  // }, [_tz]);
+  const removeFile = (index: number) => {
+    setFiles((prev) => prev.filter((_, i) => i !== index));
+  };
 
-  useEffect(() => {
-    if ((!negocioId || negocioId === "") && negocios && negocios.length > 0) {
-      setNegocioId(negocios[0].id);
-    }
-  }, [negocios, negocioId]);
+  const processFile = async (file: File): Promise<any> => {
+    return new Promise((resolve, reject) => {
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: (results) => {
+          resolve(results.data);
+        },
+        error: (error) => {
+          reject(error);
+        },
+      });
+    });
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selected || selected.length === 0) {
-      alert("Seleccione al menos un producto");
+
+    if (files.length === 0) {
+      setShowError(true);
 
       return;
     }
 
-    setIsSubmitting(true);
+    setShowError(false);
+    setIsSending(true);
+    setProgress(0);
+
     try {
-      const pedidoId = `pedido_${Date.now()}`;
+      const totalFiles = files.length;
+      let processedFiles = 0;
+      const batchSize = 50; // Procesar 50 registros por request
 
-      await pedidoStore.create({
-        id: pedidoId,
-        trabajadorId: auth?.usuarioId ?? "unknown",
-        sucursalId: auth?.sucursalId,
-        negocioId: negocioId || undefined,
-        estado: "PENDIENTE",
-        observacion: observacion || undefined,
-      } as any);
+      for (const file of files) {
+        setCurrentFile(`Procesando: ${file.name}`);
 
-      // crear detalles
-      for (const sItem of selected) {
-        const detalleId = `detalle_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+        // Parsear CSV
+        const records = await processFile(file);
 
-        await detalleStore.create({
-          id: detalleId,
-          pedidoId,
-          productoId: String(sItem.id),
-          cantidad: Number(sItem.cantidad) || 1,
-        } as any);
+        // Dividir en lotes
+        const batches = [];
+
+        for (let i = 0; i < records.length; i += batchSize) {
+          batches.push(records.slice(i, i + batchSize));
+        }
+
+        // Enviar cada lote con delay
+        for (let i = 0; i < batches.length; i++) {
+          setCurrentFile(`${file.name} - Lote ${i + 1}/${batches.length}`);
+
+          const response = await fetch("http://localhost:8400/orders/bulk", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            credentials: "include",
+            body: JSON.stringify({ records: batches[i] }),
+          });
+
+          if (!response.ok) {
+            throw new Error(`Error al procesar ${file.name}`);
+          }
+
+          // Esperar 50ms entre requests
+          if (i < batches.length - 1) {
+            await new Promise((resolve) => setTimeout(resolve, 50));
+          }
+
+          // Actualizar progreso
+          const batchProgress =
+            ((processedFiles + (i + 1) / batches.length) / totalFiles) * 100;
+
+          setProgress(Math.round(batchProgress));
+        }
+
+        processedFiles++;
       }
 
-      clearSelection();
-      navigate("/panel/pedidos");
+      setProgress(100);
+
+      // Si todo sale bien, limpiar los archivos
+      setFiles([]);
+      setCurrentFile("");
+
+      addToast({
+        title: "Subido exitosamente",
+        description: `${totalFiles} archivos procesados correctamente`,
+        color: "success",
+      });
+
+      // Esperar un poco antes de resetear el progreso
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      setProgress(0);
     } catch (error) {
       // eslint-disable-next-line no-console
-      console.error("Error creando pedido", error);
-      alert("Error al crear pedido");
+      console.error("Upload error:", error);
+      setShowError(true);
+
+      addToast({
+        title: "Error",
+        description: "Error al procesar los archivos",
+        color: "danger",
+      });
     } finally {
-      setIsSubmitting(false);
+      setIsSending(false);
     }
   };
 
   return (
-    <PedidoProvider>
-      <form
-        className="flex flex-col gap-4 justify-between h-full"
-        onSubmit={handleSubmit}
-      >
-        <div className="grid grid-cols-1 lg:grid-cols-6 gap-6 items-start">
-          <div className="w-full lg:col-span-4">
-            <div className="space-y-6">
-              <PedidoProductFilter />
-              <CatalogSelection />
+    <form
+      className="flex flex-col gap-4 justify-between h-full"
+      onSubmit={handleSubmit}
+    >
+      <Card className="md:p-6">
+        <CardBody className="space-y-3">
+          {showError && (
+            <Alert
+              color="danger"
+              description="Por favor, seleccione al menos un archivo antes de continuar."
+              title="No hay archivos para enviar"
+              variant="flat"
+            />
+          )}
+          <div className="text-lg font-bold text-primary">
+            Importar Archivos
+          </div>
+          <div className="flex flex-col md:flex-row gap-8 items-stretch">
+            <div className="w-full relative z-10">
+              <div className="absolute inset-0 z-0 w-full flex items-center justify-center">
+                <h2 className="text-center text-lg text-primary font-semibold px-5">
+                  Arraste los archivos aquí o click para buscarlos <br />
+                  (Formatos aceptados: .csv)
+                </h2>
+              </div>
+              <FileUploader
+                multiple
+                classes="drag-drop-file-uploader"
+                handleChange={handleFilesChange}
+                maxSize={2024}
+                name="file"
+                types={fileTypes}
+              />
+            </div>
+            <div className="md:min-w-sm">
+              <p className="text-sm font-semibold mb-2">
+                Archivos cargados: ({files.length})
+              </p>
+              <div className="flex flex-col gap-2">
+                {files.length === 0 && (
+                  <Card>
+                    <CardBody>
+                      <div className="flex gap-4 items-center">
+                        <Icons.empty className="size-6 text-primary" />
+                        <span className="text-primary font-semibold">
+                          No hay archivos cargados.
+                        </span>
+                      </div>
+                    </CardBody>
+                  </Card>
+                )}
+                {files.map((file, index) => (
+                  <Card key={`${file.name}-${index}`}>
+                    <CardBody>
+                      <div className="flex gap-4 items-center justify-between">
+                        <div className="flex items-center">
+                          <Icons.csv className="size-8 text-primary" />
+                          <span className="text-primary font-semibold">
+                            {file.name}
+                          </span>
+                        </div>
+                        <Button
+                          color="danger"
+                          isDisabled={isSending}
+                          isIconOnly={true}
+                          variant="flat"
+                          onPress={() => removeFile(index)}
+                        >
+                          <Icons.trash className="size-6" />
+                        </Button>
+                      </div>
+                    </CardBody>
+                  </Card>
+                ))}
+              </div>
             </div>
           </div>
-          <div className="flex-1 lg:col-span-2">
-            <div className="space-y-4">
-              <Card className={cards({ border: true })}>
-                <CardBody className="space-y-3 p-0">                  
-                  <div className="text-lg font-bold">
-                    Productos seleccionados
-                  </div>
-                  <ProductSelectionQuantity />
-
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <div className="text-sm text-default-500">
-                        Total items
-                      </div>
-                      <div className="font-semibold">{selected.length}</div>
-                    </div>
-                    <div>
-                      <div className="text-sm text-default-500">
-                        Cantidad total
-                      </div>
-                      <div className="font-semibold">{totalQuantity()}</div>
-                    </div>
-                  </div>                  
-                  <Textarea
-                    label="Observaciones"
-                    value={observacion}
-                    onChange={(e) => setObservacion(e.target.value)}
-                  />
-                </CardBody>
-                <CardFooter className="pt-3 px-0 pb-0">
-                  <div className="flex justify-between gap-2 w-full">
-                    <Button
-                      as={Link}
-                      className="flex-1"
-                      color="default"
-                      href="/panel/panel-pedidos"
-                      variant="flat"
-                      onPress={() => {
-                        clearSelection();
-                        navigate("/panel");
-                      }}
-                    >
-                      Cancelar
-                    </Button>
-                    <Button
-                      className="flex-1"
-                      color="primary"
-                      isLoading={isSubmitting}
-                      type="submit"
-                    >
-                      Crear Pedido
-                    </Button>
-                  </div>
-                </CardFooter>
-              </Card>
+        </CardBody>
+        <CardFooter className="flex flex-col gap-4">
+          {isSending && (
+            <div className="w-full space-y-2">
+              <Progress
+                showValueLabel
+                color="primary"
+                label={
+                  currentFile ? `Procesando: ${currentFile}` : "Procesando..."
+                }
+                size="md"
+                value={progress}
+              />
             </div>
-          </div>
-        </div>
-      </form>
-    </PedidoProvider>
+          )}
+          <Button
+            className="min-w-full md:min-w-xs font-semibold"
+            color="primary"
+            isLoading={isSending}
+            size="lg"
+            startContent={!isSending && <Icons.upload className="size-6" />}
+            type="submit"
+            variant="solid"
+          >
+            Enviar
+          </Button>
+        </CardFooter>
+      </Card>
+    </form>
   );
 }

@@ -1,3 +1,17 @@
 @import "tailwindcss";
 
-@config "../../tailwind.config.js"
+@config "../../tailwind.config.js";
+
+.drag-drop-file-uploader {
+    width: 100%;
+    max-width: 100% !important;
+    min-height: 200px !important;
+    min-width: 100% !important;
+    height: 100% !important;
+
+}
+
+.drag-drop-file-uploader svg,
+.drag-drop-file-uploader span {
+    display: none !important;
+}

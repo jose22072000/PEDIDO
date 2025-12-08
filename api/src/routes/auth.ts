@@ -18,9 +18,9 @@ router.post('/login', async (req: Request, res: Response) => {
     }
 
     // Find user by username
-    const user = await prisma.user.findUnique({
+    const user = await prisma.usuario.findUnique({
       where: { username },
-      include: { role: true, sucursal: true },
+      include: { rol: true, sucursal: true },
     });
 
     if (!user || !user.password) {
@@ -38,7 +38,7 @@ router.post('/login', async (req: Request, res: Response) => {
       {
         userId: user.id,
         username: user.username,
-        roleId: user.roleId,
+        roleId: user.rolId,
       },
       JWT_SECRET,
       { expiresIn: JWT_EXPIRES_IN }
@@ -57,7 +57,7 @@ router.post('/login', async (req: Request, res: Response) => {
       user: {
         id: user.id,
         username: user.username,
-        role: user.role?.rol,
+        role: user.rol?.nombre,
         sucursal: user.sucursal?.nombre,
       },
     });
@@ -76,16 +76,16 @@ router.post('/logout', (req: Request, res: Response) => {
 // Get current user endpoint (protected)
 router.get('/me', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
-    const user = await prisma.user.findUnique({
+    const user = await prisma.usuario.findUnique({
       where: { id: req.user?.userId },
       select: {
         id: true,
         username: true,
-        roleId: true,
+        rolId: true,
         sucursalId: true,
-        role: {
+        rol: {
           select: {
-            rol: true,
+            nombre: true,
           },
         },
         sucursal: {
@@ -104,7 +104,7 @@ router.get('/me', authenticateToken, async (req: AuthRequest, res: Response) => 
       user: {
         id: user.id,
         username: user.username,
-        role: user.role?.rol,
+        role: user.rol?.nombre,
         sucursal: user.sucursal?.nombre,
       },
     });
