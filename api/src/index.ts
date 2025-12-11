@@ -5,6 +5,10 @@ import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import ordersRouter from './routes/orders';
 import authRouter from './routes/auth';
+import usersRouter from './routes/users';
+import rolesRouter from './routes/roles';
+import sucursalesRouter from './routes/sucursales';
+import configRouter from './routes/config';
 import prisma from './prismaClient';
 
 const app = express();
@@ -35,6 +39,10 @@ app.get('/health', (req, res) => res.json({ ok: true }));
 
 app.use('/auth', authRouter);
 app.use('/orders', ordersRouter);
+app.use('/users', usersRouter);
+app.use('/roles', rolesRouter);
+app.use('/sucursales', sucursalesRouter);
+app.use('/config', configRouter);
 
 app.listen(port, async () => {
   console.log(`API listening on http://localhost:${port}`);

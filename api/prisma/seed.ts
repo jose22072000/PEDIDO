@@ -9,11 +9,11 @@ const adapter = new PrismaBetterSqlite3({ url: dbPath });
 const prisma = new PrismaClient({ adapter });
 
 async function main() {
-  // Ensure the Roles contains the three default roles.
+  // Ensure the Roles contains the default roles.
   const roles = [
-    { nombre: 'user' },
-    { nombre: 'admin' },
-    { nombre: 'supervisor' },
+    { nombre: 'Administrador' },
+    { nombre: 'Vendedor' },
+    { nombre: 'Usuario' },
   ];
 
   for (const role of roles) {
@@ -26,12 +26,12 @@ async function main() {
 
   console.log('Seeded roles:', roles.map(r => r.nombre).join(', '));
 
-  // Create default admin user with password '123456' and role 'admin'
+  // Create default admin user with password '123456' and role 'Administrador'
   const adminPassword = '123456';
   const hashed = await bcrypt.hash(adminPassword, 10);
 
-  // Find admin role id
-  const adminRole = await prisma.rol.findFirst({ where: { nombre: 'admin' } });
+  // Find Administrador role id
+  const adminRole = await prisma.rol.findFirst({ where: { nombre: 'Administrador' } });
 
   await prisma.usuario.upsert({
     where: { username: 'admin' },

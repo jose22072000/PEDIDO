@@ -80,9 +80,9 @@ const estadoColors: Record<string, "success" | "warning" | "danger"> = {
 };
 
 const estadoLabels: Record<string, string> = {
-  completada: "Completada",
+  completada: "Completado",
   en_proceso: "En Proceso",
-  expirada: "Expirada",
+  expirada: "Expirado",
 };
 
 export const OrdersList = ({ estado = "en_proceso" }: { estado?: string }) => {

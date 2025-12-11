@@ -15,3 +15,21 @@
 .drag-drop-file-uploader span {
     display: none !important;
 }
+
+@layer base {
+  :root {
+    --chart-1: hsl(var(--heroui-primary));
+    --chart-2: hsl(var(--heroui-secondary));
+    --chart-3: hsl(var(--heroui-success));
+    --chart-4: hsl(var(--heroui-warning));
+    --chart-5: hsl(var(--heroui-danger));
+  }
+
+  .dark {
+    --chart-1: hsl(var(--heroui-primary));
+    --chart-2: hsl(var(--heroui-secondary));
+    --chart-3: hsl(var(--heroui-success));
+    --chart-4: hsl(var(--heroui-warning));
+    --chart-5: hsl(var(--heroui-danger));
+  }
+}

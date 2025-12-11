@@ -2,30 +2,22 @@ import { Route, Routes } from "react-router-dom";
 import { useEffect } from "react";
 import { Spinner } from "@heroui/react";
 
-import CatalogoProductosPage from "./pages/productos/catalogo";
-import GruposProductosPage from "./pages/productos/gestion-grupos";
-import ProveedoresProductosPage from "./pages/productos/gestion-proveedor";
 import PedidosPanelPage from "./pages/pedidos/panel-pedidos";
 import NuevoPedidoPage from "./pages/pedidos/nuevo-pedido";
-import ContactosPanelPage from "./pages/contactos/panel-contactos";
-import NegociosPanelPage from "./pages/negocios/panel";
-import NegociosAsignadosPage from "./pages/negocios/asignados";
-import NuevoNegocioPage from "./pages/negocios/nuevo";
-import SucursalesPanelPage from "./pages/sucursales/panel";
-import NuevaSucursalPage from "./pages/sucursales/nuevo";
-import VisualizarSucursalPage from "./pages/sucursales/visualizar";
-import ReportesSucursalPage from "./pages/sucursales/reportes";
 import PedidoProcesoPage from "./pages/pedidos/pedido-proceso";
 import PedidoCompletadoPage from "./pages/pedidos/pedido-completados";
 import PedidoExpiradosPage from "./pages/pedidos/pedido-expirados";
+import UsuariosPanelPage from "./pages/usuarios/panel-usuarios";
+import NuevoUsuarioPage from "./pages/usuarios/nuevo-usuario";
+import ListaUsuariosPage from "./pages/usuarios/lista-usuarios";
+import ConfiguracionPage from "./pages/configuracion/configuracion";
 
 import ProtectedRoute from "@/components/ProtectedRoute";
-import ProductosPanelPage from "@/pages/productos/panel-productos";
+import AdminRoute from "@/components/AdminRoute";
 import SincronizacionPage from "@/pages/sincronizacion";
-import PanelPage from "@/pages/panel";
-import ResetPasswordPage from "@/pages/reset-password";
-import ForgotPasswordPage from "@/pages/forgot-password";
+import PanelPageWrapper from "@/pages/panel-wrapper";
 import LoginPage from "@/pages/login";
+import UnauthorizedPage from "@/pages/unauthorized";
 import { useAuthStore } from "@/stores/authStore";
 
 function App() {
@@ -47,10 +39,11 @@ function App() {
     <Routes>
       {/* Rutas públicas (autenticación) */}
       <Route element={<LoginPage />} path="/" />
+      <Route element={<UnauthorizedPage />} path="/unauthorized" />
 
       {/* Rutas protegidas */}
       <Route element={<ProtectedRoute />}>
-        <Route element={<PanelPage />} path="/panel" />
+        <Route element={<PanelPageWrapper />} path="/panel" />
         <Route element={<SincronizacionPage />} path="/panel/sincronizacion" />
 
         {/* Pedidos */}
@@ -71,6 +64,25 @@ function App() {
           element={<PedidoExpiradosPage />}
           path="/panel/panel-pedidos/pedido-expirados"
         />
+      </Route>
+
+      {/* Rutas protegidas solo para Administrador */}
+      <Route element={<ProtectedRoute />}>
+        <Route element={<AdminRoute />}>
+          {/* Usuarios */}
+          <Route element={<UsuariosPanelPage />} path="/panel/panel-usuarios" />
+          <Route
+            element={<NuevoUsuarioPage />}
+            path="/panel/panel-usuarios/nuevo"
+          />
+          <Route
+            element={<ListaUsuariosPage />}
+            path="/panel/panel-usuarios/lista"
+          />
+
+          {/* Configuración */}
+          <Route element={<ConfiguracionPage />} path="/panel/configuracion" />
+        </Route>
       </Route>
     </Routes>
   );

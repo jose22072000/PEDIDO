@@ -358,4 +358,113 @@ async function processOrderRecord(record: OrderRecordDto, results: any) {
   }
 }
 
+// Get dashboard statistics
+router.get('/stats', async (req, res) => {
+  try {
+    const now = new Date();
+
+    // Total de pedidos (sin importar estado)
+    const totalPedidos = await prisma.pedido.count();
+
+    // Pedidos completados
+    const pedidosCompletados = await prisma.pedido.count({
+      where: {
+        estado: 'completada'
+      }
+    });
+
+    // Pedidos en proceso (no completados y no expirados)
+    const pedidosEnProceso = await prisma.pedido.count({
+      where: {
+        OR: [
+          { estado: null },
+          { estado: { not: 'completada' } }
+        ],
+        AND: [
+          {
+            OR: [
+              { fecha_comprometida: null },
+              { fecha_comprometida: { gte: now } }
+            ]
+          }
+        ]
+      }
+    });
+
+    // Pedidos expirados (no completados y con fecha vencida)
+    const pedidosExpirados = await prisma.pedido.count({
+      where: {
+        OR: [
+          { estado: null },
+          { estado: { not: 'completada' } }
+        ],
+        AND: [
+          {
+            fecha_comprometida: { lt: now }
+          }
+        ]
+      }
+    });
+
+    // Estadísticas mensuales
+    const allOrders = await prisma.pedido.findMany({
+      select: {
+        fecha_comprometida: true,
+        estado: true
+      }
+    });
+
+    // Agrupar por año y mes
+    const monthlyStatsMap = new Map<string, { total: number; completed: number }>();
+    const yearsSet = new Set<number>();
+
+    allOrders.forEach(order => {
+      if (order.fecha_comprometida) {
+        const date = new Date(order.fecha_comprometida);
+        const year = date.getFullYear();
+        const month = date.getMonth() + 1; // 1-12
+        const key = `${year}-${month}`;
+
+        yearsSet.add(year);
+
+        if (!monthlyStatsMap.has(key)) {
+          monthlyStatsMap.set(key, { total: 0, completed: 0 });
+        }
+
+        const stats = monthlyStatsMap.get(key)!;
+        stats.total++;
+        if (order.estado === 'completada') {
+          stats.completed++;
+        }
+      }
+    });
+
+    // Convertir a array
+    const monthlyStats = Array.from(monthlyStatsMap.entries()).map(([key, stats]) => {
+      const [year, month] = key.split('-').map(Number);
+      return {
+        year,
+        month,
+        total: stats.total,
+        completed: stats.completed
+      };
+    });
+
+    // Años disponibles ordenados descendente
+    const availableYears = Array.from(yearsSet).sort((a, b) => b - a);
+
+    return res.json({
+      totalPedidos,
+      pedidosCompletados,
+      pedidosEnProceso,
+      pedidosExpirados,
+      monthlyStats,
+      availableYears
+    });
+  } catch (error) {
+    console.error('Get stats error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 export default router;

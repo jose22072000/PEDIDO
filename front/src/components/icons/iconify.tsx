@@ -997,7 +997,7 @@ export function SolarCloseCircleBold(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-export function SolarUserCircleBold(props: SVGProps<SVGSVGElement>) {
+export function TablerUserSquareRounded(props: SVGProps<SVGSVGElement>) {
   return (
     <svg
       height={24}
@@ -1006,19 +1006,17 @@ export function SolarUserCircleBold(props: SVGProps<SVGSVGElement>) {
       xmlns="http://www.w3.org/2000/svg"
       {...props}
     >
-      <path
-        d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10s10-4.477 10-10S17.523 2 12 2"
-        fill="currentColor"
-        opacity={0.5}
-      />
-      <path
-        d="M15.5 10a3.5 3.5 0 1 1-7 0a3.5 3.5 0 0 1 7 0"
-        fill="currentColor"
-      />
-      <path
-        d="M19.5 18.169c0-.493-.181-.972-.5-1.326c-.802-.887-2.059-1.656-3.65-2.139c-1.558-.473-3.463-.704-5.35-.704s-3.792.231-5.35.704c-1.591.483-2.848 1.252-3.65 2.139c-.319.354-.5.833-.5 1.326C3.99 20.263 7.683 22 12 22s8.01-1.737 8.5-3.831"
-        fill="currentColor"
-      />
+      <g
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+      >
+        <path d="M12 13a3 3 0 1 0 0-6a3 3 0 0 0 0 6" />
+        <path d="M12 3c7.2 0 9 1.8 9 9s-1.8 9-9 9s-9-1.8-9-9s1.8-9 9-9" />
+        <path d="M6 20.05V20a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v.05" />
+      </g>
     </svg>
   );
 }
@@ -1161,7 +1159,7 @@ const Icons = {
   panel: SolarLibraryBold,
   search: SolarMagnifierLinear,
   close: SolarCloseCircleBold,
-  user: SolarUserCircleBold,
+  user: TablerUserSquareRounded,
 };
 
 export default Icons;
