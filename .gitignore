@@ -1,0 +1,51 @@
+# Dependencias
+node_modules/
+package-lock.json
+
+# Compilados (mantener en desarrollo, ignorar en produccion)
+api/dist/
+front/dist/
+
+# Carpetas de servicio (generadas por build-all.bat)
+service-api/
+service-front/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Variables de entorno
+.env
+.env.local
+.env.production
+.env.development
+
+# Base de datos SQLite
+*.db
+*.db-journal
+!api/prisma/dev.db
+
+# Temporales
+temp/
+tmp/
+uploads/temp/
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# PM2
+.pm2/
+pids/
+*.pid
+*.seed
+*.pid.lock

@@ -1,0 +1,20 @@
+# Archivos de desarrollo (no distribuir)
+src/
+*.ts
+tsconfig.json
+.env.local
+.env.development
+
+# Node modules
+node_modules/
+
+# Logs
+logs/
+*.log
+
+# Variables de entorno sensibles
+.env.production.local
+
+# Temporal
+temp/
+tmp/
