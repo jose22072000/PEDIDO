@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import { NavigationHeading } from "@/components/navigation-heading";
 import ActionCard from "@/components/action-card";
-import { API_BASE_URL } from "@/config";
+import { getApiBaseUrl } from "@/config";
 import { useDashboard } from "@/providers/DashboardProvider";
 import { KPICard } from "@/components/dashboard/KPICard";
 import { LineChartCard } from "@/components/dashboard/LineChartCard";
@@ -29,7 +29,7 @@ export default function PanelPage() {
   const fetchSucursalConfig = async () => {
     try {
       // Obtener la configuración
-      const configResponse = await fetch(`${API_BASE_URL}/config`, {
+      const configResponse = await fetch(`${getApiBaseUrl()}/config`, {
         credentials: "include",
       });
 
@@ -39,7 +39,7 @@ export default function PanelPage() {
         if (config.sucursalId) {
           // Obtener el nombre de la sucursal
           const sucursalResponse = await fetch(
-            `${API_BASE_URL}/sucursales/${config.sucursalId}`,
+            `${getApiBaseUrl()}/sucursales/${config.sucursalId}`,
             {
               credentials: "include",
             },

@@ -14,7 +14,7 @@ import { useNavigate } from "react-router-dom";
 import Icons from "../icons/iconify";
 
 import { cards } from "@/components/primitives";
-import { API_BASE_URL } from "@/config";
+import { getApiBaseUrl } from "@/config";
 
 interface Rol {
   id: string;
@@ -67,7 +67,7 @@ export const NuevoUsuarioForm = () => {
 
   const fetchRoles = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/roles`, {
+      const response = await fetch(`${getApiBaseUrl()}/roles`, {
         credentials: "include",
       });
 
@@ -83,7 +83,7 @@ export const NuevoUsuarioForm = () => {
 
   const fetchSucursales = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/sucursales`, {
+      const response = await fetch(`${getApiBaseUrl()}/sucursales`, {
         credentials: "include",
       });
 
@@ -102,7 +102,7 @@ export const NuevoUsuarioForm = () => {
     setError(null);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/users`, {
+      const response = await fetch(`${getApiBaseUrl()}/users`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

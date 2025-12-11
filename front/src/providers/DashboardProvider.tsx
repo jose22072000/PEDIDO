@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState } from "react";
 
-import { API_BASE_URL } from "@/config";
+import { getApiBaseUrl } from "@/config";
 
 interface MonthlyStats {
   year: number;
@@ -44,8 +44,8 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
 
       const yearParam = year ?? selectedYear;
       const url = yearParam
-        ? `${API_BASE_URL}/orders/stats?year=${yearParam}`
-        : `${API_BASE_URL}/orders/stats`;
+        ? `${getApiBaseUrl()}/orders/stats?year=${yearParam}`
+        : `${getApiBaseUrl()}/orders/stats`;
 
       const response = await fetch(url, {
         credentials: "include",

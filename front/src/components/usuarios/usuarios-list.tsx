@@ -22,7 +22,7 @@ import { useEffect, useState } from "react";
 import Icons from "../icons/iconify";
 
 import { cards } from "@/components/primitives";
-import { API_BASE_URL } from "@/config";
+import { getApiBaseUrl } from "@/config";
 import { useAuthStore } from "@/stores/authStore";
 
 interface Usuario {
@@ -56,7 +56,7 @@ export const UsuariosList = () => {
     setError(null);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/users`, {
+      const response = await fetch(`${getApiBaseUrl()}/users`, {
         credentials: "include",
       });
 
@@ -79,7 +79,7 @@ export const UsuariosList = () => {
     setError(null);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/users/${id}`, {
+      const response = await fetch(`${getApiBaseUrl()}/users/${id}`, {
         method: "DELETE",
         credentials: "include",
       });

@@ -22,7 +22,7 @@ module.exports = {
     {
       name: 'procavar-frontend',
       script: "C:\\nvm4w\\nodejs\\node_modules\\serve\\build\\main.js",
-      args: ['dist', '--single', '--listen', 'tcp://0.0.0.0:5000'],
+      args: ['dist', '--single', '--listen', '5000'],
       cwd: './front',
       instances: 1,
       autorestart: true,

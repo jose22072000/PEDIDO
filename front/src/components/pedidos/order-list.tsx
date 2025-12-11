@@ -22,7 +22,7 @@ import { cards } from "../primitives";
 import Icons from "../icons/iconify";
 
 import { cn } from "@/lib/utils";
-import { API_BASE_URL } from "@/config";
+import { getApiBaseUrl } from "@/config";
 
 interface OrderItem {
   id: string;
@@ -140,7 +140,7 @@ export const OrdersList = () => {
           params.append("search", debouncedSearch);
         }
 
-        const response = await fetch(`${API_BASE_URL}/orders?${params}`, {
+        const response = await fetch(`${getApiBaseUrl()}/orders?${params}`, {
           credentials: "include",
           signal: abortControllerRef.current.signal,
         });
@@ -170,7 +170,7 @@ export const OrdersList = () => {
     async (orderId: string) => {
       try {
         const response = await fetch(
-          `${API_BASE_URL}/orders/${orderId}/completar`,
+          `${getApiBaseUrl()}/orders/${orderId}/completar`,
           {
             method: "PATCH",
             credentials: "include",

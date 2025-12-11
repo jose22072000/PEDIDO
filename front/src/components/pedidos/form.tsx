@@ -13,7 +13,7 @@ import { FileUploader } from "react-drag-drop-files";
 import Papa from "papaparse";
 
 import Icons from "../icons/iconify";
-import { API_BASE_URL } from "@/config";
+import { getApiBaseUrl } from "@/config";
 
 const fileTypes: string[] = ["CSV"];
 
@@ -91,7 +91,7 @@ export default function CrearPedidoForm() {
         for (let i = 0; i < batches.length; i++) {
           setCurrentFile(`${file.name} - Lote ${i + 1}/${batches.length}`);
 
-          const response = await fetch(`${API_BASE_URL}/orders/bulk`, {
+          const response = await fetch(`${getApiBaseUrl()}/orders/bulk`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",

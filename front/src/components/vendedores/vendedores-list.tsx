@@ -20,7 +20,7 @@ import { cards } from "../primitives";
 import Icons from "../icons/iconify";
 
 import { cn } from "@/lib/utils";
-import { API_BASE_URL } from "@/config";
+import { getApiBaseUrl } from "@/config";
 
 interface Vendedor {
   id: string;
@@ -61,7 +61,7 @@ export const VendedoresList = () => {
     setError(null);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/vendedores`, {
+      const response = await fetch(`${getApiBaseUrl()}/vendedores`, {
         credentials: "include",
       });
 
@@ -85,7 +85,7 @@ export const VendedoresList = () => {
       setIsLoadingStats(true);
       try {
         const response = await fetch(
-          `${API_BASE_URL}/vendedores/${vendedorId}/stats?year=${year}`,
+          `${getApiBaseUrl()}/vendedores/${vendedorId}/stats?year=${year}`,
           {
             credentials: "include",
           },

@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-import { API_BASE_URL } from "@/config";
+import { getApiBaseUrl } from "@/config";
 
 interface UserData {
   id: string;
@@ -46,7 +46,7 @@ export const useAuthStore = create<AuthState>()(
           set({ isLoading: true });
 
           // Verificar si hay sesión válida consultando /auth/me
-          const response = await fetch(`${API_BASE_URL}/auth/me`, {
+          const response = await fetch(`${getApiBaseUrl()}/auth/me`, {
             credentials: "include",
           });
 
@@ -98,7 +98,7 @@ export const useAuthStore = create<AuthState>()(
 
       login: async (username: string, password: string) => {
         try {
-          const response = await fetch(`${API_BASE_URL}/auth/login`, {
+          const response = await fetch(`${getApiBaseUrl()}/auth/login`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             credentials: "include",
@@ -137,7 +137,7 @@ export const useAuthStore = create<AuthState>()(
 
       logout: async () => {
         try {
-          const response = await fetch(`${API_BASE_URL}/auth/logout`, {
+          const response = await fetch(`${getApiBaseUrl()}/auth/logout`, {
             method: "POST",
             credentials: "include",
           });

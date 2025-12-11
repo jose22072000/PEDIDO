@@ -19,7 +19,7 @@ import { useForm } from "react-hook-form";
 import Icons from "../icons/iconify";
 
 import { cards } from "@/components/primitives";
-import { API_BASE_URL } from "@/config";
+import { getApiBaseUrl } from "@/config";
 
 interface Sucursal {
   id: string;
@@ -61,7 +61,7 @@ export const ConfiguracionForm = () => {
     setIsLoading(true);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/config`, {
+      const response = await fetch(`${getApiBaseUrl()}/config`, {
         credentials: "include",
       });
 
@@ -85,7 +85,7 @@ export const ConfiguracionForm = () => {
 
   const fetchSucursales = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/sucursales`, {
+      const response = await fetch(`${getApiBaseUrl()}/sucursales`, {
         credentials: "include",
       });
 
@@ -110,7 +110,7 @@ export const ConfiguracionForm = () => {
     setError(null);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/config`, {
+      const response = await fetch(`${getApiBaseUrl()}/config`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -141,7 +141,7 @@ export const ConfiguracionForm = () => {
     setError(null);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/sucursales`, {
+      const response = await fetch(`${getApiBaseUrl()}/sucursales`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

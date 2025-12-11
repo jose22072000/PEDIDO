@@ -7,7 +7,8 @@ import type {
 } from "@/domain";
 
 import { getAll, put, getById, del } from "../db";
-import { API_BASE_URL } from "@/config";
+import { getApiBaseUrl } from "@/config";
+
 const MAX_ATTEMPTS = 5;
 const BACKOFF_BASE = 2000;
 
@@ -21,8 +22,8 @@ export async function pullChanges(): Promise<void> {
     const lastToken = syncState?.lastSyncToken;
 
     const url = lastToken
-      ? `${API_BASE_URL}/sync/pull?token=${lastToken}`
-      : `${API_BASE_URL}/sync/pull`;
+      ? `${getApiBaseUrl()}/sync/pull?token=${lastToken}`
+      : `${getApiBaseUrl()}/sync/pull`;
 
     const response = await fetch(url, {
       headers: {
@@ -71,7 +72,7 @@ export async function pushQueue(): Promise<void> {
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/sync/push`, {
+      const response = await fetch(`${getApiBaseUrl()}/sync/push`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

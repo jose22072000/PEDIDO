@@ -20,7 +20,7 @@ import { cards } from "../primitives";
 import Icons from "../icons/iconify";
 
 import { cn } from "@/lib/utils";
-import { API_BASE_URL } from "@/config";
+import { getApiBaseUrl } from "@/config";
 
 interface Cliente {
   id: string;
@@ -82,7 +82,7 @@ export const ClientesList = () => {
           params.append("search", debouncedSearch);
         }
 
-        const response = await fetch(`${API_BASE_URL}/clientes?${params}`, {
+        const response = await fetch(`${getApiBaseUrl()}/clientes?${params}`, {
           credentials: "include",
           signal: abortControllerRef.current.signal,
         });
