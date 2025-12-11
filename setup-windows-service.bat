@@ -57,123 +57,47 @@ if %ERRORLEVEL% NEQ 0 (
 
 echo.
 echo [3/12] Activando Node.js v22.20.0...
-echo Por favor espera, configurando entorno de Node.js...
+call nvm use 22.20.0
 
-REM Usar nvm directamente sin call puede causar problemas
-for /f "tokens=*" %%i in ('where nvm') do set NVM_PATH=%%i
-nvm use 22.20.0 2>nul
-
-REM Esperar para que NVM configure el PATH
-timeout /t 3 /nobreak >nul
-
-echo.
-echo Verificando instalacion de Node.js...
-
-REM Intentar varias veces porque NVM puede tardar en actualizar el PATH
-set RETRY=0
-:CHECK_NODE
-node --version >nul 2>nul
-if %ERRORLEVEL% EQU 0 goto NODE_OK
-
-set /a RETRY+=1
-if %RETRY% GTR 5 goto NODE_FAIL
-
-echo Reintentando verificacion de Node.js... (intento %RETRY%/5)
+REM Esperar a que NVM configure el entorno
 timeout /t 2 /nobreak >nul
-goto CHECK_NODE
 
-:NODE_FAIL
 echo.
-echo ERROR: Node.js no esta disponible despues de activar NVM
-echo.
-echo SOLUCIONES POSIBLES:
-echo 1. Ejecuta este script como Administrador
-echo 2. Cierra y reabre la ventana de comandos
-echo 3. Ejecuta manualmente: nvm use 22.20.0
-echo.
-pause
-exit /b 1
-
-:NODE_OK
+echo Verificando Node.js...
 node --version
-
 npm --version
-if %ERRORLEVEL% NEQ 0 (
-    echo ERROR: NPM no esta disponible
-    pause
-    exit /b 1
-)
 
 echo.
 echo [4/12] Instalando herramientas globales...
 echo Instalando PM2...
-npm install -g pm2
-if %ERRORLEVEL% NEQ 0 (
-    echo ERROR: Fallo la instalacion de PM2
-    pause
-    exit /b 1
-)
+call npm install -g pm2
 
 echo Instalando pm2-windows-startup...
-npm install -g pm2-windows-startup
-if %ERRORLEVEL% NEQ 0 (
-    echo ADVERTENCIA: Fallo la instalacion de pm2-windows-startup
-)
+call npm install -g pm2-windows-startup
 
 echo Instalando serve...
-npm install -g serve
-if %ERRORLEVEL% NEQ 0 (
-    echo ERROR: Fallo la instalacion de serve
-    pause
-    exit /b 1
-)
+call npm install -g serve
 
 echo.
 echo [5/12] Configurando PM2 para iniciar con Windows...
-pm2-startup install
-if %ERRORLEVEL% NEQ 0 (
-    echo ADVERTENCIA: Fallo la configuracion de PM2 startup
-    echo Puedes configurarlo manualmente mas tarde
-)
+call pm2-startup install
 
 echo.
 echo [6/12] Compilando API (Backend)...
 cd /d "%~dp0api"
-npm install
-if %ERRORLEVEL% NEQ 0 (
-    echo ERROR: Fallo npm install en API
-    pause
-    exit /b 1
-)
-
-npx -y prisma generate
-npx -y prisma migrate deploy
-npx -y prisma db seed
-npm run build
-if %ERRORLEVEL% NEQ 0 (
-    echo ERROR: Fallo la compilacion de la API
-    pause
-    exit /b 1
-)
+call npm install
+call npx -y prisma generate
+call npx -y prisma migrate deploy
+call npx -y prisma db seed
+call npm run build
 
 cd /d "%~dp0"
 
 echo.
 echo [7/12] Compilando Frontend...
 cd /d "%~dp0front"
-npm install
-if %ERRORLEVEL% NEQ 0 (
-    echo ERROR: Fallo npm install en Frontend
-    pause
-    exit /b 1
-)
-
-npm run build
-if %ERRORLEVEL% NEQ 0 (
-    echo ERROR: Fallo la compilacion del Frontend
-    pause
-    exit /b 1
-)
+call npm install
+call npm run build
 
 cd /d "%ROOT_DIR%"
 
@@ -218,12 +142,7 @@ xcopy /E /I /Y "%ROOT_DIR%front\dist" "%ROOT_DIR%service-front\dist" >nul
 echo.
 echo [9/12] Instalando dependencias de produccion para API...
 cd /d "%ROOT_DIR%service-api"
-npm install --production --silent
-if %ERRORLEVEL% NEQ 0 (
-    echo ERROR: Fallo instalacion de dependencias
-    pause
-    exit /b 1
-)
+call npm install --production --silent
 
 cd /d "%ROOT_DIR%"
 
@@ -286,19 +205,13 @@ echo [12/12] Configurando e iniciando servicios con PM2...
 echo ----------------------------------------
 
 REM Detener servicios previos si existen
-pm2 delete all 2>nul
+call pm2 delete all 2>nul
 
 REM Iniciar con PM2
-pm2 start ecosystem.config.js
-if %ERRORLEVEL% NEQ 0 (
-    echo.
-    echo ADVERTENCIA: PM2 fallo. Puedes iniciar manualmente con start-all.bat
-    echo.
-    goto :FINISH
-)
+call pm2 start ecosystem.config.js
 
 REM Guardar configuracion PM2
-pm2 save
+call pm2 save
 
 echo.
 echo Servicios iniciados con PM2 correctamente.
