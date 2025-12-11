@@ -10,7 +10,10 @@ module.exports = {
       max_memory_restart: '500M',
       env: {
         NODE_ENV: 'production',
-        PORT: 8400
+        PORT: 8400,
+        DATABASE_URL: 'file:./prisma/dev.db',
+        JWT_SECRET: 'JFBOASOIDHBAUcioaboscboaishghebrfgiOPHGHFPAOISGHDB',
+        CORS_ORIGIN: '*'
       },
       error_file: './logs/api-error.log',
       out_file: './logs/api-out.log',
@@ -18,8 +21,8 @@ module.exports = {
     },
     {
       name: 'procavar-frontend',
-      script: 'npx',
-      args: 'serve -s dist -l 5000',
+      script: 'C:\\Windows\\System32\\cmd.exe',
+      args: '/c serve -s dist -l 5000',
       cwd: './service-front',
       instances: 1,
       autorestart: true,
