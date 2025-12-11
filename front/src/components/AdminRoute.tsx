@@ -7,7 +7,7 @@ interface AdminRouteProps {
 }
 
 export default function AdminRoute({
-  allowedRoles = ["admin"],
+  allowedRoles = ["Administrador"],
 }: AdminRouteProps) {
   const { user, isAuthenticated, isLoading } = useAuthStore();
 

@@ -182,7 +182,7 @@ export const OrdersList = ({ estado = "en_proceso" }: { estado?: string }) => {
 
     const vendedorNombre = selectedOrder.vendedor?.nombre || "Sin vendedor";
     const clienteNombre = selectedOrder.cliente?.nombre || "Sin cliente";
-    const text = `Pedido: V-${vendedorNombre}; C-${clienteNombre}.`;
+    const text = `P-${selectedOrder.id}; V-${vendedorNombre}; C-${clienteNombre};`;
 
     navigator.clipboard.writeText(text).then(() => {
       setIsModalCopied(true);
@@ -299,7 +299,7 @@ export const OrdersList = ({ estado = "en_proceso" }: { estado?: string }) => {
                           order.vendedor?.nombre || "Sin vendedor";
                         const clienteNombre =
                           order.cliente?.nombre || "Sin cliente";
-                        const text = `Pedido: V-${vendedorNombre}; C-${clienteNombre}.`;
+                        const text = `P-${order.id}; V-${vendedorNombre}; C-${clienteNombre};`;
 
                         navigator.clipboard.writeText(text).then(() => {
                           setCopiedOrderId(order.id);

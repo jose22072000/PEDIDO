@@ -27,7 +27,7 @@ async function main() {
   console.log('Seeded roles:', roles.map(r => r.nombre).join(', '));
 
   // Create default admin user with password '123456' and role 'Administrador'
-  const adminPassword = '123456';
+  const adminPassword = 'Master.123';
   const hashed = await bcrypt.hash(adminPassword, 10);
 
   // Find Administrador role id

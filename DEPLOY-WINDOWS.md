@@ -1,93 +1,51 @@
 # Procavar Pedidos - Guía de Despliegue en Windows
 
-## 🚀 Instalación Rápida (Recomendado)
+## 🚀 Instalación Automática (Recomendado)
 
-### Paso 1: Compilar el sistema
+### Instalación completa en un solo paso
 
-Ejecutar `build-all.bat` - Compila tanto API como Frontend a JavaScript puro.
+**Ejecuta como Administrador** (clic derecho → "Ejecutar como administrador"):
 
 ```bash
-build-all.bat
+setup-windows-service.bat
 ```
 
-Esto genera:
+Este script hace **TODO** automáticamente:
+1. ✅ Verifica e instala NVM y Node.js v22.20.0
+2. ✅ Instala herramientas globales (PM2, serve)
+3. ✅ Compila la API con Prisma (migraciones y seed)
+4. ✅ Compila el Frontend
+5. ✅ Crea carpetas de producción (service-api, service-front)
+6. ✅ Copia archivos compilados
+7. ✅ Instala dependencias de producción
+8. ✅ Crea script `start-all.bat` para inicio manual
+9. ✅ Pregunta si deseas eliminar el código fuente (protección)
+10. ✅ Configura PM2 para iniciar con Windows
+11. ✅ Inicia los servicios automáticamente
 
-- `api\dist\` - Backend compilado (protegido)
-- `front\dist\` - Frontend compilado (protegido)
+**URLs después de la instalación:**
+- **API**: http://localhost:8400
+- **Frontend**: http://localhost:5000
 
-### Paso 2: Elegir método de ejecución
+**Usuario por defecto:**
+- Username: `admin`
+- Password: `123456`
 
-**Opción A: Scripts simples**
+---
+
+## Inicio Manual del Sistema
+
+Si no usas PM2, puedes iniciar los servicios manualmente:
 
 ```bash
 start-all.bat
 ```
 
-**Opción B: Servicio de Windows con PM2** (recomendado)
-
-```bash
-# Ejecutar como Administrador
-setup-windows-service.bat
-```
+Este script inicia ambos servicios en ventanas separadas minimizadas.
 
 ---
 
-## Opción 1: Ejecución con Scripts BAT (Producción)
-
-### Compilación inicial
-
-1. **Compilar todo el sistema:**
-
-   ```bash
-   build-all.bat
-   ```
-
-2. **O compilar individualmente:**
-
-   ```bash
-   # API
-   cd api
-   build-api.bat
-   
-   # Frontend
-   cd front
-   build-frontend.bat
-   ```
-
-### Inicio del sistema
-
-Ejecutar `start-all.bat` - Inicia API y Frontend compilados
-
-- **API**: <http://localhost:8400> (código compilado en `api\dist`)
-- **Frontend**: <http://localhost:5000> (código compilado en `front\dist`)
-
-### Scripts individuales
-
-#### API (Backend compilado)
-
-```bash
-cd api
-start-api.bat
-```
-
-#### Frontend (Build compilado)
-
-```bash
-cd front
-start-frontend.bat
-```
-
----
-
-## Opción 2: Servicio de Windows con PM2 (Recomendado para Producción)
-
-### Instalación inicial (ejecutar como Administrador)
-
-1. Ejecutar `setup-windows-service.bat` como Administrador
-   - Instala PM2 y dependencias
-   - Configura inicio automático con Windows
-   - Compila el frontend
-   - Inicia los servicios
+## Gestión con PM2
 
 ### Comandos útiles de PM2
 
@@ -116,30 +74,32 @@ pm2 start ecosystem.config.js
 
 # Eliminar aplicaciones de PM2
 pm2 delete all
-```
 
-### URLs de acceso
-- **API**: http://localhost:8400
-- **Frontend**: http://localhost:5000
+# Guardar configuración (importante después de cambios)
+pm2 save
+```
 
 ---
 
-## Opción 3: Servidor Web (IIS)
+## Opción 3: Servidor Web con IIS
 
 ### Frontend con IIS
 
-1. Compilar el frontend:
+1. Compilar el frontend con `setup-windows-service.bat` o manualmente:
+
    ```bash
    cd front
+   npm install
    npm run build
    ```
 
 2. Configurar IIS:
    - Crear nuevo sitio web en IIS
-   - Apuntar la ruta física a `front\dist`
+   - Apuntar la ruta física a `service-front\dist`
    - Configurar puerto (ej: 80 o 5000)
 
-3. Crear `web.config` en `front\dist`:
+3. Crear `web.config` en `service-front\dist`:
+
    ```xml
    <?xml version="1.0" encoding="UTF-8"?>
    <configuration>
@@ -169,23 +129,27 @@ Requiere configuración adicional con iisnode o mejor usar PM2.
 ## Configuración de Variables de Entorno
 
 ### API (.env)
+
 Crear/editar `api\.env`:
+
 ```env
 PORT=8400
-DATABASE_URL="file:./dev.db"
+DATABASE_URL="file:./prisma/dev.db"
 JWT_SECRET=tu_secreto_seguro_aqui
-CORS_ORIGIN=http://localhost:5000,http://localhost:5173
+CORS_ORIGIN=*
 NODE_ENV=production
 ```
 
 ### Frontend
-Las variables ya están configuradas en `front\src\config\index.ts`
+
+Las variables ya están configuradas en `front\src\config\index.ts` con valor por defecto `http://localhost:8400`
 
 ---
 
 ## Actualización del Sistema
 
 ### Con PM2
+
 ```bash
 # Detener servicios
 pm2 stop all
@@ -194,14 +158,19 @@ pm2 stop all
 git pull
 
 # Reinstalar dependencias si es necesario
-cd api && npm install && cd ..
+cd api && npm install && npm run build && cd ..
 cd front && npm install && npm run build && cd ..
+
+# Copiar archivos compilados a service-*
+xcopy /E /I /Y front\dist service-front\dist
+xcopy /E /I /Y api\dist service-api\dist
 
 # Reiniciar servicios
 pm2 restart all
 ```
 
 ### Sin PM2
+
 Simplemente cerrar las ventanas y volver a ejecutar `start-all.bat`
 
 ---
@@ -209,17 +178,22 @@ Simplemente cerrar las ventanas y volver a ejecutar `start-all.bat`
 ## Troubleshooting
 
 ### Puerto en uso
+
 Si el puerto 8400 u otro está ocupado:
+
 - Cambiar en `api\.env` el PORT
 - Actualizar `API_BASE_URL` en `front\src\config\index.ts`
+- Recompilar frontend con `npm run build`
 
 ### PM2 no inicia con Windows
+
 ```bash
 pm2 startup
 pm2 save
 ```
 
 ### Ver logs de errores
+
 ```bash
 # Con PM2
 pm2 logs --err
@@ -233,8 +207,10 @@ Revisar las ventanas de cmd donde corren los servicios
 ## Respaldos
 
 ### Base de datos
-La base de datos SQLite está en `api\prisma\dev.db`
+
+La base de datos SQLite está en `service-api\prisma\dev.db`
 Copiar este archivo regularmente para respaldos.
 
 ### Logs (con PM2)
+
 Los logs se guardan en `logs\` (configurado en ecosystem.config.js)

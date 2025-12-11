@@ -233,6 +233,7 @@ export const ConfiguracionForm = () => {
                 label="Sucursal del Sistema"
                 placeholder="Seleccione una sucursal"
                 selectedKeys={selectedSucursal ? [selectedSucursal] : []}
+                variant="bordered"
                 onSelectionChange={(keys) => {
                   const selected = Array.from(keys)[0] as string;
 
@@ -286,7 +287,12 @@ export const ConfiguracionForm = () => {
         </div>
       </CardBody>
 
-      <Modal isOpen={isOpen} onClose={onClose}>
+      <Modal
+        isOpen={isOpen}
+        placement="center"
+        scrollBehavior="outside"
+        onClose={onClose}
+      >
         <ModalContent>
           <form onSubmit={handleSubmit(onSubmitSucursal)}>
             <ModalHeader>Crear Nueva Sucursal</ModalHeader>

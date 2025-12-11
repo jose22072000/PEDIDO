@@ -41,13 +41,33 @@ router.get('/:id/stats', async (req, res) => {
       };
     }
 
-    // Get counts by estado
-    const [totalPedidos, pedidosCompletados, pedidosEnProceso, pedidosExpirados] = await Promise.all([
-      prisma.pedido.count({ where: whereClause }),
-      prisma.pedido.count({ where: { ...whereClause, estado: 'completada' } }),
-      prisma.pedido.count({ where: { ...whereClause, estado: 'en_proceso' } }),
-      prisma.pedido.count({ where: { ...whereClause, estado: 'expirada' } })
-    ]);
+    // Get all pedidos to calculate estados dynamically
+    const allPedidos = await prisma.pedido.findMany({
+      where: whereClause,
+      select: {
+        id: true,
+        estado: true,
+        fecha_comprometida: true
+      }
+    });
+
+    const totalPedidos = allPedidos.length;
+    
+    // Calculate estados
+    let pedidosCompletados = 0;
+    let pedidosEnProceso = 0;
+    let pedidosExpirados = 0;
+    const now = new Date();
+
+    allPedidos.forEach(pedido => {
+      if (pedido.estado === 'completada') {
+        pedidosCompletados++;
+      } else if (pedido.fecha_comprometida && new Date(pedido.fecha_comprometida) < now) {
+        pedidosExpirados++;
+      } else {
+        pedidosEnProceso++;
+      }
+    });
 
     // Get available years for this vendedor
     const pedidosWithDates = await prisma.pedido.findMany({
