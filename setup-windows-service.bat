@@ -84,6 +84,7 @@ call npm install
 call npx -y prisma generate
 call npx -y prisma migrate deploy
 call npx -y prisma db seed
+call npm run reset
 call npm run build
 
 cd /d "%~dp0"

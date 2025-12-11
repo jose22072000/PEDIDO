@@ -21,8 +21,8 @@ module.exports = {
     },
     {
       name: 'procavar-frontend',
-      script: 'C:\\Windows\\System32\\cmd.exe',
-      args: '/c serve -s dist -l 5000',
+      script: 'serve',
+      args: '-s dist -l 5000',
       cwd: './service-front',
       instances: 1,
       autorestart: true,
@@ -33,7 +33,9 @@ module.exports = {
       },
       error_file: './logs/frontend-error.log',
       out_file: './logs/frontend-out.log',
-      log_date_format: 'YYYY-MM-DD HH:mm:ss Z'
+      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+      interpreter: 'node',
+      interpreter_args: ''
     }
   ]
 };
