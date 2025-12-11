@@ -18,8 +18,8 @@ module.exports = {
     },
     {
       name: 'procavar-frontend',
-      script: 'serve',
-      args: '-s dist -l 5000',
+      script: 'npx',
+      args: 'serve -s dist -l 5000',
       cwd: './service-front',
       instances: 1,
       autorestart: true,

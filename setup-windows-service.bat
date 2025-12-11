@@ -42,15 +42,10 @@ echo.
 
 echo.
 echo [2/12] Verificando Node.js v22.20.0...
-nvm list | find "22.20.0" >nul 2>nul
+call nvm list | find "22.20.0" >nul 2>nul
 if %ERRORLEVEL% NEQ 0 (
     echo Node.js v22.20.0 no encontrado. Instalando...
-    nvm install 22.20.0
-    if %ERRORLEVEL% NEQ 0 (
-        echo ERROR: Fallo la instalacion de Node.js v22.20.0
-        pause
-        exit /b 1
-    )
+    call nvm install 22.20.0
 ) else (
     echo Node.js v22.20.0 ya esta instalado: OK
 )
@@ -64,8 +59,8 @@ timeout /t 2 /nobreak >nul
 
 echo.
 echo Verificando Node.js...
-node --version
-npm --version
+call node --version 2>nul
+call npm --version 2>nul
 
 echo.
 echo [4/12] Instalando herramientas globales...
