@@ -21,13 +21,13 @@ module.exports = {
     },
     {
       name: 'procavar-frontend',
-      script: 'serve',
-      args: '-s dist -l 5000',
+      script: 'node',
+      args: 'serve -s dist -l 5000',
       cwd: './service-front',
       instances: 1,
       autorestart: true,
       watch: false,
-      max_memory_restart: '300M',
+      max_memory_restart: '1024M',
       env: {
         NODE_ENV: 'production'
       },
