@@ -1,5 +1,3 @@
-import { useEffect } from "react";
-
 import { PageBackground } from "@/components/background";
 
 export default function PanelLayout({

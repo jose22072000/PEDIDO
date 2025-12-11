@@ -5,11 +5,7 @@ import { useAuthStore } from "@/stores/authStore";
 
 export function useAuthGuard() {
   const navigate = useNavigate();
-  const { isAuthenticated, isLoading, loadSession } = useAuthStore();
-
-  useEffect(() => {
-    loadSession();
-  }, [loadSession]);
+  const { isAuthenticated, isLoading } = useAuthStore();
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {

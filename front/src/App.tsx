@@ -10,11 +10,12 @@ import PedidoExpiradosPage from "./pages/pedidos/pedido-expirados";
 import UsuariosPanelPage from "./pages/usuarios/panel-usuarios";
 import NuevoUsuarioPage from "./pages/usuarios/nuevo-usuario";
 import ListaUsuariosPage from "./pages/usuarios/lista-usuarios";
+import VendedoresPage from "./pages/vendedores/vendedores";
+import ClientesPage from "./pages/clientes/clientes";
 import ConfiguracionPage from "./pages/configuracion/configuracion";
 
 import ProtectedRoute from "@/components/ProtectedRoute";
 import AdminRoute from "@/components/AdminRoute";
-import SincronizacionPage from "@/pages/sincronizacion";
 import PanelPageWrapper from "@/pages/panel-wrapper";
 import LoginPage from "@/pages/login";
 import UnauthorizedPage from "@/pages/unauthorized";
@@ -44,7 +45,6 @@ function App() {
       {/* Rutas protegidas */}
       <Route element={<ProtectedRoute />}>
         <Route element={<PanelPageWrapper />} path="/panel" />
-        <Route element={<SincronizacionPage />} path="/panel/sincronizacion" />
 
         {/* Pedidos */}
         <Route element={<PedidosPanelPage />} path="/panel/panel-pedidos" />
@@ -64,6 +64,12 @@ function App() {
           element={<PedidoExpiradosPage />}
           path="/panel/panel-pedidos/pedido-expirados"
         />
+
+        {/* Vendedores */}
+        <Route element={<VendedoresPage />} path="/panel/trabajadores" />
+
+        {/* Clientes */}
+        <Route element={<ClientesPage />} path="/panel/clientes" />
       </Route>
 
       {/* Rutas protegidas solo para Administrador */}

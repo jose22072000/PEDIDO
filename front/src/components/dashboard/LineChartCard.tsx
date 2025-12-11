@@ -38,12 +38,13 @@ const chartConfig = {
 } satisfies ChartConfig;
 
 export function LineChartCard() {
-  const { stats, isLoading } = useDashboard();
+  const { stats, isLoading, selectedYear, setSelectedYear } = useDashboard();
   const { monthlyStats = [], availableYears = [] } = stats || {};
 
-  const [selectedYear, setSelectedYear] = useState<string>(
-    availableYears[0]?.toString() || new Date().getFullYear().toString(),
-  );
+  const displayYear =
+    selectedYear?.toString() ||
+    availableYears[0]?.toString() ||
+    new Date().getFullYear().toString();
 
   const [activeCharts, setActiveCharts] = useState<
     Set<keyof typeof chartConfig>
@@ -70,7 +71,7 @@ export function LineChartCard() {
   const chartData = useMemo(() => {
     if (!monthlyStats.length) return [];
 
-    const year = parseInt(selectedYear);
+    const year = parseInt(displayYear);
     const yearStats = monthlyStats.filter((stat) => stat.year === year);
 
     return MONTHS.map((monthName, index) => {
@@ -85,7 +86,7 @@ export function LineChartCard() {
         pending,
       };
     });
-  }, [selectedYear, monthlyStats]);
+  }, [displayYear, monthlyStats]);
 
   // Calcular totales para el año seleccionado
   const total = useMemo(
@@ -124,10 +125,14 @@ export function LineChartCard() {
             <Select
               className="w-full sm:w-40"
               label="Año"
-              selectedKeys={[selectedYear]}
+              selectedKeys={[displayYear]}
               size="sm"
               variant="bordered"
-              onChange={(e) => setSelectedYear(e.target.value)}
+              onChange={(e) => {
+                const year = parseInt(e.target.value);
+
+                setSelectedYear(year);
+              }}
             >
               {availableYears.map((year) => (
                 <SelectItem key={year.toString()} textValue={year.toString()}>

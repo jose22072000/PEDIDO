@@ -127,70 +127,77 @@ export const UsuariosList = () => {
   }
 
   return (
-    <Card className={cards()}>
-      <CardHeader className="flex gap-3">
-        <Icons.user className="size-6 text-primary" />
-        <div className="flex flex-col flex-1">
-          <p className="text-lg font-semibold">Usuarios del Sistema</p>
-          <p className="text-small text-default-500">
-            Total: {usuarios.length} usuarios
-          </p>
-        </div>
-      </CardHeader>
-      <CardBody>
-        {success && (
-          <div className="bg-success-50 border-l-4 border-success p-4 rounded mb-4">
-            <div className="flex items-center gap-2">
-              <Icons.check className="size-5 text-success" />
-              <p className="text-sm text-success-700">{success}</p>
-            </div>
+    <>
+      {success && (
+        <div className="bg-success-50 border-l-4 border-success p-4 rounded mb-4">
+          <div className="flex items-center gap-2">
+            <Icons.check className="size-5 text-success" />
+            <p className="text-sm text-success-700">{success}</p>
           </div>
-        )}
+        </div>
+      )}
 
-        <Table aria-label="Tabla de usuarios">
-          <TableHeader>
-            <TableColumn>USUARIO</TableColumn>
-            <TableColumn>ROL</TableColumn>
-            <TableColumn>SUCURSAL</TableColumn>
-            <TableColumn>FECHA CREACIÓN</TableColumn>
-            <TableColumn>ACCIONES</TableColumn>
-          </TableHeader>
-          <TableBody emptyContent="No hay usuarios registrados">
-            {usuarios.map((usuario) => (
-              <TableRow key={usuario.id}>
-                <TableCell>{usuario.username}</TableCell>
-                <TableCell>
-                  {usuario.rol ? (
-                    <Chip color="primary" size="sm" variant="flat">
-                      {usuario.rol.nombre}
-                    </Chip>
-                  ) : (
-                    <span className="text-default-400">Sin rol</span>
-                  )}
-                </TableCell>
-                <TableCell>
-                  {usuario.sucursal?.nombre || (
-                    <span className="text-default-400">Sin sucursal</span>
-                  )}
-                </TableCell>
-                <TableCell>
-                  {new Date(usuario.createdAt).toLocaleDateString()}
-                </TableCell>
-                <TableCell>
-                  <Button
-                    color="danger"
-                    isIconOnly={true}
-                    variant="flat"
-                    onPress={() => openDeleteModal(usuario)}
+      <Table
+        aria-label="Tabla de usuarios"
+        classNames={{
+          th: "bg-primary text-white text-sm font-bold",
+          tr: "hover:bg-primary/5 transition-colors",
+          td: "align-middle text-sm",
+        }}
+      >
+        <TableHeader>
+          <TableColumn>USUARIO</TableColumn>
+          <TableColumn>ROL</TableColumn>
+          <TableColumn>SUCURSAL</TableColumn>
+          <TableColumn>FECHA CREACIÓN</TableColumn>
+          <TableColumn>ACCIONES</TableColumn>
+        </TableHeader>
+        <TableBody emptyContent="No hay usuarios registrados">
+          {usuarios.map((usuario) => (
+            <TableRow key={usuario.id}>
+              <TableCell className="font-bold text-medium text-primary">
+                {usuario.username}
+              </TableCell>
+              <TableCell>
+                {usuario.rol ? (
+                  <Chip
+                    className="border-primary [&>span]:text-primary [&>span]:font-bold [&>span]:uppercase"
+                    color="primary"
+                    size="sm"
+                    variant="dot"
                   >
-                    <Icons.trash className="size-6" />
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </CardBody>
+                    {usuario.rol.nombre}
+                  </Chip>
+                ) : (
+                  <span className="text-primary font-bold uppercase">
+                    Sin rol
+                  </span>
+                )}
+              </TableCell>
+              <TableCell className="text-primary font-bold uppercase">
+                {usuario.sucursal?.nombre || (
+                  <span className="text-primary font-bold uppercase">
+                    Sin sucursal
+                  </span>
+                )}
+              </TableCell>
+              <TableCell>
+                {new Date(usuario.createdAt).toLocaleDateString()}
+              </TableCell>
+              <TableCell>
+                <Button
+                  color="danger"
+                  isIconOnly={true}
+                  variant="flat"
+                  onPress={() => openDeleteModal(usuario)}
+                >
+                  <Icons.trash className="size-6" />
+                </Button>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
 
       <Modal
         isOpen={isOpen}
@@ -239,6 +246,6 @@ export const UsuariosList = () => {
           )}
         </ModalContent>
       </Modal>
-    </Card>
+    </>
   );
 };

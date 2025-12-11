@@ -9,15 +9,23 @@ interface AdminRouteProps {
 export default function AdminRoute({
   allowedRoles = ["admin"],
 }: AdminRouteProps) {
-  const { user, isAuthenticated } = useAuthStore();
+  const { user, isAuthenticated, isLoading } = useAuthStore();
+
+  // While loading session, don't redirect — show nothing inside layout
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen" />
+    );
+  }
 
   if (!isAuthenticated) {
     return <Navigate replace to="/" />;
   }
 
   // Verificar si el usuario tiene el rol permitido
-  const hasPermission =
-    user?.role && allowedRoles.includes(user.role.toLowerCase());
+  const currentRole = user?.role ? String(user.role).toLowerCase() : undefined;
+  const normalizedAllowed = allowedRoles.map((r) => String(r).toLowerCase());
+  const hasPermission = currentRole ? normalizedAllowed.includes(currentRole) : false;
 
   if (!hasPermission) {
     return <Navigate replace to="/unauthorized" />;

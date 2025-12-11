@@ -362,14 +362,26 @@ async function processOrderRecord(record: OrderRecordDto, results: any) {
 router.get('/stats', async (req, res) => {
   try {
     const now = new Date();
+    const year = req.query.year ? parseInt(req.query.year as string) : null;
 
-    // Total de pedidos (sin importar estado)
-    const totalPedidos = await prisma.pedido.count();
+    // Condición de año si se especifica
+    const yearCondition = year ? {
+      fecha_comprometida: {
+        gte: new Date(year, 0, 1), // 1 de enero del año
+        lt: new Date(year + 1, 0, 1) // 1 de enero del siguiente año
+      }
+    } : {};
+
+    // Total de pedidos (del año seleccionado o todos)
+    const totalPedidos = await prisma.pedido.count({
+      where: yearCondition
+    });
 
     // Pedidos completados
     const pedidosCompletados = await prisma.pedido.count({
       where: {
-        estado: 'completada'
+        estado: 'completada',
+        ...yearCondition
       }
     });
 
@@ -387,7 +399,8 @@ router.get('/stats', async (req, res) => {
               { fecha_comprometida: { gte: now } }
             ]
           }
-        ]
+        ],
+        ...yearCondition
       }
     });
 
@@ -402,7 +415,8 @@ router.get('/stats', async (req, res) => {
           {
             fecha_comprometida: { lt: now }
           }
-        ]
+        ],
+        ...yearCondition
       }
     });
 
@@ -421,11 +435,11 @@ router.get('/stats', async (req, res) => {
     allOrders.forEach(order => {
       if (order.fecha_comprometida) {
         const date = new Date(order.fecha_comprometida);
-        const year = date.getFullYear();
+        const orderYear = date.getFullYear();
         const month = date.getMonth() + 1; // 1-12
-        const key = `${year}-${month}`;
+        const key = `${orderYear}-${month}`;
 
-        yearsSet.add(year);
+        yearsSet.add(orderYear);
 
         if (!monthlyStatsMap.has(key)) {
           monthlyStatsMap.set(key, { total: 0, completed: 0 });
@@ -441,9 +455,9 @@ router.get('/stats', async (req, res) => {
 
     // Convertir a array
     const monthlyStats = Array.from(monthlyStatsMap.entries()).map(([key, stats]) => {
-      const [year, month] = key.split('-').map(Number);
+      const [statsYear, month] = key.split('-').map(Number);
       return {
-        year,
+        year: statsYear,
         month,
         total: stats.total,
         completed: stats.completed

@@ -40,6 +40,13 @@ export const PanelLinks = () => {
       />
       <ActionCard
         color="primary"
+        description="Ver y gestionar clientes"
+        href="/panel/clientes"
+        icon="client"
+        title="Clientes"
+      />
+      <ActionCard
+        color="primary"
         description="Ver y gestionar proveedores"
         href="/panel/proveedores"
         icon="partners"

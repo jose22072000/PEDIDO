@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 
-import { useSyncStore } from "@/stores/syncStore";
 import { NavigationHeading } from "@/components/navigation-heading";
 import ActionCard from "@/components/action-card";
 import { API_BASE_URL } from "@/config";
@@ -18,12 +17,10 @@ interface Sucursal {
 }
 
 export default function PanelPage() {
-  const { updateStats } = useSyncStore();
   const [sucursalNombre, setSucursalNombre] = useState<string>("");
   const { stats, isLoading, refetch } = useDashboard();
 
   useEffect(() => {
-    updateStats();
     fetchSucursalConfig();
     // Refetch stats cada vez que se entre a la página
     refetch();
@@ -90,6 +87,13 @@ export default function PanelPage() {
               href="/panel/trabajadores"
               icon="workers"
               title="Vendedores"
+            />
+            <ActionCard
+              color="secondary"
+              description="Gestionar clientes del sistema"
+              href="/panel/clientes"
+              icon="client"
+              title="Clientes"
             />
             <ActionCard
               color="success"

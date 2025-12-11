@@ -45,10 +45,14 @@ router.post('/login', async (req: Request, res: Response) => {
     );
 
     // Set cookie with token
+    // Use a relaxed SameSite in development for convenience and
+    // `SameSite=None; Secure` in production to allow cross-site requests
+    // when the frontend is served from a different origin (HTTPS required).
+    const isProd = process.env.NODE_ENV === 'production';
     res.cookie('token', token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production', // HTTPS only in production
-      sameSite: 'strict',
+      secure: isProd, // HTTPS only in production
+      sameSite: isProd ? 'none' : 'lax',
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
 

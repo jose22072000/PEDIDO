@@ -22,7 +22,9 @@ interface DashboardContextType {
   stats: DashboardStats | null;
   isLoading: boolean;
   error: string | null;
-  refetch: () => Promise<void>;
+  selectedYear: number | null;
+  setSelectedYear: (year: number) => void;
+  refetch: (year?: number) => Promise<void>;
 }
 
 const DashboardContext = createContext<DashboardContextType | undefined>(
@@ -33,13 +35,19 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedYear, setSelectedYear] = useState<number | null>(null);
 
-  const fetchStats = async () => {
+  const fetchStats = async (year?: number) => {
     try {
       setIsLoading(true);
       setError(null);
 
-      const response = await fetch(`${API_BASE_URL}/orders/stats`, {
+      const yearParam = year ?? selectedYear;
+      const url = yearParam
+        ? `${API_BASE_URL}/orders/stats?year=${yearParam}`
+        : `${API_BASE_URL}/orders/stats`;
+
+      const response = await fetch(url, {
         credentials: "include",
       });
 
@@ -50,6 +58,17 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
       const data = await response.json();
 
       setStats(data);
+
+      // Si es la primera carga y no hay año seleccionado, usar el año actual
+      if (!selectedYear && data.availableYears?.length > 0) {
+        const currentYear = new Date().getFullYear();
+        // Usar el año actual si está en los años disponibles, sino usar el primero
+        const defaultYear = data.availableYears.includes(currentYear)
+          ? currentYear
+          : data.availableYears[0];
+
+        setSelectedYear(defaultYear);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error desconocido");
     } finally {
@@ -61,14 +80,28 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     fetchStats();
 
     // Actualizar cada 15 minutos (900000 ms)
-    const interval = setInterval(fetchStats, 900000);
+    const interval = setInterval(() => fetchStats(), 900000);
 
     return () => clearInterval(interval);
   }, []);
 
+  // Refetch cuando cambia el año seleccionado
+  useEffect(() => {
+    if (selectedYear !== null) {
+      fetchStats(selectedYear);
+    }
+  }, [selectedYear]);
+
   return (
     <DashboardContext.Provider
-      value={{ stats, isLoading, error, refetch: fetchStats }}
+      value={{
+        stats,
+        isLoading,
+        error,
+        selectedYear,
+        setSelectedYear,
+        refetch: fetchStats,
+      }}
     >
       {children}
     </DashboardContext.Provider>

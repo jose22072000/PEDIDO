@@ -21,8 +21,7 @@ import { cards } from "../primitives";
 import Icons from "../icons/iconify";
 
 import { cn } from "@/lib/utils";
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8400";
+import { API_BASE_URL } from "@/config";
 
 interface OrderItem {
   id: string;

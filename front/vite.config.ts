@@ -70,4 +70,15 @@ export default defineConfig({
       },
     }),
   ],
+  server: {
+    // Proxy API requests to backend to keep cookies same-origin during dev
+    proxy: {
+      "/api": {
+        target: "http://localhost:8400",
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path.replace(/^\/api/, ""),
+      },
+    },
+  },
 });

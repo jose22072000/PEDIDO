@@ -7,7 +7,7 @@ import {
   Select,
   SelectItem,
 } from "@heroui/react";
-import { useForm } from "react-hook-form";
+import { useForm, Controller } from "react-hook-form";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -55,6 +55,7 @@ export const NuevoUsuarioForm = () => {
     handleSubmit,
     formState: { errors },
     watch,
+    control,
   } = useForm<UsuarioFormData>();
 
   const password = watch("password");
@@ -226,33 +227,59 @@ export const NuevoUsuarioForm = () => {
               variant="bordered"
             />
 
-            <Select
-              {...register("rolId", {
-                required: "Seleccione un rol",
-              })}
-              errorMessage={errors.rolId?.message}
-              isInvalid={!!errors.rolId}
-              label="Rol"
-              variant="bordered"
-            >
-              {roles.map((rol) => (
-                <SelectItem key={rol.id}>{rol.nombre}</SelectItem>
-              ))}
-            </Select>
+            <Controller
+              control={control}
+              name="rolId"
+              render={({ field }) => (
+                <Select
+                  {...field}
+                  errorMessage={errors.rolId?.message}
+                  isInvalid={!!errors.rolId}
+                  label="Rol"
+                  selectedKeys={field.value ? [field.value] : []}
+                  variant="bordered"
+                  onSelectionChange={(keys) => {
+                    const value = Array.from(keys)[0] as string;
 
-            <Select
-              {...register("sucursalId", {
+                    field.onChange(value);
+                  }}
+                >
+                  {roles.map((rol) => (
+                    <SelectItem key={rol.id}>{rol.nombre}</SelectItem>
+                  ))}
+                </Select>
+              )}
+              rules={{
+                required: "Seleccione un rol",
+              }}
+            />
+
+            <Controller
+              control={control}
+              name="sucursalId"
+              render={({ field }) => (
+                <Select
+                  {...field}
+                  errorMessage={errors.sucursalId?.message}
+                  isInvalid={!!errors.sucursalId}
+                  label="Sucursal"
+                  selectedKeys={field.value ? [field.value] : []}
+                  variant="bordered"
+                  onSelectionChange={(keys) => {
+                    const value = Array.from(keys)[0] as string;
+
+                    field.onChange(value);
+                  }}
+                >
+                  {sucursales.map((sucursal) => (
+                    <SelectItem key={sucursal.id}>{sucursal.nombre}</SelectItem>
+                  ))}
+                </Select>
+              )}
+              rules={{
                 required: "Seleccione una sucursal",
-              })}
-              errorMessage={errors.sucursalId?.message}
-              isInvalid={!!errors.sucursalId}
-              label="Sucursal"
-              variant="bordered"
-            >
-              {sucursales.map((sucursal) => (
-                <SelectItem key={sucursal.id}>{sucursal.nombre}</SelectItem>
-              ))}
-            </Select>
+              }}
+            />
           </div>
 
           <div className="flex flex-col md:flex-row gap-4 justify-end">

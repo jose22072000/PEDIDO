@@ -9,6 +9,8 @@ import usersRouter from './routes/users';
 import rolesRouter from './routes/roles';
 import sucursalesRouter from './routes/sucursales';
 import configRouter from './routes/config';
+import vendedoresRouter from './routes/vendedores';
+import clientesRouter from './routes/clientes';
 import prisma from './prismaClient';
 
 const app = express();
@@ -43,6 +45,8 @@ app.use('/users', usersRouter);
 app.use('/roles', rolesRouter);
 app.use('/sucursales', sucursalesRouter);
 app.use('/config', configRouter);
+app.use('/vendedores', vendedoresRouter);
+app.use('/clientes', clientesRouter);
 
 app.listen(port, async () => {
   console.log(`API listening on http://localhost:${port}`);
