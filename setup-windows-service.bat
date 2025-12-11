@@ -57,26 +57,45 @@ if %ERRORLEVEL% NEQ 0 (
 
 echo.
 echo [3/12] Activando Node.js v22.20.0...
-nvm use 22.20.0
-if %ERRORLEVEL% NEQ 0 (
-    echo ERROR: No se pudo activar Node.js v22.20.0
-    echo Intenta ejecutar como Administrador
-    pause
-    exit /b 1
-)
+echo Por favor espera, configurando entorno de Node.js...
 
-REM Esperar un momento para que NVM se configure
-timeout /t 2 /nobreak >nul
+REM Usar nvm directamente sin call puede causar problemas
+for /f "tokens=*" %%i in ('where nvm') do set NVM_PATH=%%i
+nvm use 22.20.0 2>nul
+
+REM Esperar para que NVM configure el PATH
+timeout /t 3 /nobreak >nul
 
 echo.
 echo Verificando instalacion de Node.js...
+
+REM Intentar varias veces porque NVM puede tardar en actualizar el PATH
+set RETRY=0
+:CHECK_NODE
+node --version >nul 2>nul
+if %ERRORLEVEL% EQU 0 goto NODE_OK
+
+set /a RETRY+=1
+if %RETRY% GTR 5 goto NODE_FAIL
+
+echo Reintentando verificacion de Node.js... (intento %RETRY%/5)
+timeout /t 2 /nobreak >nul
+goto CHECK_NODE
+
+:NODE_FAIL
+echo.
+echo ERROR: Node.js no esta disponible despues de activar NVM
+echo.
+echo SOLUCIONES POSIBLES:
+echo 1. Ejecuta este script como Administrador
+echo 2. Cierra y reabre la ventana de comandos
+echo 3. Ejecuta manualmente: nvm use 22.20.0
+echo.
+pause
+exit /b 1
+
+:NODE_OK
 node --version
-if %ERRORLEVEL% NEQ 0 (
-    echo ERROR: Node no esta disponible
-    echo Por favor ejecuta este script como Administrador
-    pause
-    exit /b 1
-)
 
 npm --version
 if %ERRORLEVEL% NEQ 0 (
