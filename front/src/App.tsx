@@ -4,9 +4,6 @@ import { Spinner } from "@heroui/react";
 
 import PedidosPanelPage from "./pages/pedidos/panel-pedidos";
 import NuevoPedidoPage from "./pages/pedidos/nuevo-pedido";
-import PedidoProcesoPage from "./pages/pedidos/pedido-proceso";
-import PedidoCompletadoPage from "./pages/pedidos/pedido-completados";
-import PedidoExpiradosPage from "./pages/pedidos/pedido-expirados";
 import UsuariosPanelPage from "./pages/usuarios/panel-usuarios";
 import NuevoUsuarioPage from "./pages/usuarios/nuevo-usuario";
 import ListaUsuariosPage from "./pages/usuarios/lista-usuarios";
@@ -48,28 +45,27 @@ function App() {
 
         {/* Pedidos */}
         <Route element={<PedidosPanelPage />} path="/panel/panel-pedidos" />
-        <Route
-          element={<NuevoPedidoPage />}
-          path="/panel/panel-pedidos/nuevo"
-        />
-        <Route
-          element={<PedidoProcesoPage />}
-          path="/panel/panel-pedidos/pedido-proceso"
-        />
-        <Route
-          element={<PedidoCompletadoPage />}
-          path="/panel/panel-pedidos/pedido-completados"
-        />
-        <Route
-          element={<PedidoExpiradosPage />}
-          path="/panel/panel-pedidos/pedido-expirados"
-        />
 
         {/* Vendedores */}
         <Route element={<VendedoresPage />} path="/panel/trabajadores" />
 
         {/* Clientes */}
         <Route element={<ClientesPage />} path="/panel/clientes" />
+      </Route>
+
+      {/* Rutas protegidas para Administrador y Supervisor */}
+      <Route element={<ProtectedRoute />}>
+        <Route
+          element={
+            <AdminRoute allowedRoles={["Administrador", "Supervisor"]} />
+          }
+        >
+          {/* Nuevo Pedido */}
+          <Route
+            element={<NuevoPedidoPage />}
+            path="/panel/panel-pedidos/nuevo"
+          />
+        </Route>
       </Route>
 
       {/* Rutas protegidas solo para Administrador */}

@@ -1,7 +1,6 @@
 import {
   Card,
   CardBody,
-  CardHeader,
   Chip,
   Pagination,
   Button,
@@ -14,6 +13,8 @@ import {
   ModalFooter,
   useDisclosure,
   Divider,
+  Select,
+  SelectItem,
 } from "@heroui/react";
 import { useEffect, useState, useRef, useCallback } from "react";
 
@@ -79,13 +80,22 @@ const estadoColors: Record<string, "success" | "warning" | "danger"> = {
 };
 
 const estadoLabels: Record<string, string> = {
+  todos: "Todos",
   completada: "Completado",
   en_proceso: "En Proceso",
   expirada: "Expirado",
 };
 
-export const OrdersList = ({ estado = "en_proceso" }: { estado?: string }) => {
+const estadoOptions = [
+  { value: "todos", label: "Todos" },
+  { value: "en_proceso", label: "En Proceso" },
+  { value: "completada", label: "Completado" },
+  { value: "expirada", label: "Expirado" },
+];
+
+export const OrdersList = () => {
   const [orders, setOrders] = useState<Order[]>([]);
+  const [estadoFilter, setEstadoFilter] = useState<string>("todos");
   const [pagination, setPagination] = useState<PaginationData>({
     page: 1,
     limit: 10,
@@ -119,8 +129,12 @@ export const OrdersList = ({ estado = "en_proceso" }: { estado?: string }) => {
         const params = new URLSearchParams({
           page: String(page),
           limit: String(pagination.limit),
-          estado: estado,
         });
+
+        // Only add estado param if not "todos"
+        if (estadoFilter !== "todos") {
+          params.append("estado", estadoFilter);
+        }
 
         if (debouncedSearch.length > 0) {
           params.append("search", debouncedSearch);
@@ -149,7 +163,7 @@ export const OrdersList = ({ estado = "en_proceso" }: { estado?: string }) => {
         setIsLoading(false);
       }
     },
-    [pagination.limit, estado, debouncedSearch],
+    [pagination.limit, estadoFilter, debouncedSearch],
   );
 
   const handleCompletarOrder = useCallback(
@@ -210,7 +224,7 @@ export const OrdersList = ({ estado = "en_proceso" }: { estado?: string }) => {
   // Fetch orders when dependencies change
   useEffect(() => {
     fetchOrders(1);
-  }, [debouncedSearch, estado]);
+  }, [debouncedSearch, estadoFilter, fetchOrders]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -225,20 +239,35 @@ export const OrdersList = ({ estado = "en_proceso" }: { estado?: string }) => {
     <div className="flex flex-col gap-4 w-full">
       {/* Filters */}
       <Card className={cn(cards({ border: "default" }))}>
-        <CardHeader>
-          <h3 className="font-bold text-lg">Filtrar</h3>
-        </CardHeader>
         <CardBody className="gap-4">
-          <Input
-            isClearable
-            placeholder="Buscar por folio, vendedor o cliente..."
-            size="lg"
-            startContent={<Icons.search className="size-5 text-default-400" />}
-            value={searchValue}
-            variant="bordered"
-            onChange={(e) => setSearchValue(e.target.value)}
-            onClear={() => setSearchValue("")}
-          />
+          <div className="flex gap-6 flex-col md:flex-row">
+            <Input
+              isClearable
+              className="flex-1"
+              label="Buscar Pedido"
+              placeholder="Buscar por folio, vendedor o cliente..."
+              size="lg"
+              startContent={
+                <Icons.search className="size-5 text-default-400" />
+              }
+              value={searchValue}
+              variant="bordered"
+              onChange={(e) => setSearchValue(e.target.value)}
+              onClear={() => setSearchValue("")}
+            />
+            <Select
+              className="w-full sm:w-48"
+              label="Estado"
+              selectedKeys={[estadoFilter]}
+              size="lg"
+              variant="bordered"
+              onChange={(e) => setEstadoFilter(e.target.value)}
+            >
+              {estadoOptions.map((option) => (
+                <SelectItem key={option.value}>{option.label}</SelectItem>
+              ))}
+            </Select>
+          </div>
         </CardBody>
       </Card>
 

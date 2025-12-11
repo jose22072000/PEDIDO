@@ -82,6 +82,13 @@ export default function PanelPage() {
               title="Pedidos"
             />
             <ActionCard
+              color="primary"
+              description="Archivo csv de parranda"
+              href="/panel/panel-pedidos/nuevo"
+              icon="add"
+              title="Importar Pedido"
+            />
+            <ActionCard
               color="secondary"
               description="Gestionar vendedores del sistema"
               href="/panel/trabajadores"

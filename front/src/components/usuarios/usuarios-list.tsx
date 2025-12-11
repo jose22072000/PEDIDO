@@ -23,6 +23,7 @@ import Icons from "../icons/iconify";
 
 import { cards } from "@/components/primitives";
 import { API_BASE_URL } from "@/config";
+import { useAuthStore } from "@/stores/authStore";
 
 interface Usuario {
   id: string;
@@ -37,6 +38,7 @@ interface Usuario {
 }
 
 export const UsuariosList = () => {
+  const { user } = useAuthStore();
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -64,7 +66,7 @@ export const UsuariosList = () => {
 
       const data = await response.json();
 
-      setUsuarios(data.filter((u: Usuario) => u.username !== "admin"));
+      setUsuarios(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error desconocido");
     } finally {
@@ -186,6 +188,7 @@ export const UsuariosList = () => {
               <TableCell>
                 <Button
                   color="danger"
+                  isDisabled={user?.username === usuario.username}
                   isIconOnly={true}
                   variant="flat"
                   onPress={() => openDeleteModal(usuario)}

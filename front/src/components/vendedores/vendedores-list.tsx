@@ -53,6 +53,7 @@ export const VendedoresList = () => {
     new Date().getFullYear(),
   );
   const [isLoadingStats, setIsLoadingStats] = useState(false);
+  const [copiedVendedorId, setCopiedVendedorId] = useState<string | null>(null);
   const { isOpen, onOpen, onClose } = useDisclosure();
 
   const fetchVendedores = useCallback(async () => {
@@ -117,6 +118,15 @@ export const VendedoresList = () => {
     },
     [onOpen, fetchVendedorStats],
   );
+
+  const handleCopy = useCallback((vendedor: Vendedor) => {
+    const text = `V-${vendedor.nombre};`;
+
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedVendedorId(vendedor.id);
+      setTimeout(() => setCopiedVendedorId(null), 2000);
+    });
+  }, []);
 
   const handleYearChange = useCallback(
     (year: number) => {
@@ -220,15 +230,32 @@ export const VendedoresList = () => {
                         </p>
                       </div>
                     </div>
-                    <Button
-                      className="w-full md:w-auto"
-                      color="primary"
-                      startContent={<Icons.eye className="size-5" />}
-                      variant="ghost"
-                      onPress={() => handleOpenDetails(vendedor)}
-                    >
-                      Ver Detalles
-                    </Button>
+                    <div className="flex flex-row gap-2 w-full md:w-auto">
+                      <Button
+                        className="flex-1 md:flex-none"
+                        color={
+                          copiedVendedorId === vendedor.id
+                            ? "success"
+                            : "default"
+                        }
+                        startContent={<Icons.copy className="size-5" />}
+                        variant="ghost"
+                        onPress={() => handleCopy(vendedor)}
+                      >
+                        {copiedVendedorId === vendedor.id
+                          ? "Copiado"
+                          : "Copiar"}
+                      </Button>
+                      <Button
+                        className="flex-1 md:flex-none"
+                        color="primary"
+                        startContent={<Icons.eye className="size-5" />}
+                        variant="ghost"
+                        onPress={() => handleOpenDetails(vendedor)}
+                      >
+                        Ver Detalles
+                      </Button>
+                    </div>
                   </div>
                 ))}
               </div>

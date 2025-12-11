@@ -12,8 +12,8 @@ async function main() {
   // Ensure the Roles contains the default roles.
   const roles = [
     { nombre: 'Administrador' },
-    { nombre: 'Vendedor' },
-    { nombre: 'Usuario' },
+    { nombre: 'Supervisor' },
+    { nombre: 'Operador' },
   ];
 
   for (const role of roles) {

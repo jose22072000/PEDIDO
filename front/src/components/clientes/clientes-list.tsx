@@ -55,6 +55,7 @@ export const ClientesList = () => {
   const [debouncedSearch, setDebouncedSearch] = useState<string>("");
   const [searchValue, setSearchValue] = useState<string>("");
   const [selectedCliente, setSelectedCliente] = useState<Cliente | null>(null);
+  const [copiedClienteId, setCopiedClienteId] = useState<string | null>(null);
   const { isOpen, onOpen, onClose } = useDisclosure();
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -114,6 +115,15 @@ export const ClientesList = () => {
     },
     [onOpen],
   );
+
+  const handleCopy = useCallback((cliente: Cliente) => {
+    const text = `C-${cliente.nombre};`;
+
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedClienteId(cliente.id);
+      setTimeout(() => setCopiedClienteId(null), 2000);
+    });
+  }, []);
 
   // Debounced search with cleanup
   useEffect(() => {
@@ -209,15 +219,28 @@ export const ClientesList = () => {
                         </Chip>
                       </div>
                     </div>
-                    <Button
-                      className="w-full md:w-auto"
-                      color="primary"
-                      startContent={<Icons.eye className="size-5" />}
-                      variant="ghost"
-                      onPress={() => handleOpenDetails(cliente)}
-                    >
-                      Ver Detalles
-                    </Button>
+                    <div className="flex flex-row gap-2 w-full md:w-auto">
+                      <Button
+                        className="flex-1 md:flex-none"
+                        color={
+                          copiedClienteId === cliente.id ? "success" : "default"
+                        }
+                        startContent={<Icons.copy className="size-5" />}
+                        variant="ghost"
+                        onPress={() => handleCopy(cliente)}
+                      >
+                        {copiedClienteId === cliente.id ? "Copiado" : "Copiar"}
+                      </Button>
+                      <Button
+                        className="flex-1 md:flex-none"
+                        color="primary"
+                        startContent={<Icons.eye className="size-5" />}
+                        variant="ghost"
+                        onPress={() => handleOpenDetails(cliente)}
+                      >
+                        Ver Detalles
+                      </Button>
+                    </div>
                   </div>
                 </CardBody>
               </Card>
