@@ -50,8 +50,8 @@ app.use('/config', configRouter);
 app.use('/vendedores', vendedoresRouter);
 app.use('/clientes', clientesRouter);
 
-app.listen(port, async () => {
-  console.log(`API listening on http://localhost:${port}`);
+app.listen(port, '0.0.0.0', async () => {
+  console.log(`API listening on http://0.0.0.0:${port}`);
   try {
     await prisma.$connect();
     console.log('Connected to database');

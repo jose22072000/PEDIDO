@@ -21,21 +21,20 @@ module.exports = {
     },
     {
       name: 'procavar-frontend',
-      script: 'node',
-      args: 'serve -s dist -l 5000',
+      script: "C:\\nvm4w\\nodejs\\node_modules\\serve\\build\\main.js",
+      args: ['dist', '--single', '--listen', 'tcp://0.0.0.0:5000'],
       cwd: './service-front',
       instances: 1,
       autorestart: true,
       watch: false,
       max_memory_restart: '1024M',
       env: {
-        NODE_ENV: 'production'
+        NODE_ENV: 'production',
+        VITE_API_URL: 'http://localhost:8400'
       },
       error_file: './logs/frontend-error.log',
       out_file: './logs/frontend-out.log',
       log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
-      interpreter: 'node',
-      interpreter_args: ''
     }
   ]
 };

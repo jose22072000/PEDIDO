@@ -71,10 +71,12 @@ export default defineConfig({
     }),
   ],
   server: {
+    host: '0.0.0.0', // Allow access from network
+    port: 5173,
     // Proxy API requests to backend to keep cookies same-origin during dev
     proxy: {
       "/api": {
-        target: "http://localhost:8400",
+        target: process.env.VITE_API_URL || "http://localhost:8400",
         changeOrigin: true,
         secure: false,
         rewrite: (path) => path.replace(/^\/api/, ""),
