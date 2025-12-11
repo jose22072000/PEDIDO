@@ -35,6 +35,8 @@ echo ----------------------------------------
 cd /d "%ROOT_DIR%api"
 call npm install
 call npx prisma generate
+call npx prisma migrate deploy
+call npx prisma db seed
 call npm run build
 
 if %ERRORLEVEL% NEQ 0 (
@@ -84,12 +86,30 @@ xcopy /E /I /Y "%ROOT_DIR%api\prisma" "%ROOT_DIR%service-api\prisma" >nul
 xcopy /E /I /Y "%ROOT_DIR%api\node_modules\.prisma" "%ROOT_DIR%service-api\node_modules\.prisma" >nul 2>nul
 xcopy /E /I /Y "%ROOT_DIR%api\node_modules\@prisma" "%ROOT_DIR%service-api\node_modules\@prisma" >nul 2>nul
 
+REM Copiar base de datos SQLite
+if exist "%ROOT_DIR%api\prisma\dev.db" (
+    echo Copiando base de datos...
+    xcopy /Y "%ROOT_DIR%api\prisma\dev.db" "%ROOT_DIR%service-api\prisma\" >nul
+    if exist "%ROOT_DIR%api\prisma\dev.db-journal" xcopy /Y "%ROOT_DIR%api\prisma\dev.db-journal" "%ROOT_DIR%service-api\prisma\" >nul 2>nul
+)
+
 REM Copiar uploads si existe
 if exist "%ROOT_DIR%api\uploads" xcopy /E /I /Y "%ROOT_DIR%api\uploads" "%ROOT_DIR%service-api\uploads" >nul
 
 REM Copiar Frontend compilado
 echo Copiando Frontend compilado a service-front...
 xcopy /E /I /Y "%ROOT_DIR%front\dist" "%ROOT_DIR%service-front\dist" >nul
+
+REM Instalar serve globalmente si no existe
+echo.
+echo Verificando serve...
+where serve >nul 2>nul
+if %ERRORLEVEL% NEQ 0 (
+    echo Instalando serve globalmente...
+    call npm install -g serve
+) else (
+    echo serve ya esta instalado
+)
 
 REM Instalar solo dependencias de produccion para API
 echo.

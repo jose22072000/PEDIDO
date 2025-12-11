@@ -68,6 +68,8 @@ echo [6/7] Compilando API (Backend)...
 cd api
 call npm install
 call npx prisma generate
+call npx prisma migrate deploy
+call npx prisma db seed
 call npm run build
 cd ..
 

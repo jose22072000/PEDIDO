@@ -18,7 +18,9 @@ const port = process.env.PORT ? Number(process.env.PORT) : 4000;
 
 // Configure CORS from environment variable
 const corsOrigin = process.env.CORS_ORIGIN 
-  ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim())
+  ? (process.env.CORS_ORIGIN === '*' 
+      ? true // Allow all origins
+      : process.env.CORS_ORIGIN.split(',').map(origin => origin.trim()))
   : true; // Allow all origins if not specified
 
 app.use(cors({
