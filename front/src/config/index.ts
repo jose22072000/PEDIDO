@@ -41,4 +41,23 @@ export const ANIMATIONS = {
   },
 };
 
-export const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8400";
+// Construir API URL basada en el host actual del navegador
+// Esto permite acceder a la API desde cualquier IP/host sin hardcodear localhost
+const getApiBaseUrl = () => {
+  // En desarrollo, usar variable de entorno si existe
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
+  
+  // En producción, construir URL desde el host actual
+  if (typeof window !== 'undefined') {
+    const protocol = window.location.protocol;
+    const hostname = window.location.hostname;
+    return `${protocol}//${hostname}:8400`;
+  }
+  
+  // Fallback
+  return "http://localhost:8400";
+};
+
+export const API_BASE_URL = getApiBaseUrl();
