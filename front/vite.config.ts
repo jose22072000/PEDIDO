@@ -17,7 +17,7 @@ export default defineConfig({
         name: "PROCOVAR",
         short_name: "PROCOVAR",
         description: "Sistema offline-first para gestión comercial",
-        theme_color: "#f59e0b",
+        theme_color: "#054C74",
         background_color: "#ffffff",
         display: "standalone",
         scope: "/",

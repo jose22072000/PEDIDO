@@ -4,10 +4,10 @@
   "description": "Gestión de pedidos y vendedores para Procavar",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0f172a",
-  "theme_color": "#0f172a",
+  "background_color": "#054C74",
+  "theme_color": "#054C74",
   "scope": "/",
-  "lang": "es-MX",
+  "lang": "es-ES",
   "categories": [
     "business",
     "productivity"
