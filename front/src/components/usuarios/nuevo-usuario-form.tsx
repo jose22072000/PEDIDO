@@ -67,9 +67,7 @@ export const NuevoUsuarioForm = () => {
 
   const fetchRoles = async () => {
     try {
-      const response = await fetch(`${getApiBaseUrl()}/roles`, {
-        credentials: "include",
-      });
+      const response = await fetch(`${getApiBaseUrl()}/roles`);
 
       if (response.ok) {
         const data = await response.json();
@@ -83,9 +81,7 @@ export const NuevoUsuarioForm = () => {
 
   const fetchSucursales = async () => {
     try {
-      const response = await fetch(`${getApiBaseUrl()}/sucursales`, {
-        credentials: "include",
-      });
+      const response = await fetch(`${getApiBaseUrl()}/sucursales`);
 
       if (response.ok) {
         const data = await response.json();
@@ -107,7 +103,6 @@ export const NuevoUsuarioForm = () => {
         headers: {
           "Content-Type": "application/json",
         },
-        credentials: "include",
         body: JSON.stringify({
           username: data.username,
           password: data.password,

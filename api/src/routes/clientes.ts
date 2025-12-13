@@ -8,31 +8,29 @@ router.get('/', async (req, res) => {
   try {
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 10;
-    const search = req.query.search as string || '';
+    const search = req.query.search as string | undefined;
 
     const skip = (page - 1) * limit;
 
-    let whereClause: any = {};
+    const where: any = {};
+    const searchTerm = search?.toUpperCase();
 
-    // Search by nombre, codigo (parrandaId), or zona
-    if (search) {
-      whereClause = {
-        OR: [
-          { nombre: { contains: search, mode: 'insensitive' } },
-          { codigo: { contains: search, mode: 'insensitive' } },
-          { zona: { contains: search, mode: 'insensitive' } }
-        ]
-      };
+    if (searchTerm) {
+      where.OR = [
+        { nombre: { contains: searchTerm } },
+        { codigo: { contains: searchTerm } },
+        { zona: { contains: searchTerm } },
+      ];
     }
 
     const [clientes, total] = await Promise.all([
       prisma.cliente.findMany({
-        where: whereClause,
+        where,
         skip,
         take: limit,
-        orderBy: { nombre: 'asc' }
+        orderBy: { nombre: 'asc' },
       }),
-      prisma.cliente.count({ where: whereClause })
+      prisma.cliente.count({ where }),
     ]);
 
     const totalPages = Math.ceil(total / limit);

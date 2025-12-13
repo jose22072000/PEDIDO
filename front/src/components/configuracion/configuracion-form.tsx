@@ -61,9 +61,7 @@ export const ConfiguracionForm = () => {
     setIsLoading(true);
 
     try {
-      const response = await fetch(`${getApiBaseUrl()}/config`, {
-        credentials: "include",
-      });
+        const response = await fetch(`${getApiBaseUrl()}/config`);
 
       if (response.ok) {
         const data = await response.json();
@@ -85,9 +83,7 @@ export const ConfiguracionForm = () => {
 
   const fetchSucursales = async () => {
     try {
-      const response = await fetch(`${getApiBaseUrl()}/sucursales`, {
-        credentials: "include",
-      });
+        const response = await fetch(`${getApiBaseUrl()}/sucursales`);
 
       if (response.ok) {
         const data = await response.json();
@@ -115,7 +111,6 @@ export const ConfiguracionForm = () => {
         headers: {
           "Content-Type": "application/json",
         },
-        credentials: "include",
         body: JSON.stringify({
           sucursalId: selectedSucursal,
         }),
@@ -146,7 +141,6 @@ export const ConfiguracionForm = () => {
         headers: {
           "Content-Type": "application/json",
         },
-        credentials: "include",
         body: JSON.stringify(data),
       });
 

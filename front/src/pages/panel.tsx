@@ -29,9 +29,7 @@ export default function PanelPage() {
   const fetchSucursalConfig = async () => {
     try {
       // Obtener la configuración
-      const configResponse = await fetch(`${getApiBaseUrl()}/config`, {
-        credentials: "include",
-      });
+      const configResponse = await fetch(`${getApiBaseUrl()}/config`);
 
       if (configResponse.ok) {
         const config: Config = await configResponse.json();
@@ -39,10 +37,7 @@ export default function PanelPage() {
         if (config.sucursalId) {
           // Obtener el nombre de la sucursal
           const sucursalResponse = await fetch(
-            `${getApiBaseUrl()}/sucursales/${config.sucursalId}`,
-            {
-              credentials: "include",
-            },
+            `${getApiBaseUrl()}/sucursales/${config.sucursalId}`
           );
 
           if (sucursalResponse.ok) {

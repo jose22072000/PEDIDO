@@ -141,7 +141,6 @@ export const OrdersList = () => {
         }
 
         const response = await fetch(`${getApiBaseUrl()}/orders?${params}`, {
-          credentials: "include",
           signal: abortControllerRef.current.signal,
         });
 
@@ -173,7 +172,6 @@ export const OrdersList = () => {
           `${getApiBaseUrl()}/orders/${orderId}/completar`,
           {
             method: "PATCH",
-            credentials: "include",
           },
         );
 

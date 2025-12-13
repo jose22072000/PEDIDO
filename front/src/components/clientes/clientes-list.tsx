@@ -83,7 +83,6 @@ export const ClientesList = () => {
         }
 
         const response = await fetch(`${getApiBaseUrl()}/clientes?${params}`, {
-          credentials: "include",
           signal: abortControllerRef.current.signal,
         });
 

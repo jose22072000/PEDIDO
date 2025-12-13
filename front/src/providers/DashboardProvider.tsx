@@ -47,9 +47,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
         ? `${getApiBaseUrl()}/orders/stats?year=${yearParam}`
         : `${getApiBaseUrl()}/orders/stats`;
 
-      const response = await fetch(url, {
-        credentials: "include",
-      });
+      const response = await fetch(url);
 
       if (!response.ok) {
         throw new Error("Error al cargar estadísticas");

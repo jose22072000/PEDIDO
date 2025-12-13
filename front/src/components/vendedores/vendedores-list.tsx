@@ -61,9 +61,7 @@ export const VendedoresList = () => {
     setError(null);
 
     try {
-      const response = await fetch(`${getApiBaseUrl()}/vendedores`, {
-        credentials: "include",
-      });
+      const response = await fetch(`${getApiBaseUrl()}/vendedores`);
 
       if (!response.ok) {
         throw new Error("Error al cargar los vendedores");
@@ -85,10 +83,7 @@ export const VendedoresList = () => {
       setIsLoadingStats(true);
       try {
         const response = await fetch(
-          `${getApiBaseUrl()}/vendedores/${vendedorId}/stats?year=${year}`,
-          {
-            credentials: "include",
-          },
+          `${getApiBaseUrl()}/vendedores/${vendedorId}/stats?year=${year}`
         );
 
         if (!response.ok) {

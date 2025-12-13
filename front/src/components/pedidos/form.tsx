@@ -91,14 +91,13 @@ export default function CrearPedidoForm() {
         for (let i = 0; i < batches.length; i++) {
           setCurrentFile(`${file.name} - Lote ${i + 1}/${batches.length}`);
 
-          const response = await fetch(`${getApiBaseUrl()}/orders/bulk`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            credentials: "include",
-            body: JSON.stringify({ records: batches[i] }),
-          });
+              const response = await fetch(`${getApiBaseUrl()}/orders/bulk`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ records: batches[i] }),
+              });
 
           if (!response.ok) {
             throw new Error(`Error al procesar ${file.name}`);

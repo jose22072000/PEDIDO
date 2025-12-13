@@ -1,0 +1,27 @@
+{
+  "name": "Procavar Pedidos",
+  "short_name": "Procavar",
+  "description": "Gestión de pedidos y vendedores para Procavar",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "scope": "/",
+  "lang": "es-MX",
+  "categories": [
+    "business",
+    "productivity"
+  ],
+  "icons": [
+    {
+      "src": "pwa-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

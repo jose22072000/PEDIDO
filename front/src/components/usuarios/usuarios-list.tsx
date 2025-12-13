@@ -56,9 +56,7 @@ export const UsuariosList = () => {
     setError(null);
 
     try {
-      const response = await fetch(`${getApiBaseUrl()}/users`, {
-        credentials: "include",
-      });
+      const response = await fetch(`${getApiBaseUrl()}/users`);
 
       if (!response.ok) {
         throw new Error("Error al cargar los usuarios");
@@ -81,8 +79,8 @@ export const UsuariosList = () => {
     try {
       const response = await fetch(`${getApiBaseUrl()}/users/${id}`, {
         method: "DELETE",
-        credentials: "include",
       });
+
 
       if (!response.ok) {
         throw new Error("Error al eliminar usuario");
