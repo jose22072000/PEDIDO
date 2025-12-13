@@ -21,7 +21,7 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { cards } from "../primitives";
 import Icons from "../icons/iconify";
 
-import { cn } from "@/lib/utils";
+import { cn, copyTextToClipboard } from "@/lib/utils";
 import { getApiBaseUrl } from "@/config";
 
 interface OrderItem {
@@ -191,17 +191,19 @@ export const OrdersList = () => {
     [fetchOrders, pagination.page, onClose],
   );
 
-  const handleCopyOrder = useCallback(() => {
+  const handleCopyOrder = useCallback(async () => {
     if (!selectedOrder) return;
 
     const vendedorNombre = selectedOrder.vendedor?.nombre || "Sin vendedor";
     const clienteNombre = selectedOrder.cliente?.nombre || "Sin cliente";
     const text = `P-${selectedOrder.folio}; V-${vendedorNombre}; C-${clienteNombre};`;
 
-    navigator.clipboard.writeText(text).then(() => {
+    const ok = await copyTextToClipboard(text);
+
+    if (ok) {
       setIsModalCopied(true);
       setTimeout(() => setIsModalCopied(false), 2000);
-    });
+    }
   }, [selectedOrder]);
 
   const handleOpenDetails = useCallback(
@@ -323,17 +325,18 @@ export const OrdersList = () => {
                       color={copiedOrderId === order.id ? "success" : "primary"}
                       isIconOnly={true}
                       variant="ghost"
-                      onPress={() => {
+                      onPress={async () => {
                         const vendedorNombre =
                           order.vendedor?.nombre || "Sin vendedor";
                         const clienteNombre =
                           order.cliente?.nombre || "Sin cliente";
                         const text = `P-${order.folio}; V-${vendedorNombre}; C-${clienteNombre};`;
 
-                        navigator.clipboard.writeText(text).then(() => {
+                        const ok = await copyTextToClipboard(text);
+                        if (ok) {
                           setCopiedOrderId(order.id);
                           setTimeout(() => setCopiedOrderId(null), 2000);
-                        });
+                        }
                       }}
                     >
                       {copiedOrderId === order.id ? (

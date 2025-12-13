@@ -19,7 +19,7 @@ import { useEffect, useState, useCallback } from "react";
 import { cards } from "../primitives";
 import Icons from "../icons/iconify";
 
-import { cn } from "@/lib/utils";
+import { cn, copyTextToClipboard } from "@/lib/utils";
 import { getApiBaseUrl } from "@/config";
 
 interface Vendedor {
@@ -119,13 +119,14 @@ export const VendedoresList = () => {
     [onOpen, fetchVendedorStats],
   );
 
-  const handleCopy = useCallback((vendedor: Vendedor) => {
+  const handleCopy = useCallback(async (vendedor: Vendedor) => {
     const text = `V-${vendedor.nombre};`;
+    const ok = await copyTextToClipboard(text);
 
-    navigator.clipboard.writeText(text).then(() => {
+    if (ok) {
       setCopiedVendedorId(vendedor.id);
       setTimeout(() => setCopiedVendedorId(null), 2000);
-    });
+    }
   }, []);
 
   const handleYearChange = useCallback(

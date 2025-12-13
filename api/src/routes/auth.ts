@@ -44,20 +44,9 @@ router.post('/login', async (req: Request, res: Response) => {
       { expiresIn: JWT_EXPIRES_IN }
     );
 
-    // Set cookie with token
-    // Use a relaxed SameSite in development for convenience and
-    // `SameSite=None; Secure` in production to allow cross-site requests
-    // when the frontend is served from a different origin (HTTPS required).
-    const isProd = process.env.NODE_ENV === 'production';
-    res.cookie('token', token, {
-      httpOnly: true,
-      secure: isProd, // HTTPS only in production
-      sameSite: isProd ? 'none' : 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    });
-
-    // Return user info (without password)
+    // Return token + user info (frontend will store token and use Bearer auth)
     return res.json({
+      token,
       user: {
         id: user.id,
         username: user.username,
@@ -73,7 +62,9 @@ router.post('/login', async (req: Request, res: Response) => {
 
 // Logout endpoint
 router.post('/logout', (req: Request, res: Response) => {
-  res.clearCookie('token');
+  // With Bearer tokens logout is a client-side action (drop token).
+  // Keep clearing cookie if it exists for backwards compatibility.
+  res.clearCookie && res.clearCookie('token');
   return res.json({ message: 'Logged out successfully' });
 });
 

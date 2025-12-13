@@ -12,6 +12,7 @@ interface UserData {
 
 interface AuthState {
   user: UserData | null;
+  token?: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   error: string | null;
@@ -36,6 +37,7 @@ export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({
       user: null,
+      token: null,
       isAuthenticated: false,
       isLoading: true,
       error: null,
@@ -46,26 +48,39 @@ export const useAuthStore = create<AuthState>()(
           set({ isLoading: true });
 
           // Verificar si hay sesión válida consultando /auth/me
+          // Try to get token from localStorage first
+          const localToken = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+
+          const headers: Record<string,string> = {};
+          if (localToken) {
+            headers.Authorization = `Bearer ${localToken}`;
+          }
+
           const response = await fetch(`${getApiBaseUrl()}/auth/me`, {
-            credentials: "include",
+            headers,
           });
 
           if (response.ok) {
             const data = await response.json();
 
             set({
-              user: data.user,
-              session: {
-                rol: data.user?.role
-                  ? String(data.user.role).toUpperCase()
-                  : undefined,
-                sucursalId: data.user?.sucursal || undefined,
-                usuarioId: data.user?.username || undefined,
-              },
-              isAuthenticated: true,
-              isLoading: false,
-              error: null,
-            });
+                user: data.user,
+                token: data.token || localToken || null,
+                session: {
+                  rol: data.user?.role
+                    ? String(data.user.role).toUpperCase()
+                    : undefined,
+                  sucursalId: data.user?.sucursal || undefined,
+                  usuarioId: data.user?.username || undefined,
+                },
+                isAuthenticated: true,
+                isLoading: false,
+                error: null,
+              });
+            // persist token to localStorage for fetch wrapper
+            if (data.token && typeof window !== 'undefined') {
+              localStorage.setItem('auth_token', data.token);
+            }
           } else {
             set({
               user: null,
@@ -101,7 +116,6 @@ export const useAuthStore = create<AuthState>()(
           const response = await fetch(`${getApiBaseUrl()}/auth/login`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            credentials: "include",
             body: JSON.stringify({ username, password }),
           });
 
@@ -118,6 +132,7 @@ export const useAuthStore = create<AuthState>()(
 
           set({
             user: data.user,
+            token: data.token || null,
             session: {
               rol: data.user?.role
                 ? String(data.user.role).toUpperCase()
@@ -129,6 +144,10 @@ export const useAuthStore = create<AuthState>()(
             error: null,
           });
 
+          if (data.token && typeof window !== 'undefined') {
+            localStorage.setItem('auth_token', data.token);
+          }
+
           return { ok: true };
         } catch (error) {
           return { ok: false, error: "Error de conexión" };
@@ -137,23 +156,26 @@ export const useAuthStore = create<AuthState>()(
 
       logout: async () => {
         try {
-          const response = await fetch(`${getApiBaseUrl()}/auth/logout`, {
+          // Call logout endpoint (will clear cookie if present) but client must drop token
+          await fetch(`${getApiBaseUrl()}/auth/logout`, {
             method: "POST",
-            credentials: "include",
+          }).catch(() => {
+            // ignore
           });
 
-          if (response.ok) {
-            set({
-              user: null,
-              session: null,
-              isAuthenticated: false,
-              error: null,
-            });
-
-            return { ok: true };
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem('auth_token');
           }
 
-          return { ok: false, error: "Error al cerrar sesión" };
+          set({
+            user: null,
+            token: null,
+            session: null,
+            isAuthenticated: false,
+            error: null,
+          });
+
+          return { ok: true };
         } catch (error) {
           return { ok: false, error: "Error de conexión" };
         }

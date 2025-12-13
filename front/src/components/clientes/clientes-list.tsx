@@ -19,7 +19,7 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { cards } from "../primitives";
 import Icons from "../icons/iconify";
 
-import { cn } from "@/lib/utils";
+import { cn, copyTextToClipboard } from "@/lib/utils";
 import { getApiBaseUrl } from "@/config";
 
 interface Cliente {
@@ -116,13 +116,14 @@ export const ClientesList = () => {
     [onOpen],
   );
 
-  const handleCopy = useCallback((cliente: Cliente) => {
+  const handleCopy = useCallback(async (cliente: Cliente) => {
     const text = `C-${cliente.nombre};`;
+    const ok = await copyTextToClipboard(text);
 
-    navigator.clipboard.writeText(text).then(() => {
+    if (ok) {
       setCopiedClienteId(cliente.id);
       setTimeout(() => setCopiedClienteId(null), 2000);
-    });
+    }
   }, []);
 
   // Debounced search with cleanup

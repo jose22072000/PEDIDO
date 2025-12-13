@@ -19,6 +19,31 @@ if (import.meta.env.PROD && "serviceWorker" in navigator) {
   });
 }
 
+// Global fetch wrapper: attach Authorization Bearer header from localStorage if present
+// This keeps existing fetch calls working without modifying every file.
+const _origFetch = window.fetch.bind(window) as (
+  input: RequestInfo | URL,
+  init?: RequestInit,
+) => Promise<Response>;
+
+window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+  try {
+    const token =
+      typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
+
+    init = init || {};
+    init.headers = Object.assign(
+      {},
+      (init.headers as Record<string, string>) || {},
+      token ? { Authorization: `Bearer ${token}` } : {},
+    );
+  } catch (e) {
+    // ignore
+  }
+
+  return _origFetch(input, init);
+}) as typeof window.fetch;
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <BrowserRouter>
