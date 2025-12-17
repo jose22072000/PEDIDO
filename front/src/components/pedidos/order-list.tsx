@@ -107,7 +107,6 @@ export const OrdersList = () => {
   const [debouncedSearch, setDebouncedSearch] = useState<string>("");
   const [searchValue, setSearchValue] = useState<string>("");
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null);
   const [isModalCopied, setIsModalCopied] = useState(false);
   const { isOpen, onOpen, onClose } = useDisclosure();
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -193,8 +192,11 @@ export const OrdersList = () => {
     if (!selectedOrder) return;
 
     const vendedorNombre = selectedOrder.vendedor?.nombre || "Sin vendedor";
-    const clienteNombre = selectedOrder.cliente?.nombre || "Sin cliente";
-    const text = `P-${selectedOrder.folio}; V-${vendedorNombre}; C-${clienteNombre};`;
+    const clienteCodigo =
+      selectedOrder.cliente?.codigo ||
+      selectedOrder.cliente?.nombre ||
+      "Sin cliente";
+    const text = `P-${selectedOrder.folio}; V-${vendedorNombre}; C-${clienteCodigo};`;
 
     const ok = await copyTextToClipboard(text);
 
@@ -317,33 +319,6 @@ export const OrdersList = () => {
                       {estadoLabels[order.estado]}
                     </Chip>
                   </div>
-                  <div className="absolute top-0 right-0 z-10 md:top-3">
-                    <Button
-                      className="cursor-pointer"
-                      color={copiedOrderId === order.id ? "success" : "primary"}
-                      isIconOnly={true}
-                      variant="ghost"
-                      onPress={async () => {
-                        const vendedorNombre =
-                          order.vendedor?.nombre || "Sin vendedor";
-                        const clienteNombre =
-                          order.cliente?.nombre || "Sin cliente";
-                        const text = `P-${order.folio}; V-${vendedorNombre}; C-${clienteNombre};`;
-
-                        const ok = await copyTextToClipboard(text);
-                        if (ok) {
-                          setCopiedOrderId(order.id);
-                          setTimeout(() => setCopiedOrderId(null), 2000);
-                        }
-                      }}
-                    >
-                      {copiedOrderId === order.id ? (
-                        <Icons.check className="size-6" />
-                      ) : (
-                        <Icons.copy className="size-6" />
-                      )}
-                    </Button>
-                  </div>
                   <div className="w-full grid grid-cols-1 md:grid-cols-4 justify-between items-start gap-4">
                     <div className="flex items-center gap-2">
                       <Icons.receipt className="size-12 min-w-12 text-primary" />
@@ -378,7 +353,7 @@ export const OrdersList = () => {
                         </span>
                       </div>
                     </div>
-                    <div className="pt-1">
+                    <div className="pt-1 flex justify-center md:justify-end">
                       <Button
                         className="font-bold"
                         color="primary"

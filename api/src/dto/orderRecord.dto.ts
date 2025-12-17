@@ -60,7 +60,9 @@ export function mapCsvToOrderRecord(csvRecord: any): OrderRecordDto {
     },
     client: {
       nombre: clienteNombre,
-      codigo: csvRecord.clienteId || csvRecord.cliente_id || null,
+      // Accept multiple possible CSV headers for the client code
+      codigo:
+        csvRecord.codigo_cliente || csvRecord.codigoCliente || csvRecord.clienteId || csvRecord.cliente_id || null,
       zona: csvRecord.zona || csvRecord.Zona || null,
     },
     order: {

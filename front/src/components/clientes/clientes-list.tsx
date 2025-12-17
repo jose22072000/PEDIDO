@@ -116,7 +116,7 @@ export const ClientesList = () => {
   );
 
   const handleCopy = useCallback(async (cliente: Cliente) => {
-    const text = `C-${cliente.nombre};`;
+    const text = `C-${(cliente.codigo?.length || 0) > 0 ? cliente.codigo : cliente.nombre || "Sin cliente"};`;
     const ok = await copyTextToClipboard(text);
 
     if (ok) {
@@ -158,7 +158,7 @@ export const ClientesList = () => {
         <CardBody className="gap-4">
           <Input
             isClearable
-            placeholder="Buscar por nombre o parranda ID..."
+            placeholder="Buscar por nombre o código..."
             size="lg"
             startContent={<Icons.search className="size-5 text-default-400" />}
             value={searchValue}
@@ -307,7 +307,7 @@ export const ClientesList = () => {
                     </h2>
                     {selectedCliente?.codigo && (
                       <p className="text-sm text-default-500">
-                        Parranda ID: {selectedCliente.codigo}
+                        Código: {selectedCliente.codigo}
                       </p>
                     )}
                   </div>
@@ -320,7 +320,7 @@ export const ClientesList = () => {
                     <div className="flex items-center gap-3 p-3 bg-default-100 rounded-lg">
                       <Icons.tag className="size-8 text-primary" />
                       <div>
-                        <p className="text-xs text-default-500">Parranda ID</p>
+                        <p className="text-xs text-default-500">Código</p>
                         <p className="font-semibold">
                           {selectedCliente?.codigo || "N/A"}
                         </p>
