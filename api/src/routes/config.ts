@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import fs from 'fs';
 import path from 'path';
+import prisma from '../prismaClient';
 
 const router = Router();
 const CONFIG_FILE = path.join(__dirname, '../../config.json');
@@ -65,6 +66,23 @@ router.post('/', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to update configuration' });
+  }
+});
+
+// Reset database - delete all data except users, roles and sucursales
+router.delete('/reset-database', async (req, res) => {
+  try {
+    // Delete in order to respect foreign key constraints
+    // Keep: usuarios, roles, sucursales
+    await prisma.pedidoItem.deleteMany({});
+    await prisma.pedido.deleteMany({});
+    await prisma.cliente.deleteMany({});
+    await prisma.vendedor.deleteMany({});
+
+    res.json({ success: true, message: 'Base de datos borrada correctamente' });
+  } catch (err) {
+    console.error('Error resetting database:', err);
+    res.status(500).json({ error: 'Error al borrar la base de datos' });
   }
 });
 
