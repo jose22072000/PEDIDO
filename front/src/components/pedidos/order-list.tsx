@@ -108,6 +108,7 @@ export const OrdersList = () => {
   const [searchValue, setSearchValue] = useState<string>("");
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [isModalCopied, setIsModalCopied] = useState(false);
+  const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null);
   const { isOpen, onOpen, onClose } = useDisclosure();
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -161,7 +162,7 @@ export const OrdersList = () => {
         setIsLoading(false);
       }
     },
-    [pagination.limit, estadoFilter, debouncedSearch],
+    [pagination.limit, estadoFilter, debouncedSearch]
   );
 
   const handleCompletarOrder = useCallback(
@@ -171,7 +172,7 @@ export const OrdersList = () => {
           `${getApiBaseUrl()}/orders/${orderId}/completar`,
           {
             method: "PATCH",
-          },
+          }
         );
 
         if (!response.ok) {
@@ -185,7 +186,7 @@ export const OrdersList = () => {
         alert("Error al completar el pedido");
       }
     },
-    [fetchOrders, pagination.page, onClose],
+    [fetchOrders, pagination.page, onClose]
   );
 
   const handleCopyOrder = useCallback(async () => {
@@ -211,8 +212,25 @@ export const OrdersList = () => {
       setSelectedOrder(order);
       onOpen();
     },
-    [onOpen],
+    [onOpen]
   );
+
+  const handleCopyFromList = useCallback(async (order: Order) => {
+    const vendedorNombre = order.vendedor?.nombre || "Sin vendedor";
+    const clienteCodigo =
+      order.cliente?.codigo || order.cliente?.nombre || "Sin cliente";
+    const text = `P-${order.folio}; V-${vendedorNombre}; C-${clienteCodigo};`;
+
+    const ok = await copyTextToClipboard(text);
+    if (ok) {
+      setCopiedOrderId(order.id);
+      setTimeout(() => setCopiedOrderId(null), 2000);
+    } else {
+      alert(
+        "No se pudo copiar automáticamente. Abre el pedido para copiar manualmente."
+      );
+    }
+  }, []);
 
   // Debounced search with cleanup
   useEffect(() => {
@@ -305,7 +323,7 @@ export const OrdersList = () => {
                 key={order.id}
                 className={cn(
                   cards({ border: estadoColors[order.estado] }),
-                  "overflow-visible",
+                  "overflow-visible"
                 )}
               >
                 <CardBody className="gap-4 relative overflow-visible">
@@ -353,16 +371,46 @@ export const OrdersList = () => {
                         </span>
                       </div>
                     </div>
-                    <div className="pt-1 flex justify-center md:justify-end">
+                    <div className="pt-1 flex justify-center md:justify-end items-center gap-2">
                       <Button
-                        className="font-bold"
+                        title="Copiar Pedido"
+                        aria-label="Copiar Pedido"
+                        className="p-0"
+                        color={
+                          copiedOrderId === order.id ? "success" : "default"
+                        }
+                        startContent={<Icons.copy className="size-6" />}
+                        variant="ghost"
+                        onPress={() => handleCopyFromList(order)}
+                      />
+                      <Button
+                        title="Ver Detalles"
+                        aria-label="Ver Detalles"
+                        className="p-0"
                         color="primary"
                         startContent={<Icons.eye className="size-6" />}
                         variant="ghost"
                         onPress={() => handleOpenDetails(order)}
-                      >
-                        Ver Detalles
-                      </Button>
+                      />
+                      {order.estado !== "completada" && (
+                        <Button
+                          title="Completar Pedido"
+                          aria-label="Completar Pedido"
+                          className="p-0"
+                          color="primary"
+                          startContent={<Icons.check className="size-6" />}
+                          variant="ghost"
+                          onPress={() => {
+                            // confirmar antes de completar
+                            // eslint-disable-next-line no-restricted-globals
+                            if (
+                              confirm("¿Marcar este pedido como completado?")
+                            ) {
+                              handleCompletarOrder(order.id);
+                            }
+                          }}
+                        />
+                      )}
                     </div>
                   </div>
                 </CardBody>
@@ -488,7 +536,7 @@ export const OrdersList = () => {
                         </p>
                         <p className="text-sm">
                           {new Date(
-                            selectedOrder.fecha_comprometida,
+                            selectedOrder.fecha_comprometida
                           ).toLocaleDateString()}
                         </p>
                       </div>
@@ -528,34 +576,6 @@ export const OrdersList = () => {
                   </div>
                 </div>
               </ModalBody>
-              <ModalFooter>
-                <Button
-                  color={isModalCopied ? "success" : "default"}
-                  startContent={
-                    isModalCopied ? (
-                      <Icons.check className="size-5" />
-                    ) : (
-                      <Icons.copy className="size-5" />
-                    )
-                  }
-                  variant="bordered"
-                  onPress={handleCopyOrder}
-                >
-                  {isModalCopied ? "Copiado!" : "Copiar Pedido"}
-                </Button>
-
-                {selectedOrder?.estado !== "completada" && (
-                  <Button
-                    color="primary"
-                    startContent={<Icons.check className="size-5" />}
-                    onPress={() =>
-                      selectedOrder && handleCompletarOrder(selectedOrder.id)
-                    }
-                  >
-                    Completar Pedido
-                  </Button>
-                )}
-              </ModalFooter>
             </>
           )}
         </ModalContent>
