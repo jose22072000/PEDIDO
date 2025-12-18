@@ -597,21 +597,6 @@ export const OrdersList = () => {
                   </code>
                 </div>
                 <div className="flex justify-end gap-2 w-full">
-                  <Button
-                    color={isModalCopied ? "success" : "default"}
-                    startContent={
-                      isModalCopied ? (
-                        <Icons.check className="size-5" />
-                      ) : (
-                        <Icons.copy className="size-5" />
-                      )
-                    }
-                    variant="bordered"
-                    onPress={handleCopyOrder}
-                  >
-                    {isModalCopied ? "Copiado!" : "Copiar Pedido"}
-                  </Button>
-
                   {selectedOrder?.estado !== "completada" && (
                     <Button
                       color="primary"
