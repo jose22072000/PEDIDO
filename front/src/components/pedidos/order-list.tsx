@@ -16,6 +16,7 @@ import {
   Select,
   SelectItem,
   addToast,
+  Tooltip,
 } from "@heroui/react";
 import { useEffect, useState, useRef, useCallback } from "react";
 
@@ -108,9 +109,14 @@ export const OrdersList = () => {
   const [debouncedSearch, setDebouncedSearch] = useState<string>("");
   const [searchValue, setSearchValue] = useState<string>("");
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  const [isModalCopied, setIsModalCopied] = useState(false);
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null);
+  const [orderToComplete, setOrderToComplete] = useState<Order | null>(null);
   const { isOpen, onOpen, onClose } = useDisclosure();
+  const {
+    isOpen: isConfirmOpen,
+    onOpen: onConfirmOpen,
+    onClose: onConfirmClose,
+  } = useDisclosure();
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const fetchOrders = useCallback(
@@ -180,41 +186,25 @@ export const OrdersList = () => {
           throw new Error("Error al completar el pedido");
         }
 
-        // Refetch current page and close modal
+        // Refetch current page and close modals
         fetchOrders(pagination.page);
         onClose();
+        onConfirmClose();
+        setOrderToComplete(null);
       } catch (err) {
         alert("Error al completar el pedido");
       }
     },
-    [fetchOrders, pagination.page, onClose],
+    [fetchOrders, pagination.page, onClose, onConfirmClose],
   );
 
-  const handleCopyOrder = useCallback(async () => {
-    if (!selectedOrder) return;
-
-    const vendedorNombre = selectedOrder.vendedor?.nombre || "Sin vendedor";
-    const clienteCodigo =
-      selectedOrder.cliente?.codigo ||
-      selectedOrder.cliente?.nombre ||
-      "Sin cliente";
-    const text = `P-${selectedOrder.folio}; V-${vendedorNombre}; C-${clienteCodigo};`;
-
-    const ok = await copyTextToClipboard(text);
-
-    if (ok) {
-      setIsModalCopied(true);
-
-      setTimeout(() => setIsModalCopied(false), 2000);
-    } else {
-      addToast({
-        title: "Error al copiar",
-        description:
-          "No se pudo copiar automáticamente. Copia el texto manualmente.",
-        color: "warning",
-      });
-    }
-  }, [selectedOrder]);
+  const handleAskConfirmComplete = useCallback(
+    (order: Order) => {
+      setOrderToComplete(order);
+      onConfirmOpen();
+    },
+    [onConfirmOpen],
+  );
 
   const handleOpenDetails = useCallback(
     (order: Order) => {
@@ -384,43 +374,53 @@ export const OrdersList = () => {
                         </span>
                       </div>
                     </div>
-                    <div className="pt-1 flex justify-center md:justify-end items-center gap-2">
-                      <Button
-                        aria-label="Copiar Pedido"
-                        className="p-0"
-                        color={
-                          copiedOrderId === order.id ? "success" : "default"
-                        }
-                        isIconOnly={true}
-                        title="Copiar Pedido"
-                        variant="ghost"
-                        onPress={() => handleCopyFromList(order)}
+                    <div className="pt-1 flex justify-center md:justify-end items-center gap-6">
+                      <Tooltip
+                        content={copiedOrderId === order.id ? "¡Copiado!" : "Copiar Pedido"}
+                        color={copiedOrderId === order.id ? "success" : "default"}
                       >
-                        <Icons.copy className="size-6" />
-                      </Button>
-                      <Button
-                        aria-label="Ver Detalles"
-                        className="p-0"
-                        color="primary"
-                        isIconOnly={true}
-                        title="Ver Detalles"
-                        variant="ghost"
-                        onPress={() => handleOpenDetails(order)}
-                      >
-                        <Icons.eye className="size-6" />
-                      </Button>
-                      {order.estado !== "completada" && (
                         <Button
-                          aria-label="Completar Pedido"
+                          aria-label="Copiar Pedido"
+                          className="p-0"
+                          color={
+                            copiedOrderId === order.id ? "success" : "default"
+                          }
+                          isIconOnly={true}
+                          variant="ghost"
+                          onPress={() => handleCopyFromList(order)}
+                        >
+                          {copiedOrderId === order.id ? (
+                            <Icons.check className="size-6" />
+                          ) : (
+                            <Icons.copy className="size-6" />
+                          )}
+                        </Button>
+                      </Tooltip>
+                      <Tooltip content="Ver Detalles">
+                        <Button
+                          aria-label="Ver Detalles"
                           className="p-0"
                           color="primary"
                           isIconOnly={true}
-                          title="Completar Pedido"
-                          variant="solid"
-                          onPress={() => handleCompletarOrder(order.id)}
+                          variant="ghost"
+                          onPress={() => handleOpenDetails(order)}
                         >
-                          <Icons.check className="size-6 text-white" />
+                          <Icons.eye className="size-6" />
                         </Button>
+                      </Tooltip>
+                      {order.estado !== "completada" && (
+                        <Tooltip content="Completar Pedido">
+                          <Button
+                            aria-label="Completar Pedido"
+                            className="p-0"
+                            color="primary"
+                            isIconOnly={true}
+                            variant="solid"
+                            onPress={() => handleAskConfirmComplete(order)}
+                          >
+                            <Icons.check className="size-6 text-white" />
+                          </Button>
+                        </Tooltip>
                       )}
                     </div>
                   </div>
@@ -602,7 +602,7 @@ export const OrdersList = () => {
                       color="primary"
                       startContent={<Icons.check className="size-5" />}
                       onPress={() =>
-                        selectedOrder && handleCompletarOrder(selectedOrder.id)
+                        selectedOrder && handleAskConfirmComplete(selectedOrder)
                       }
                     >
                       Completar Pedido
@@ -612,6 +612,53 @@ export const OrdersList = () => {
               </ModalFooter>
             </>
           )}
+        </ModalContent>
+      </Modal>
+
+      {/* Modal de confirmación para completar pedido */}
+      <Modal isOpen={isConfirmOpen} placement="center" onClose={onConfirmClose}>
+        <ModalContent>
+          <ModalHeader className="flex flex-col gap-1">
+            <span className="text-primary">✓ Confirmar Acción</span>
+          </ModalHeader>
+          <ModalBody>
+            <div className="flex flex-col gap-3">
+              <p className="text-default-700">
+                ¿Estás seguro que deseas completar este pedido?
+              </p>
+              {orderToComplete && (
+                <div className="p-3 bg-default-100 rounded-lg">
+                  <p className="text-sm">
+                    <strong>Folio:</strong> {orderToComplete.folio}
+                  </p>
+                  <p className="text-sm">
+                    <strong>Cliente:</strong>{" "}
+                    {orderToComplete.cliente?.nombre || "N/A"}
+                  </p>
+                  <p className="text-sm">
+                    <strong>Vendedor:</strong>{" "}
+                    {orderToComplete.vendedor?.nombre || "N/A"}
+                  </p>
+                </div>
+              )}
+              <p className="text-xs text-warning-600">
+                Esta acción marcará el pedido como completado.
+              </p>
+            </div>
+          </ModalBody>
+          <ModalFooter>
+            <Button color="default" variant="flat" onPress={onConfirmClose}>
+              Cancelar
+            </Button>
+            <Button
+              color="primary"
+              onPress={() =>
+                orderToComplete && handleCompletarOrder(orderToComplete.id)
+              }
+            >
+              Sí, Completar
+            </Button>
+          </ModalFooter>
         </ModalContent>
       </Modal>
     </div>
