@@ -15,6 +15,7 @@ import {
   Divider,
   Select,
   SelectItem,
+  addToast,
 } from "@heroui/react";
 import { useEffect, useState, useRef, useCallback } from "react";
 
@@ -162,7 +163,7 @@ export const OrdersList = () => {
         setIsLoading(false);
       }
     },
-    [pagination.limit, estadoFilter, debouncedSearch]
+    [pagination.limit, estadoFilter, debouncedSearch],
   );
 
   const handleCompletarOrder = useCallback(
@@ -172,7 +173,7 @@ export const OrdersList = () => {
           `${getApiBaseUrl()}/orders/${orderId}/completar`,
           {
             method: "PATCH",
-          }
+          },
         );
 
         if (!response.ok) {
@@ -186,7 +187,7 @@ export const OrdersList = () => {
         alert("Error al completar el pedido");
       }
     },
-    [fetchOrders, pagination.page, onClose]
+    [fetchOrders, pagination.page, onClose],
   );
 
   const handleCopyOrder = useCallback(async () => {
@@ -203,7 +204,15 @@ export const OrdersList = () => {
 
     if (ok) {
       setIsModalCopied(true);
+
       setTimeout(() => setIsModalCopied(false), 2000);
+    } else {
+      addToast({
+        title: "Error al copiar",
+        description:
+          "No se pudo copiar automáticamente. Copia el texto manualmente.",
+        color: "warning",
+      });
     }
   }, [selectedOrder]);
 
@@ -212,7 +221,7 @@ export const OrdersList = () => {
       setSelectedOrder(order);
       onOpen();
     },
-    [onOpen]
+    [onOpen],
   );
 
   const handleCopyFromList = useCallback(async (order: Order) => {
@@ -222,13 +231,17 @@ export const OrdersList = () => {
     const text = `P-${order.folio}; V-${vendedorNombre}; C-${clienteCodigo};`;
 
     const ok = await copyTextToClipboard(text);
+
     if (ok) {
       setCopiedOrderId(order.id);
       setTimeout(() => setCopiedOrderId(null), 2000);
     } else {
-      alert(
-        "No se pudo copiar automáticamente. Abre el pedido para copiar manualmente."
-      );
+      addToast({
+        title: "Error al copiar",
+        description:
+          "No se pudo copiar automáticamente. Abre el pedido para copiar manualmente.",
+        color: "warning",
+      });
     }
   }, []);
 
@@ -323,7 +336,7 @@ export const OrdersList = () => {
                 key={order.id}
                 className={cn(
                   cards({ border: estadoColors[order.estado] }),
-                  "overflow-visible"
+                  "overflow-visible",
                 )}
               >
                 <CardBody className="gap-4 relative overflow-visible">
@@ -373,43 +386,41 @@ export const OrdersList = () => {
                     </div>
                     <div className="pt-1 flex justify-center md:justify-end items-center gap-2">
                       <Button
-                        title="Copiar Pedido"
                         aria-label="Copiar Pedido"
                         className="p-0"
                         color={
                           copiedOrderId === order.id ? "success" : "default"
                         }
-                        startContent={<Icons.copy className="size-6" />}
+                        isIconOnly={true}
+                        title="Copiar Pedido"
                         variant="ghost"
                         onPress={() => handleCopyFromList(order)}
-                      />
+                      >
+                        <Icons.copy className="size-6" />
+                      </Button>
                       <Button
-                        title="Ver Detalles"
                         aria-label="Ver Detalles"
                         className="p-0"
                         color="primary"
-                        startContent={<Icons.eye className="size-6" />}
+                        isIconOnly={true}
+                        title="Ver Detalles"
                         variant="ghost"
                         onPress={() => handleOpenDetails(order)}
-                      />
+                      >
+                        <Icons.eye className="size-6" />
+                      </Button>
                       {order.estado !== "completada" && (
                         <Button
-                          title="Completar Pedido"
                           aria-label="Completar Pedido"
                           className="p-0"
                           color="primary"
-                          startContent={<Icons.check className="size-6" />}
-                          variant="ghost"
-                          onPress={() => {
-                            // confirmar antes de completar
-                            // eslint-disable-next-line no-restricted-globals
-                            if (
-                              confirm("¿Marcar este pedido como completado?")
-                            ) {
-                              handleCompletarOrder(order.id);
-                            }
-                          }}
-                        />
+                          isIconOnly={true}
+                          title="Completar Pedido"
+                          variant="solid"
+                          onPress={() => handleCompletarOrder(order.id)}
+                        >
+                          <Icons.check className="size-6 text-white" />
+                        </Button>
                       )}
                     </div>
                   </div>
@@ -536,7 +547,7 @@ export const OrdersList = () => {
                         </p>
                         <p className="text-sm">
                           {new Date(
-                            selectedOrder.fecha_comprometida
+                            selectedOrder.fecha_comprometida,
                           ).toLocaleDateString()}
                         </p>
                       </div>
@@ -576,6 +587,44 @@ export const OrdersList = () => {
                   </div>
                 </div>
               </ModalBody>
+              <ModalFooter className="flex-col items-stretch gap-3">
+                <div className="w-full p-3 bg-warning-50 border border-warning-200 rounded-lg">
+                  <p className="text-xs text-warning-700 mb-2">
+                    Copia este texto manualmente:
+                  </p>
+                  <code className="block w-full p-2 bg-white border rounded text-sm select-all break-all">
+                    {`P-${selectedOrder?.folio}; V-${selectedOrder?.vendedor?.nombre || "Sin vendedor"}; C-${selectedOrder?.cliente?.codigo || selectedOrder?.cliente?.nombre || "Sin cliente"};`}
+                  </code>
+                </div>
+                <div className="flex justify-end gap-2 w-full">
+                  <Button
+                    color={isModalCopied ? "success" : "default"}
+                    startContent={
+                      isModalCopied ? (
+                        <Icons.check className="size-5" />
+                      ) : (
+                        <Icons.copy className="size-5" />
+                      )
+                    }
+                    variant="bordered"
+                    onPress={handleCopyOrder}
+                  >
+                    {isModalCopied ? "Copiado!" : "Copiar Pedido"}
+                  </Button>
+
+                  {selectedOrder?.estado !== "completada" && (
+                    <Button
+                      color="primary"
+                      startContent={<Icons.check className="size-5" />}
+                      onPress={() =>
+                        selectedOrder && handleCompletarOrder(selectedOrder.id)
+                      }
+                    >
+                      Completar Pedido
+                    </Button>
+                  )}
+                </div>
+              </ModalFooter>
             </>
           )}
         </ModalContent>
