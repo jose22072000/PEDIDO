@@ -283,14 +283,14 @@ async function processOrderRecord(record: OrderRecordDto, results: any) {
       data: {
         nombre: record.client.nombre,
         zona: record.client.zona,
-        codigo: record.client.codigo,
+        // codigo: record.client.codigo,
       },
     });
   } else {
-
+    
     client = await prisma.cliente.create({
       data: {
-        codigo: record.client.codigo,
+        // codigo: record.client.codigo,
         nombre: record.client.nombre,
         zona: record.client.zona,
       },

@@ -216,8 +216,7 @@ export const OrdersList = () => {
 
   const handleCopyFromList = useCallback(async (order: Order) => {
     const vendedorNombre = order.vendedor?.nombre || "Sin vendedor";
-    const clienteCodigo =
-      order.cliente?.codigo || order.cliente?.nombre || "Sin cliente";
+    const clienteCodigo = order.cliente?.nombre || "Sin cliente";
     const text = `P-${order.folio}; V-${vendedorNombre}; C-${clienteCodigo};`;
 
     const ok = await copyTextToClipboard(text);
@@ -259,11 +258,11 @@ export const OrdersList = () => {
   }, []);
 
   return (
-    <div className="flex flex-col gap-4 w-full">
+    <div className="flex flex-col w-full gap-4">
       {/* Filters */}
       <Card className={cn(cards({ border: "default" }))}>
         <CardBody className="gap-4">
-          <div className="flex gap-6 flex-col md:flex-row">
+          <div className="flex flex-col gap-6 md:flex-row">
             <Input
               isClearable
               className="flex-1"
@@ -304,7 +303,7 @@ export const OrdersList = () => {
       {/* Error State */}
       {error && (
         <Card>
-          <CardBody className="text-center py-6">
+          <CardBody className="py-6 text-center">
             <p className="text-danger">{error}</p>
             <Button
               className="mt-4"
@@ -329,7 +328,7 @@ export const OrdersList = () => {
                   "overflow-visible",
                 )}
               >
-                <CardBody className="gap-4 relative overflow-visible">
+                <CardBody className="relative gap-4 overflow-visible">
                   <div className="absolute top-0 left-0 z-10">
                     <Chip
                       className={`-translate-y-7 chip-${estadoColors[order.estado]}`}
@@ -340,14 +339,14 @@ export const OrdersList = () => {
                       {estadoLabels[order.estado]}
                     </Chip>
                   </div>
-                  <div className="w-full grid grid-cols-1 md:grid-cols-4 justify-between items-start gap-4">
+                  <div className="grid items-start justify-between w-full grid-cols-1 gap-4 md:grid-cols-4">
                     <div className="flex items-center gap-2">
                       <Icons.receipt className="size-12 min-w-12 text-primary" />
                       <div className="flex flex-col gap-1">
                         <span className="text-xs text-default-500">
                           Pedido:
                         </span>
-                        <span className="text-sm text-primary font-bold">
+                        <span className="text-sm font-bold text-primary">
                           {order.folio}
                         </span>
                       </div>
@@ -358,7 +357,7 @@ export const OrdersList = () => {
                         <span className="text-xs text-default-500">
                           Vendedor:
                         </span>
-                        <span className="text-sm text-primary font-bold">
+                        <span className="text-sm font-bold text-primary">
                           {order.vendedor?.nombre ?? "N/A"}
                         </span>
                       </div>
@@ -369,12 +368,12 @@ export const OrdersList = () => {
                         <span className="text-xs text-default-500">
                           Cliente:
                         </span>
-                        <span className="text-sm text-primary font-bold">
+                        <span className="text-sm font-bold text-primary">
                           {order.cliente?.nombre ?? "N/A"}
                         </span>
                       </div>
                     </div>
-                    <div className="pt-1 flex justify-center md:justify-end items-center gap-6">
+                    <div className="flex items-center justify-center gap-6 pt-1 md:justify-end">
                       <Tooltip
                         content={copiedOrderId === order.id ? "¡Copiado!" : "Copiar Pedido"}
                         color={copiedOrderId === order.id ? "success" : "default"}
@@ -418,7 +417,7 @@ export const OrdersList = () => {
                             variant="solid"
                             onPress={() => handleAskConfirmComplete(order)}
                           >
-                            <Icons.check className="size-6 text-white" />
+                            <Icons.check className="text-white size-6" />
                           </Button>
                         </Tooltip>
                       )}
@@ -432,7 +431,7 @@ export const OrdersList = () => {
           {/* Empty State */}
           {orders.length === 0 && (
             <Card className={cards({ border: "default" })}>
-              <CardBody className="text-center py-6">
+              <CardBody className="py-6 text-center">
                 <p className="text-default-500">
                   No se encontraron pedidos con los filtros aplicados
                 </p>
@@ -442,7 +441,7 @@ export const OrdersList = () => {
 
           {/* Pagination */}
           {pagination.totalPages > 1 && (
-            <div className="flex w-full justify-center">
+            <div className="flex justify-center w-full">
               <Pagination
                 isCompact
                 showControls
@@ -497,8 +496,8 @@ export const OrdersList = () => {
               <ModalBody>
                 <div className="flex flex-col gap-4">
                   {/* Vendor and Client Info */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="flex items-center gap-3 p-3 bg-default-100 rounded-lg">
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <div className="flex items-center gap-3 p-3 rounded-lg bg-default-100">
                       <Icons.workers className="size-10 text-primary" />
                       <div>
                         <p className="text-xs text-default-500">Vendedor</p>
@@ -507,7 +506,7 @@ export const OrdersList = () => {
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-3 p-3 bg-default-100 rounded-lg">
+                    <div className="flex items-center gap-3 p-3 rounded-lg bg-default-100">
                       <Icons.client className="size-10 text-primary" />
                       <div>
                         <p className="text-xs text-default-500">Cliente</p>
@@ -521,7 +520,7 @@ export const OrdersList = () => {
                   <Divider />
 
                   {/* Order Details */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                     {selectedOrder?.direccion && (
                       <div>
                         <p className="text-xs text-default-500">Dirección</p>
@@ -558,14 +557,14 @@ export const OrdersList = () => {
 
                   {/* Products */}
                   <div>
-                    <h3 className="font-semibold mb-3">
+                    <h3 className="mb-3 font-semibold">
                       Productos ({selectedOrder?.items.length || 0})
                     </h3>
-                    <div className="flex flex-col gap-2 max-h-60 overflow-y-auto">
+                    <div className="flex flex-col gap-2 overflow-y-auto max-h-60">
                       {selectedOrder?.items.map((item) => (
                         <div
                           key={item.id}
-                          className="flex justify-between items-center p-3 bg-default-50 rounded-lg"
+                          className="flex items-center justify-between p-3 rounded-lg bg-default-50"
                         >
                           <div className="flex items-center gap-3">
                             <Icons.productos className="size-6 text-primary" />
@@ -588,15 +587,15 @@ export const OrdersList = () => {
                 </div>
               </ModalBody>
               <ModalFooter className="flex-col items-stretch gap-3">
-                <div className="w-full p-3 bg-warning-50 border border-warning-200 rounded-lg">
-                  <p className="text-xs text-warning-700 mb-2">
+                <div className="w-full p-3 border rounded-lg bg-warning-50 border-warning-200">
+                  <p className="mb-2 text-xs text-warning-700">
                     Copia este texto manualmente:
                   </p>
-                  <code className="block w-full p-2 bg-white border rounded text-sm select-all break-all">
-                    {`P-${selectedOrder?.folio}; V-${selectedOrder?.vendedor?.nombre || "Sin vendedor"}; C-${selectedOrder?.cliente?.codigo || selectedOrder?.cliente?.nombre || "Sin cliente"};`}
+                  <code className="block w-full p-2 text-sm break-all bg-white border rounded select-all">
+                    {`P-${selectedOrder?.folio}; V-${selectedOrder?.vendedor?.nombre || "Sin vendedor"}; C-${selectedOrder?.cliente?.nombre || "Sin cliente"};`}
                   </code>
                 </div>
-                <div className="flex justify-end gap-2 w-full">
+                <div className="flex justify-end w-full gap-2">
                   {selectedOrder?.estado !== "completada" && (
                     <Button
                       color="primary"
@@ -627,7 +626,7 @@ export const OrdersList = () => {
                 ¿Estás seguro que deseas completar este pedido?
               </p>
               {orderToComplete && (
-                <div className="p-3 bg-default-100 rounded-lg">
+                <div className="p-3 rounded-lg bg-default-100">
                   <p className="text-sm">
                     <strong>Folio:</strong> {orderToComplete.folio}
                   </p>
