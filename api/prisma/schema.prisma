@@ -1,5 +1,3 @@
-
-
 generator client {
     provider = "prisma-client-js"
 }
@@ -48,19 +46,19 @@ model Vendedor {
 }
 
 model Pedido {
-    id                 String        @id @default(cuid())
+    id                 String       @id @default(cuid())
     folio              String
-    vendedorId         String?       @map("sellerId")
-    vendedor           Vendedor?     @relation(fields: [vendedorId], references: [id])
-    clienteId          String?       @map("clientId")
-    cliente            Cliente?      @relation(fields: [clienteId], references: [id])
+    vendedorId         String?      @map("sellerId")
+    vendedor           Vendedor?    @relation(fields: [vendedorId], references: [id])
+    clienteId          String?      @map("clientId")
+    cliente            Cliente?     @relation(fields: [clienteId], references: [id])
     direccion          String?
     encargado          String?
     telefono           String?
     fecha              DateTime
     fecha_comprometida DateTime?
-    estado             String?       @map("status")
-    createdAt          DateTime      @default(now())
+    estado             String?      @map("status")
+    createdAt          DateTime     @default(now())
     items              PedidoItem[]
 
     @@unique([folio, vendedorId])
@@ -75,18 +73,19 @@ model PedidoItem {
     codigo      String? @map("code")
     producto    String
     unidades    Int
+    packs       Int?    @default(0)
     descripcion String?
 
     @@map("OrderItem")
 }
 
 model Cliente {
-    id         String   @id @default(cuid())
-    codigo     String?   @unique @map("parrandaId")
-    nombre     String
-    zona       String?
-    createdAt  DateTime @default(now())
-    pedidos    Pedido[]
+    id        String   @id @default(cuid())
+    codigo    String?  @unique @map("parrandaId")
+    nombre    String
+    zona      String?
+    createdAt DateTime @default(now())
+    pedidos   Pedido[]
 
     @@map("Client")
 }

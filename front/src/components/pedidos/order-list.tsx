@@ -30,6 +30,7 @@ interface OrderItem {
   id: string;
   producto: string;
   unidades: number;
+  packs?: number | null;
   descripcion?: string | null;
 }
 
@@ -169,7 +170,7 @@ export const OrdersList = () => {
         setIsLoading(false);
       }
     },
-    [pagination.limit, estadoFilter, debouncedSearch],
+    [pagination.limit, estadoFilter, debouncedSearch]
   );
 
   const handleCompletarOrder = useCallback(
@@ -179,7 +180,7 @@ export const OrdersList = () => {
           `${getApiBaseUrl()}/orders/${orderId}/completar`,
           {
             method: "PATCH",
-          },
+          }
         );
 
         if (!response.ok) {
@@ -195,7 +196,7 @@ export const OrdersList = () => {
         alert("Error al completar el pedido");
       }
     },
-    [fetchOrders, pagination.page, onClose, onConfirmClose],
+    [fetchOrders, pagination.page, onClose, onConfirmClose]
   );
 
   const handleAskConfirmComplete = useCallback(
@@ -203,7 +204,7 @@ export const OrdersList = () => {
       setOrderToComplete(order);
       onConfirmOpen();
     },
-    [onConfirmOpen],
+    [onConfirmOpen]
   );
 
   const handleOpenDetails = useCallback(
@@ -211,12 +212,13 @@ export const OrdersList = () => {
       setSelectedOrder(order);
       onOpen();
     },
-    [onOpen],
+    [onOpen]
   );
 
   const handleCopyFromList = useCallback(async (order: Order) => {
     const vendedorNombre = order.vendedor?.nombre || "Sin vendedor";
-    const clienteCodigo = order.cliente?.nombre || "Sin cliente";
+    const clienteCodigo =
+      order.cliente?.codigo || order.cliente?.nombre || "Sin cliente";
     const text = `P-${order.folio}; V-${vendedorNombre}; C-${clienteCodigo};`;
 
     const ok = await copyTextToClipboard(text);
@@ -325,7 +327,7 @@ export const OrdersList = () => {
                 key={order.id}
                 className={cn(
                   cards({ border: estadoColors[order.estado] }),
-                  "overflow-visible",
+                  "overflow-visible"
                 )}
               >
                 <CardBody className="relative gap-4 overflow-visible">
@@ -375,8 +377,14 @@ export const OrdersList = () => {
                     </div>
                     <div className="flex items-center justify-center gap-6 pt-1 md:justify-end">
                       <Tooltip
-                        content={copiedOrderId === order.id ? "¡Copiado!" : "Copiar Pedido"}
-                        color={copiedOrderId === order.id ? "success" : "default"}
+                        content={
+                          copiedOrderId === order.id
+                            ? "¡Copiado!"
+                            : "Copiar Pedido"
+                        }
+                        color={
+                          copiedOrderId === order.id ? "success" : "default"
+                        }
                       >
                         <Button
                           aria-label="Copiar Pedido"
@@ -501,18 +509,18 @@ export const OrdersList = () => {
                       <Icons.workers className="size-10 text-primary" />
                       <div>
                         <p className="text-xs text-default-500">Vendedor</p>
-                        <p className="font-semibold">
-                          {selectedOrder?.vendedor?.nombre || "N/A"}
-                        </p>
+                        <code className="block w-full p-2 text-sm break-all bg-white border rounded select-all">
+                          {selectedOrder?.vendedor?.nombre || "Sin Vendedor"}
+                        </code>
                       </div>
                     </div>
                     <div className="flex items-center gap-3 p-3 rounded-lg bg-default-100">
                       <Icons.client className="size-10 text-primary" />
                       <div>
                         <p className="text-xs text-default-500">Cliente</p>
-                        <p className="font-semibold">
-                          {selectedOrder?.cliente?.nombre || "N/A"}
-                        </p>
+                        <code className="block w-full p-2 text-sm break-all bg-white border rounded select-all">
+                          {selectedOrder?.cliente?.nombre || "Sin Cliente"}
+                        </code>
                       </div>
                     </div>
                   </div>
@@ -524,19 +532,25 @@ export const OrdersList = () => {
                     {selectedOrder?.direccion && (
                       <div>
                         <p className="text-xs text-default-500">Dirección</p>
-                        <p className="text-sm">{selectedOrder.direccion}</p>
+                        <code className="block w-full p-2 text-sm break-all bg-white border rounded select-all">
+                          {selectedOrder.direccion}
+                        </code>
                       </div>
                     )}
                     {selectedOrder?.encargado && (
                       <div>
                         <p className="text-xs text-default-500">Encargado</p>
-                        <p className="text-sm">{selectedOrder.encargado}</p>
+                        <code className="block w-full p-2 text-sm break-all bg-white border rounded select-all">
+                          {selectedOrder.encargado}
+                        </code>
                       </div>
                     )}
                     {selectedOrder?.telefono && (
                       <div>
                         <p className="text-xs text-default-500">Teléfono</p>
-                        <p className="text-sm">{selectedOrder.telefono}</p>
+                        <code className="block w-full p-2 text-sm break-all bg-white border rounded select-all">
+                          {selectedOrder.telefono}
+                        </code>
                       </div>
                     )}
                     {selectedOrder?.fecha_comprometida && (
@@ -546,7 +560,7 @@ export const OrdersList = () => {
                         </p>
                         <p className="text-sm">
                           {new Date(
-                            selectedOrder.fecha_comprometida,
+                            selectedOrder.fecha_comprometida
                           ).toLocaleDateString()}
                         </p>
                       </div>
@@ -577,9 +591,17 @@ export const OrdersList = () => {
                               )}
                             </div>
                           </div>
-                          <Chip size="sm" variant="flat">
-                            {item.unidades} unidades
-                          </Chip>
+                          <div className="flex gap-2">
+                            {item.packs != null && item.packs > 0 && (
+                              <Chip size="sm" variant="flat">
+                                {item.packs} formato
+                                {item.packs !== 1 ? "s" : ""}
+                              </Chip>
+                            )}
+                            <Chip size="sm" variant="flat">
+                              {item.unidades} unidades
+                            </Chip>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -592,7 +614,7 @@ export const OrdersList = () => {
                     Copia este texto manualmente:
                   </p>
                   <code className="block w-full p-2 text-sm break-all bg-white border rounded select-all">
-                    {`P-${selectedOrder?.folio}; V-${selectedOrder?.vendedor?.nombre || "Sin vendedor"}; C-${selectedOrder?.cliente?.nombre || "Sin cliente"};`}
+                    {`P-${selectedOrder?.folio}; V-${selectedOrder?.vendedor?.nombre || "Sin vendedor"}; C-${selectedOrder?.cliente?.codigo || selectedOrder?.cliente?.nombre || "Sin cliente"};`}
                   </code>
                 </div>
                 <div className="flex justify-end w-full gap-2">

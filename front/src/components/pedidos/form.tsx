@@ -42,10 +42,30 @@ export default function CrearPedidoForm() {
   };
 
   const processFile = async (file: File): Promise<any> => {
+    // Primero leer el archivo como texto para detectar encoding
+    const detectEncoding = async (file: File): Promise<string> => {
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const text = e.target?.result as string;
+          // Si contiene caracteres de reemplazo, probablemente no es UTF-8
+          if (text.includes("�") || text.includes("ï»¿")) {
+            resolve("ISO-8859-1");
+          } else {
+            resolve("UTF-8");
+          }
+        };
+        reader.readAsText(file, "UTF-8");
+      });
+    };
+
+    const encoding = await detectEncoding(file);
+
     return new Promise((resolve, reject) => {
       Papa.parse(file, {
         header: true,
         skipEmptyLines: true,
+        encoding: encoding,
         complete: (results) => {
           resolve(results.data);
         },
@@ -91,13 +111,13 @@ export default function CrearPedidoForm() {
         for (let i = 0; i < batches.length; i++) {
           setCurrentFile(`${file.name} - Lote ${i + 1}/${batches.length}`);
 
-              const response = await fetch(`${getApiBaseUrl()}/orders/bulk`, {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({ records: batches[i] }),
-              });
+          const response = await fetch(`${getApiBaseUrl()}/orders/bulk`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ records: batches[i] }),
+          });
 
           if (!response.ok) {
             throw new Error(`Error al procesar ${file.name}`);

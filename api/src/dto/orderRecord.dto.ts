@@ -15,6 +15,7 @@ export interface ClientDto {
 export interface OrderItemDto {
   producto: string;
   unidades: number;
+  packs?: number | null;
   descripcion?: string | null;
 }
 
@@ -61,8 +62,28 @@ export function mapCsvToOrderRecord(csvRecord: any): OrderRecordDto {
     client: {
       nombre: clienteNombre,
       // Accept multiple possible CSV headers for the client code
-      codigo:
-        csvRecord.codigo_cliente || csvRecord.codigoCliente || csvRecord.clienteId || csvRecord.cliente_id || null,
+      // Convertir a string porque puede venir como número del CSV
+      codigo: (() => {
+        const rawCodigo = 
+          csvRecord.codigo_cliente ?? 
+          csvRecord.codigo_clien ??
+          csvRecord.codigoCliente ?? 
+          csvRecord.clienteId ?? 
+          csvRecord.cliente_id ?? 
+          csvRecord.codigo ??
+          null;
+        
+        // Log para debug - puedes quitarlo después
+        if (rawCodigo !== null && rawCodigo !== undefined && rawCodigo !== '') {
+          console.log('Cliente codigo encontrado:', rawCodigo, 'tipo:', typeof rawCodigo);
+        }
+        
+        // Convertir a string si existe, o null si está vacío
+        if (rawCodigo === null || rawCodigo === undefined || rawCodigo === '') {
+          return null;
+        }
+        return String(rawCodigo);
+      })(),
       zona: csvRecord.zona || csvRecord.Zona || null,
     },
     order: {
@@ -78,6 +99,7 @@ export function mapCsvToOrderRecord(csvRecord: any): OrderRecordDto {
     item: {
       producto: producto,
       unidades: Number(csvRecord.unidades || csvRecord.Unidades || 0),
+      packs: csvRecord.packs || csvRecord.Packs ? Number(csvRecord.packs || csvRecord.Packs) : null,
       descripcion: csvRecord.descripcion || csvRecord.Descripcion || null,
     },
   };

@@ -270,31 +270,117 @@ async function processOrderRecord(record: OrderRecordDto, results: any) {
     });
   }
 
-  // Upsert client - need to find by nombre first to get codigo for where clause
-  let existingClient = await prisma.cliente.findFirst({
-    where: { nombre: record.client.nombre.toUpperCase() },
-  });
-
+  // ========== LÓGICA MEJORADA PARA CLIENTE ==========
   let client;
-  if (existingClient) {
-    // Update existing client
-    client = await prisma.cliente.update({
-      where: { id: existingClient.id },
-      data: {
-        nombre: record.client.nombre,
-        zona: record.client.zona,
-        // codigo: record.client.codigo,
-      },
+  const clienteNombre = record.client.nombre.toUpperCase();
+  const clienteCodigo = record.client.codigo?.trim() || null;
+
+  if (clienteCodigo) {
+    // CASO 1: El CSV trae un código de cliente
+    // Primero buscar por código (es único)
+    const clientByCodigo = await prisma.cliente.findFirst({
+      where: { codigo: clienteCodigo },
     });
+
+    if (clientByCodigo) {
+      // Ya existe cliente con ese código
+      // VERIFICAR si el nombre coincide
+      if (clientByCodigo.nombre.toUpperCase() === clienteNombre) {
+        // Mismo código Y mismo nombre → actualizar zona si es necesario
+        client = await prisma.cliente.update({
+          where: { id: clientByCodigo.id },
+          data: {
+            zona: record.client.zona,
+          },
+        });
+      } else {
+        // Mismo código PERO nombre diferente → NO sobrescribir
+        // Buscar si ya existe el cliente por nombre
+        const clientByName = await prisma.cliente.findFirst({
+          where: { nombre: clienteNombre },
+        });
+
+        if (clientByName) {
+          // Ya existe cliente con ese nombre → usarlo
+          client = await prisma.cliente.update({
+            where: { id: clientByName.id },
+            data: {
+              zona: record.client.zona,
+            },
+          });
+        } else {
+          // No existe cliente con ese nombre → crear NUEVO sin código
+          // (el código ya está usado por otro cliente)
+          client = await prisma.cliente.create({
+            data: {
+              nombre: clienteNombre,
+              zona: record.client.zona,
+              // NO asignar codigo porque ya está en uso por otro cliente
+            },
+          });
+          console.log(`Cliente "${clienteNombre}" creado SIN código porque "${clienteCodigo}" ya pertenece a "${clientByCodigo.nombre}"`);
+        }
+      }
+    } else {
+      // No existe por código, buscar por nombre
+      const clientByName = await prisma.cliente.findFirst({
+        where: { nombre: clienteNombre },
+      });
+
+      if (clientByName) {
+        if (!clientByName.codigo) {
+          // Cliente existe por nombre SIN código → asignarle el código del CSV
+          client = await prisma.cliente.update({
+            where: { id: clientByName.id },
+            data: {
+              codigo: clienteCodigo,
+              zona: record.client.zona,
+            },
+          });
+        } else {
+          // Cliente existe con OTRO código diferente → usar ese cliente, no tocar su código
+          client = await prisma.cliente.update({
+            where: { id: clientByName.id },
+            data: {
+              zona: record.client.zona,
+            },
+          });
+        }
+      } else {
+        // No existe ni por código ni por nombre → crear nuevo con código
+        client = await prisma.cliente.create({
+          data: {
+            codigo: clienteCodigo,
+            nombre: clienteNombre,
+            zona: record.client.zona,
+          },
+        });
+      }
+    }
   } else {
-    
-    client = await prisma.cliente.create({
-      data: {
-        // codigo: record.client.codigo,
-        nombre: record.client.nombre,
-        zona: record.client.zona,
-      },
+    // CASO 2: El CSV NO trae código
+    // Buscar solo por nombre
+    client = await prisma.cliente.findFirst({
+      where: { nombre: clienteNombre },
     });
+
+    if (client) {
+      // Existe → actualizar zona, NO tocar código
+      client = await prisma.cliente.update({
+        where: { id: client.id },
+        data: {
+          zona: record.client.zona,
+        },
+      });
+    } else {
+      // No existe → crear sin código
+      client = await prisma.cliente.create({
+        data: {
+          nombre: clienteNombre,
+          zona: record.client.zona,
+        },
+      });
+    }
   }
 
   // Check if order already exists
@@ -320,6 +406,7 @@ async function processOrderRecord(record: OrderRecordDto, results: any) {
         where: { id: existingItem.id },
         data: {
           unidades: existingItem.unidades + record.item.unidades,
+          packs: (existingItem.packs || 0) + (record.item.packs || 0),
         },
       });
     } else {
@@ -349,6 +436,7 @@ async function processOrderRecord(record: OrderRecordDto, results: any) {
           create: {
             producto: record.item.producto,
             unidades: record.item.unidades,
+            packs: record.item.packs,
             descripcion: record.item.descripcion,
           },
         },
