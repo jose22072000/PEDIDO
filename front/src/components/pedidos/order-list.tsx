@@ -25,6 +25,7 @@ import Icons from "../icons/iconify";
 
 import { cn, copyTextToClipboard } from "@/lib/utils";
 import { getApiBaseUrl } from "@/config";
+import { useAuthStore } from "@/stores/authStore";
 
 interface OrderItem {
   id: string;
@@ -112,13 +113,25 @@ export const OrdersList = () => {
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null);
   const [orderToComplete, setOrderToComplete] = useState<Order | null>(null);
+  const [orderToDelete, setOrderToDelete] = useState<Order | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const { isOpen, onOpen, onClose } = useDisclosure();
   const {
     isOpen: isConfirmOpen,
     onOpen: onConfirmOpen,
     onClose: onConfirmClose,
   } = useDisclosure();
+  const {
+    isOpen: isDeleteConfirmOpen,
+    onOpen: onDeleteConfirmOpen,
+    onClose: onDeleteConfirmClose,
+  } = useDisclosure();
   const abortControllerRef = useRef<AbortController | null>(null);
+  const { session } = useAuthStore();
+
+  // Check if user can delete orders (Administrador or Supervisor)
+  const canDeleteOrders =
+    session?.rol === "ADMINISTRADOR" || session?.rol === "SUPERVISOR";
 
   const fetchOrders = useCallback(
     async (page: number = 1) => {
@@ -170,7 +183,7 @@ export const OrdersList = () => {
         setIsLoading(false);
       }
     },
-    [pagination.limit, estadoFilter, debouncedSearch]
+    [pagination.limit, estadoFilter, debouncedSearch],
   );
 
   const handleCompletarOrder = useCallback(
@@ -180,7 +193,7 @@ export const OrdersList = () => {
           `${getApiBaseUrl()}/orders/${orderId}/completar`,
           {
             method: "PATCH",
-          }
+          },
         );
 
         if (!response.ok) {
@@ -196,7 +209,58 @@ export const OrdersList = () => {
         alert("Error al completar el pedido");
       }
     },
-    [fetchOrders, pagination.page, onClose, onConfirmClose]
+    [fetchOrders, pagination.page, onClose, onConfirmClose],
+  );
+
+  const handleDeleteOrder = useCallback(
+    async (orderId: string) => {
+      setIsDeleting(true);
+      try {
+        const token = localStorage.getItem("auth_token");
+        const response = await fetch(`${getApiBaseUrl()}/orders/${orderId}`, {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        if (!response.ok) {
+          const data = await response.json();
+          throw new Error(data.error || "Error al eliminar el pedido");
+        }
+
+        addToast({
+          title: "Pedido eliminado",
+          description: "El pedido ha sido eliminado correctamente.",
+          color: "success",
+        });
+
+        // Refetch current page and close modals
+        fetchOrders(pagination.page);
+        onClose();
+        onDeleteConfirmClose();
+        setOrderToDelete(null);
+        setSelectedOrder(null);
+      } catch (err) {
+        addToast({
+          title: "Error",
+          description:
+            err instanceof Error ? err.message : "Error al eliminar el pedido",
+          color: "danger",
+        });
+      } finally {
+        setIsDeleting(false);
+      }
+    },
+    [fetchOrders, pagination.page, onClose, onDeleteConfirmClose],
+  );
+
+  const handleAskConfirmDelete = useCallback(
+    (order: Order) => {
+      setOrderToDelete(order);
+      onDeleteConfirmOpen();
+    },
+    [onDeleteConfirmOpen],
   );
 
   const handleAskConfirmComplete = useCallback(
@@ -204,7 +268,7 @@ export const OrdersList = () => {
       setOrderToComplete(order);
       onConfirmOpen();
     },
-    [onConfirmOpen]
+    [onConfirmOpen],
   );
 
   const handleOpenDetails = useCallback(
@@ -212,13 +276,12 @@ export const OrdersList = () => {
       setSelectedOrder(order);
       onOpen();
     },
-    [onOpen]
+    [onOpen],
   );
 
   const handleCopyFromList = useCallback(async (order: Order) => {
     const vendedorNombre = order.vendedor?.nombre || "Sin vendedor";
-    const clienteCodigo =
-      order.cliente?.codigo || order.cliente?.nombre || "Sin cliente";
+    const clienteCodigo = order.cliente?.nombre || "Sin cliente";
     const text = `P-${order.folio}; V-${vendedorNombre}; C-${clienteCodigo};`;
 
     const ok = await copyTextToClipboard(text);
@@ -327,7 +390,7 @@ export const OrdersList = () => {
                 key={order.id}
                 className={cn(
                   cards({ border: estadoColors[order.estado] }),
-                  "overflow-visible"
+                  "overflow-visible",
                 )}
               >
                 <CardBody className="relative gap-4 overflow-visible">
@@ -560,7 +623,7 @@ export const OrdersList = () => {
                         </p>
                         <p className="text-sm">
                           {new Date(
-                            selectedOrder.fecha_comprometida
+                            selectedOrder.fecha_comprometida,
                           ).toLocaleDateString()}
                         </p>
                       </div>
@@ -614,21 +677,38 @@ export const OrdersList = () => {
                     Copia este texto manualmente:
                   </p>
                   <code className="block w-full p-2 text-sm break-all bg-white border rounded select-all">
-                    {`P-${selectedOrder?.folio}; V-${selectedOrder?.vendedor?.nombre || "Sin vendedor"}; C-${selectedOrder?.cliente?.codigo || selectedOrder?.cliente?.nombre || "Sin cliente"};`}
+                    {`P-${selectedOrder?.folio}; V-${selectedOrder?.vendedor?.nombre || "Sin vendedor"}; C-${selectedOrder?.cliente?.nombre || "Sin cliente"};`}
                   </code>
                 </div>
-                <div className="flex justify-end w-full gap-2">
-                  {selectedOrder?.estado !== "completada" && (
-                    <Button
-                      color="primary"
-                      startContent={<Icons.check className="size-5" />}
-                      onPress={() =>
-                        selectedOrder && handleAskConfirmComplete(selectedOrder)
-                      }
-                    >
-                      Completar Pedido
-                    </Button>
-                  )}
+                <div className="flex justify-between w-full gap-2">
+                  <div>
+                    {canDeleteOrders && (
+                      <Button
+                        color="danger"
+                        variant="flat"
+                        startContent={<Icons.trash className="size-5" />}
+                        onPress={() =>
+                          selectedOrder && handleAskConfirmDelete(selectedOrder)
+                        }
+                      >
+                        Eliminar Pedido
+                      </Button>
+                    )}
+                  </div>
+                  <div>
+                    {selectedOrder?.estado !== "completada" && (
+                      <Button
+                        color="primary"
+                        startContent={<Icons.check className="size-5" />}
+                        onPress={() =>
+                          selectedOrder &&
+                          handleAskConfirmComplete(selectedOrder)
+                        }
+                      >
+                        Completar Pedido
+                      </Button>
+                    )}
+                  </div>
                 </div>
               </ModalFooter>
             </>
@@ -678,6 +758,63 @@ export const OrdersList = () => {
               }
             >
               Sí, Completar
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      {/* Modal de confirmación para eliminar pedido */}
+      <Modal
+        isOpen={isDeleteConfirmOpen}
+        placement="center"
+        onClose={onDeleteConfirmClose}
+      >
+        <ModalContent>
+          <ModalHeader className="flex flex-col gap-1">
+            <span className="text-danger">⚠ Eliminar Pedido</span>
+          </ModalHeader>
+          <ModalBody>
+            <div className="flex flex-col gap-3">
+              <p className="text-default-700">
+                ¿Estás seguro que deseas eliminar este pedido?
+              </p>
+              {orderToDelete && (
+                <div className="p-3 rounded-lg bg-danger-50 border border-danger-200">
+                  <p className="text-sm">
+                    <strong>Folio:</strong> {orderToDelete.folio}
+                  </p>
+                  <p className="text-sm">
+                    <strong>Cliente:</strong>{" "}
+                    {orderToDelete.cliente?.nombre || "N/A"}
+                  </p>
+                  <p className="text-sm">
+                    <strong>Vendedor:</strong>{" "}
+                    {orderToDelete.vendedor?.nombre || "N/A"}
+                  </p>
+                </div>
+              )}
+              <p className="text-xs text-danger-600">
+                Esta acción no se puede deshacer. El pedido y todos sus items
+                serán eliminados permanentemente.
+              </p>
+            </div>
+          </ModalBody>
+          <ModalFooter>
+            <Button
+              color="default"
+              variant="flat"
+              onPress={onDeleteConfirmClose}
+            >
+              Cancelar
+            </Button>
+            <Button
+              color="danger"
+              isLoading={isDeleting}
+              onPress={() =>
+                orderToDelete && handleDeleteOrder(orderToDelete.id)
+              }
+            >
+              Sí, Eliminar
             </Button>
           </ModalFooter>
         </ModalContent>

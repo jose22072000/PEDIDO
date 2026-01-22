@@ -11,6 +11,7 @@ import sucursalesRouter from './routes/sucursales';
 import configRouter from './routes/config';
 import vendedoresRouter from './routes/vendedores';
 import clientesRouter from './routes/clientes';
+import reportsRouter from './routes/reports';
 import prisma from './prismaClient';
 
 const app = express();
@@ -49,6 +50,7 @@ app.use('/sucursales', sucursalesRouter);
 app.use('/config', configRouter);
 app.use('/vendedores', vendedoresRouter);
 app.use('/clientes', clientesRouter);
+app.use('/reports', reportsRouter);
 
 app.listen(port, '0.0.0.0', async () => {
   console.log(`API listening on http://0.0.0.0:${port}`);

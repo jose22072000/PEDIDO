@@ -1104,6 +1104,52 @@ export function TablerCopyCheckFilled(props: SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+// Calendar icon
+export function SolarCalendarBold(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      height={24}
+      viewBox="0 0 24 24"
+      width={24}
+      xmlns="http://www.w3.org/2000/svg"
+      {...props}
+    >
+      <path
+        d="M6.96 2c.418 0 .756.31.756.692V4.09c.67-.012 1.422-.012 2.268-.012h4.032c.846 0 1.597 0 2.268.012V2.692c0-.382.338-.692.756-.692s.756.31.756.692V4.15c1.45.106 2.403.368 3.103 1.008c.7.641.985 1.513 1.101 2.842v1H2V8c.116-1.329.401-2.2 1.101-2.842c.7-.64 1.652-.902 3.103-1.008V2.692c0-.382.339-.692.756-.692"
+        fill="currentColor"
+      />
+      <path
+        d="M22 14v-4c0-.839-.013-2.335-.026-3H2.006c-.013.665 0 2.161 0 3v4c0 3.771 0 5.657 1.172 6.828S6.229 22 10 22h4c3.771 0 5.657 0 6.828-1.172S22 17.771 22 14"
+        fill="currentColor"
+        opacity={0.5}
+      />
+      <path
+        d="M18 17a1 1 0 1 1-2 0a1 1 0 0 1 2 0m0-4a1 1 0 1 1-2 0a1 1 0 0 1 2 0m-5 4a1 1 0 1 1-2 0a1 1 0 0 1 2 0m0-4a1 1 0 1 1-2 0a1 1 0 0 1 2 0m-5 4a1 1 0 1 1-2 0a1 1 0 0 1 2 0m0-4a1 1 0 1 1-2 0a1 1 0 0 1 2 0"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
+// Filter icon
+export function SolarFilterBold(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      height={24}
+      viewBox="0 0 24 24"
+      width={24}
+      xmlns="http://www.w3.org/2000/svg"
+      {...props}
+    >
+      <path
+        d="M19 3H5c-1.414 0-2.121 0-2.56.412C2 3.824 2 4.488 2 5.815v.69c0 1.037 0 1.556.26 1.986s.733.698 1.682 1.232l2.913 1.64c.636.358.955.537 1.183.735c.474.411.766.895.898 1.49c.064.284.064.618.064 1.285v2.67c0 .909 0 1.364.252 1.718c.252.355.7.505 1.594.807l1.856.627c1.426.482 2.14.722 2.719.4c.579-.323.579-1.007.579-2.374v-3.848c0-.667 0-1.001.063-1.285c.133-.595.425-1.079.899-1.49c.228-.198.547-.377 1.183-.736l2.913-1.64c.948-.533 1.423-.8 1.682-1.23c.26-.43.26-.95.26-1.987v-.69c0-1.327 0-1.99-.44-2.403C21.122 3 20.415 3 19 3"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
 // Final Icons mapping (exported as default) so all icon components above are available
 const Icons = {
   copy: TablerCopy,
@@ -1160,6 +1206,8 @@ const Icons = {
   search: SolarMagnifierLinear,
   close: SolarCloseCircleBold,
   user: TablerUserSquareRounded,
+  calendar: SolarCalendarBold,
+  filter: SolarFilterBold,
 };
 
 export default Icons;

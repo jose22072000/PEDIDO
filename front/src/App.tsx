@@ -10,6 +10,11 @@ import ListaUsuariosPage from "./pages/usuarios/lista-usuarios";
 import VendedoresPage from "./pages/vendedores/vendedores";
 import ClientesPage from "./pages/clientes/clientes";
 import ConfiguracionPage from "./pages/configuracion/configuracion";
+import ReportesPage from "./pages/reportes/reportes";
+import ReportePedidosFechaPage from "./pages/reportes/pedidos-fecha";
+import ReportePedidosVendedorPage from "./pages/reportes/pedidos-vendedor";
+import ReportePedidosEstadoPage from "./pages/reportes/pedidos-estado";
+import ReporteProductosVendedorPage from "./pages/reportes/productos-vendedor";
 
 import ProtectedRoute from "@/components/ProtectedRoute";
 import AdminRoute from "@/components/AdminRoute";
@@ -51,6 +56,25 @@ function App() {
 
         {/* Clientes */}
         <Route element={<ClientesPage />} path="/panel/clientes" />
+
+        {/* Reportes */}
+        <Route element={<ReportesPage />} path="/panel/reportes" />
+        <Route
+          element={<ReportePedidosFechaPage />}
+          path="/panel/reportes/pedidos-fecha"
+        />
+        <Route
+          element={<ReportePedidosVendedorPage />}
+          path="/panel/reportes/pedidos-vendedor"
+        />
+        <Route
+          element={<ReportePedidosEstadoPage />}
+          path="/panel/reportes/pedidos-estado"
+        />
+        <Route
+          element={<ReporteProductosVendedorPage />}
+          path="/panel/reportes/productos-vendedor"
+        />
       </Route>
 
       {/* Rutas protegidas para Administrador y Supervisor */}

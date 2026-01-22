@@ -62,28 +62,8 @@ export function mapCsvToOrderRecord(csvRecord: any): OrderRecordDto {
     client: {
       nombre: clienteNombre,
       // Accept multiple possible CSV headers for the client code
-      // Convertir a string porque puede venir como número del CSV
-      codigo: (() => {
-        const rawCodigo = 
-          csvRecord.codigo_cliente ?? 
-          csvRecord.codigo_clien ??
-          csvRecord.codigoCliente ?? 
-          csvRecord.clienteId ?? 
-          csvRecord.cliente_id ?? 
-          csvRecord.codigo ??
-          null;
-        
-        // Log para debug - puedes quitarlo después
-        if (rawCodigo !== null && rawCodigo !== undefined && rawCodigo !== '') {
-          console.log('Cliente codigo encontrado:', rawCodigo, 'tipo:', typeof rawCodigo);
-        }
-        
-        // Convertir a string si existe, o null si está vacío
-        if (rawCodigo === null || rawCodigo === undefined || rawCodigo === '') {
-          return null;
-        }
-        return String(rawCodigo);
-      })(),
+      codigo:
+        csvRecord.codigo_cliente || csvRecord.codigoCliente || csvRecord.clienteId || csvRecord.cliente_id || null,
       zona: csvRecord.zona || csvRecord.Zona || null,
     },
     order: {
@@ -91,9 +71,10 @@ export function mapCsvToOrderRecord(csvRecord: any): OrderRecordDto {
       direccion: csvRecord.direccion || csvRecord.Direccion || null,
       encargado: encargadoNombre || null,
       telefono: csvRecord.telefono || csvRecord.Telefono || null,
-      fecha: csvRecord.fecha ? new Date(csvRecord.fecha) : new Date(),
+      // Add T12:00:00 to prevent timezone issues when parsing date-only strings
+      fecha: csvRecord.fecha ? new Date(csvRecord.fecha + 'T12:00:00') : new Date(),
       fecha_comprometida: csvRecord.fecha_comprometida 
-        ? new Date(csvRecord.fecha_comprometida) 
+        ? new Date(csvRecord.fecha_comprometida + 'T12:00:00') 
         : null,
     },
     item: {

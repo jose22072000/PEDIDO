@@ -165,6 +165,7 @@ router.post('/', async (req, res) => {
           create: (items || []).map((it: any) => ({
             producto: it.producto?.toUpperCase() || '',
             unidades: Number(it.unidades || 0),
+            packs: it.packs != null ? Number(it.packs) : null,
             descripcion: it.descripcion || null,
           })),
         },
@@ -194,6 +195,38 @@ router.patch('/:id/completar', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to update order status' });
+  }
+});
+
+// Delete an order (requires Administrador or Supervisor role)
+router.delete('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Check if order exists
+    const existingOrder = await prisma.pedido.findUnique({
+      where: { id },
+      include: { items: true },
+    });
+
+    if (!existingOrder) {
+      return res.status(404).json({ error: 'Pedido no encontrado' });
+    }
+
+    // Delete order items first (cascade might not be set up)
+    await prisma.pedidoItem.deleteMany({
+      where: { pedidoId: id },
+    });
+
+    // Delete the order
+    await prisma.pedido.delete({
+      where: { id },
+    });
+
+    res.json({ success: true, message: 'Pedido eliminado correctamente' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error al eliminar el pedido' });
   }
 });
 
@@ -270,145 +303,134 @@ async function processOrderRecord(record: OrderRecordDto, results: any) {
     });
   }
 
-  // ========== LÓGICA MEJORADA PARA CLIENTE ==========
+  // Upsert client - need to find by nombre first to get codigo for where clause
+  let existingClient = await prisma.cliente.findFirst({
+    where: { nombre: record.client.nombre.toUpperCase() },
+  });
+
   let client;
-  const clienteNombre = record.client.nombre.toUpperCase();
-  const clienteCodigo = record.client.codigo?.trim() || null;
-
-  if (clienteCodigo) {
-    // CASO 1: El CSV trae un código de cliente
-    // Primero buscar por código (es único)
-    const clientByCodigo = await prisma.cliente.findFirst({
-      where: { codigo: clienteCodigo },
+  if (existingClient) {
+    // Update existing client
+    client = await prisma.cliente.update({
+      where: { id: existingClient.id },
+      data: {
+        nombre: record.client.nombre,
+        zona: record.client.zona,
+        // codigo: record.client.codigo,
+      },
     });
-
-    if (clientByCodigo) {
-      // Ya existe cliente con ese código
-      // VERIFICAR si el nombre coincide
-      if (clientByCodigo.nombre.toUpperCase() === clienteNombre) {
-        // Mismo código Y mismo nombre → actualizar zona si es necesario
-        client = await prisma.cliente.update({
-          where: { id: clientByCodigo.id },
-          data: {
-            zona: record.client.zona,
-          },
-        });
-      } else {
-        // Mismo código PERO nombre diferente → NO sobrescribir
-        // Buscar si ya existe el cliente por nombre
-        const clientByName = await prisma.cliente.findFirst({
-          where: { nombre: clienteNombre },
-        });
-
-        if (clientByName) {
-          // Ya existe cliente con ese nombre → usarlo
-          client = await prisma.cliente.update({
-            where: { id: clientByName.id },
-            data: {
-              zona: record.client.zona,
-            },
-          });
-        } else {
-          // No existe cliente con ese nombre → crear NUEVO sin código
-          // (el código ya está usado por otro cliente)
-          client = await prisma.cliente.create({
-            data: {
-              nombre: clienteNombre,
-              zona: record.client.zona,
-              // NO asignar codigo porque ya está en uso por otro cliente
-            },
-          });
-          console.log(`Cliente "${clienteNombre}" creado SIN código porque "${clienteCodigo}" ya pertenece a "${clientByCodigo.nombre}"`);
-        }
-      }
-    } else {
-      // No existe por código, buscar por nombre
-      const clientByName = await prisma.cliente.findFirst({
-        where: { nombre: clienteNombre },
-      });
-
-      if (clientByName) {
-        if (!clientByName.codigo) {
-          // Cliente existe por nombre SIN código → asignarle el código del CSV
-          client = await prisma.cliente.update({
-            where: { id: clientByName.id },
-            data: {
-              codigo: clienteCodigo,
-              zona: record.client.zona,
-            },
-          });
-        } else {
-          // Cliente existe con OTRO código diferente → usar ese cliente, no tocar su código
-          client = await prisma.cliente.update({
-            where: { id: clientByName.id },
-            data: {
-              zona: record.client.zona,
-            },
-          });
-        }
-      } else {
-        // No existe ni por código ni por nombre → crear nuevo con código
-        client = await prisma.cliente.create({
-          data: {
-            codigo: clienteCodigo,
-            nombre: clienteNombre,
-            zona: record.client.zona,
-          },
-        });
-      }
-    }
   } else {
-    // CASO 2: El CSV NO trae código
-    // Buscar solo por nombre
-    client = await prisma.cliente.findFirst({
-      where: { nombre: clienteNombre },
+    
+    client = await prisma.cliente.create({
+      data: {
+        // codigo: record.client.codigo,
+        nombre: record.client.nombre,
+        zona: record.client.zona,
+      },
     });
-
-    if (client) {
-      // Existe → actualizar zona, NO tocar código
-      client = await prisma.cliente.update({
-        where: { id: client.id },
-        data: {
-          zona: record.client.zona,
-        },
-      });
-    } else {
-      // No existe → crear sin código
-      client = await prisma.cliente.create({
-        data: {
-          nombre: clienteNombre,
-          zona: record.client.zona,
-        },
-      });
-    }
   }
 
-  // Check if order already exists
+  // Extract base folio (remove only small suffixes like -1, -2, NOT the folio number like -1130)
+  // Only match suffixes of 1-2 digits at the very end (our generated suffixes)
+  const baseFolioMatch = record.order.folio.match(/^(.+)-(\d{1,2})$/);
+  const baseFolio = baseFolioMatch ? baseFolioMatch[1] : record.order.folio;
+
+  // Check if order already exists for THIS client (with base folio or any suffix)
   const existingOrder = await prisma.pedido.findFirst({
     where: {
-      folio: record.order.folio,
+      OR: [
+        { folio: baseFolio },
+        { folio: { startsWith: `${baseFolio}-` } },
+      ],
       vendedorId: seller.id,
+      clienteId: client.id,
     },
     include: {
       items: true,
     },
   });
 
+  // Generate unique folio if no existing order for this client
+  let finalFolio = baseFolio;
+  if (!existingOrder) {
+    // Find ALL existing folios with this base pattern in the database
+    const existingFolios = await prisma.pedido.findMany({
+      where: {
+        OR: [
+          { folio: baseFolio },
+          { folio: { startsWith: `${baseFolio}-` } },
+        ],
+      },
+      select: { folio: true, clienteId: true },
+    });
+    
+    // Check if base folio is taken by another client
+    const baseFolioTaken = existingFolios.some(o => o.folio === baseFolio && o.clienteId !== client.id);
+    
+    if (baseFolioTaken || existingFolios.length > 0) {
+      // Find the next available suffix
+      let maxSuffix = 0;
+      for (const order of existingFolios) {
+        if (order.folio === baseFolio) continue;
+        const match = order.folio.match(new RegExp(`^${baseFolio.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-(\\d+)$`));
+        if (match) {
+          const suffix = parseInt(match[1]);
+          if (suffix > maxSuffix) maxSuffix = suffix;
+        }
+      }
+      
+      // If base folio is taken, we need a suffix
+      if (baseFolioTaken) {
+        finalFolio = `${baseFolio}-${maxSuffix + 1}`;
+      }
+    }
+  } else {
+    // Use the existing folio for this client
+    finalFolio = existingOrder.folio;
+  }
+
   if (existingOrder) {
+    // Update the order's fecha_comprometida if the new record has a different one
+    // Use the latest (most future) fecha_comprometida
+    if (record.order.fecha_comprometida) {
+      const existingFecha = existingOrder.fecha_comprometida;
+      const newFecha = record.order.fecha_comprometida;
+      
+      // Update if existing has no fecha_comprometida, or if new fecha is later
+      if (!existingFecha || newFecha > existingFecha) {
+        await prisma.pedido.update({
+          where: { id: existingOrder.id },
+          data: {
+            fecha_comprometida: newFecha,
+          },
+        });
+      }
+    }
+
     // Check if item already exists in this order
     const existingItem = existingOrder.items.find(
       (item) => item.producto.toUpperCase() === record.item.producto.toUpperCase(),
     );
 
     if (existingItem) {
-      // Update existing item quantity
-      await prisma.pedidoItem.update({
-        where: { id: existingItem.id },
-        data: {
-          unidades: existingItem.unidades + record.item.unidades,
-          packs: (existingItem.packs || 0) + (record.item.packs || 0),
-        },
-      });
+      // Only update if quantities are different (replace, don't sum)
+      const newUnidades = record.item.unidades;
+      const newPacks = record.item.packs || 0;
+      const existingPacks = existingItem.packs || 0;
+      
+      if (existingItem.unidades !== newUnidades || existingPacks !== newPacks) {
+        // Quantities changed - update with new values
+        await prisma.pedidoItem.update({
+          where: { id: existingItem.id },
+          data: {
+            unidades: newUnidades,
+            packs: newPacks || null,
+            descripcion: record.item.descripcion || existingItem.descripcion,
+          },
+        });
+        results.updated++;
+      }
+      // If quantities are the same, do nothing (skip)
     } else {
       // Add new item to existing order
       await prisma.pedidoItem.create({
@@ -423,7 +445,7 @@ async function processOrderRecord(record: OrderRecordDto, results: any) {
     // Create new order with item
     await prisma.pedido.create({
       data: {
-        folio: record.order.folio,
+        folio: finalFolio,
         vendedorId: seller.id,
         clienteId: client.id,
         direccion: record.order.direccion,

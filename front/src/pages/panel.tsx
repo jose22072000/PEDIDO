@@ -37,7 +37,7 @@ export default function PanelPage() {
         if (config.sucursalId) {
           // Obtener el nombre de la sucursal
           const sucursalResponse = await fetch(
-            `${getApiBaseUrl()}/sucursales/${config.sucursalId}`
+            `${getApiBaseUrl()}/sucursales/${config.sucursalId}`,
           );
 
           if (sucursalResponse.ok) {
@@ -103,6 +103,13 @@ export default function PanelPage() {
               href="/panel/panel-usuarios"
               icon="users"
               title="Usuarios"
+            />
+            <ActionCard
+              color="danger"
+              description="Generar y exportar reportes"
+              href="/panel/reportes"
+              icon="reports"
+              title="Reportes"
             />
             <ActionCard
               color="warning"
