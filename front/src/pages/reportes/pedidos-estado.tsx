@@ -135,6 +135,7 @@ export default function ReportePedidosEstadoPage() {
     const dataToExport = pedidos.flatMap((pedido) =>
       pedido.items.map((item) => ({
         Folio: pedido.folio,
+        Estado: getEstadoLabel(pedido.estado),
         Vendedor: pedido.vendedor?.nombre || "Sin vendedor",
         Cliente: pedido.cliente?.nombre || "Sin cliente",
         "Fecha Pedido": new Date(pedido.fecha).toLocaleDateString(),
@@ -321,6 +322,7 @@ export default function ReportePedidosEstadoPage() {
             >
               <TableHeader>
                 <TableColumn>FOLIO</TableColumn>
+                <TableColumn>ESTADO</TableColumn>
                 <TableColumn>VENDEDOR</TableColumn>
                 <TableColumn>CLIENTE</TableColumn>
                 <TableColumn>FECHA PEDIDO</TableColumn>
@@ -334,6 +336,7 @@ export default function ReportePedidosEstadoPage() {
                   pedido.items.map((item, idx) => (
                     <TableRow key={`${pedido.id}-${idx}`}>
                       <TableCell>{pedido.folio}</TableCell>
+                      <TableCell>{getEstadoLabel(pedido.estado)}</TableCell>
                       <TableCell>
                         {pedido.vendedor?.nombre || "Sin vendedor"}
                       </TableCell>
