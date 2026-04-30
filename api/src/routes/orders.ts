@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { Prisma } from '@prisma/client';
 import prisma from '../prismaClient';
 import { mapCsvRecords, type OrderRecordDto } from '../dto/orderRecord.dto';
 
@@ -38,6 +39,13 @@ router.get('/', async (req, res) => {
           {
             cliente: {
               nombre: {
+                contains: searchTerm,
+              },
+            },
+          },
+          {
+            cliente: {
+              codigo: {
                 contains: searchTerm,
               },
             },
@@ -303,31 +311,56 @@ async function processOrderRecord(record: OrderRecordDto, results: any) {
     });
   }
 
-  // Upsert client - need to find by nombre first to get codigo for where clause
+  // Keep client matching by name only (NOT by codigo), to avoid cross-vendor
+  // collisions when CSVs contain repeated client codes.
   let existingClient = await prisma.cliente.findFirst({
     where: { nombre: record.client.nombre.toUpperCase() },
   });
 
   let client;
   if (existingClient) {
+    const incomingCode = record.client.codigo?.toString().trim() || null;
+    const canUpdateCode =
+      !!incomingCode &&
+      (!existingClient.codigo || existingClient.codigo.trim() === '' || existingClient.codigo === incomingCode);
+
     // Update existing client
     client = await prisma.cliente.update({
       where: { id: existingClient.id },
       data: {
         nombre: record.client.nombre,
         zona: record.client.zona,
-        // codigo: record.client.codigo,
+        codigo: canUpdateCode ? incomingCode : existingClient.codigo,
       },
     });
   } else {
-    
-    client = await prisma.cliente.create({
-      data: {
-        // codigo: record.client.codigo,
-        nombre: record.client.nombre,
-        zona: record.client.zona,
-      },
-    });
+    const incomingCode = record.client.codigo?.toString().trim() || null;
+
+    try {
+      client = await prisma.cliente.create({
+        data: {
+          codigo: incomingCode,
+          nombre: record.client.nombre,
+          zona: record.client.zona,
+        },
+      });
+    } catch (error) {
+      // If codigo is duplicated in source CSVs, keep import working by creating
+      // the client without codigo instead of failing the whole bulk upload.
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        client = await prisma.cliente.create({
+          data: {
+            nombre: record.client.nombre,
+            zona: record.client.zona,
+          },
+        });
+      } else {
+        throw error;
+      }
+    }
   }
 
   // Extract base folio (remove only small suffixes like -1, -2, NOT the folio number like -1130)

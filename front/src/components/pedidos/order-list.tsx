@@ -281,7 +281,8 @@ export const OrdersList = () => {
 
   const handleCopyFromList = useCallback(async (order: Order) => {
     const vendedorNombre = order.vendedor?.nombre || "Sin vendedor";
-    const clienteCodigo = order.cliente?.nombre || "Sin cliente";
+    const clienteCodigo =
+      order.cliente?.codigo || order.cliente?.nombre || "Sin cliente";
     const text = `P-${order.folio}; V-${vendedorNombre}; C-${clienteCodigo};`;
 
     const ok = await copyTextToClipboard(text);
@@ -332,7 +333,7 @@ export const OrdersList = () => {
               isClearable
               className="flex-1"
               label="Buscar Pedido"
-              placeholder="Buscar por folio, vendedor o cliente..."
+              placeholder="Buscar por folio, vendedor, cliente o codigo..."
               size="lg"
               startContent={
                 <Icons.search className="size-5 text-default-400" />
@@ -584,6 +585,12 @@ export const OrdersList = () => {
                         <code className="block w-full p-2 text-sm break-all bg-white border rounded select-all">
                           {selectedOrder?.cliente?.nombre || "Sin Cliente"}
                         </code>
+                        <p className="mt-2 text-xs text-default-500">Codigo</p>
+                        <code className="block w-full p-2 text-sm break-all bg-white border rounded select-all">
+                          {selectedOrder?.cliente?.codigo ||
+                            selectedOrder?.cliente?.nombre ||
+                            "Sin cliente"}
+                        </code>
                       </div>
                     </div>
                   </div>
@@ -677,7 +684,7 @@ export const OrdersList = () => {
                     Copia este texto manualmente:
                   </p>
                   <code className="block w-full p-2 text-sm break-all bg-white border rounded select-all">
-                    {`P-${selectedOrder?.folio}; V-${selectedOrder?.vendedor?.nombre || "Sin vendedor"}; C-${selectedOrder?.cliente?.nombre || "Sin cliente"};`}
+                    {`P-${selectedOrder?.folio}; V-${selectedOrder?.vendedor?.nombre || "Sin vendedor"}; C-${selectedOrder?.cliente?.codigo || selectedOrder?.cliente?.nombre || "Sin cliente"};`}
                   </code>
                 </div>
                 <div className="flex justify-between w-full gap-2">
