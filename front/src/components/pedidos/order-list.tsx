@@ -100,6 +100,8 @@ const estadoOptions = [
 export const OrdersList = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [estadoFilter, setEstadoFilter] = useState<string>("todos");
+  const [fechaDesde, setFechaDesde] = useState<string>("");
+  const [fechaHasta, setFechaHasta] = useState<string>("");
   const [pagination, setPagination] = useState<PaginationData>({
     page: 1,
     limit: 10,
@@ -161,6 +163,14 @@ export const OrdersList = () => {
           params.append("search", debouncedSearch);
         }
 
+        if (fechaDesde) {
+          params.append("fechaDesde", fechaDesde);
+        }
+
+        if (fechaHasta) {
+          params.append("fechaHasta", fechaHasta);
+        }
+
         const response = await fetch(`${getApiBaseUrl()}/orders?${params}`, {
           signal: abortControllerRef.current.signal,
         });
@@ -183,7 +193,7 @@ export const OrdersList = () => {
         setIsLoading(false);
       }
     },
-    [pagination.limit, estadoFilter, debouncedSearch],
+    [pagination.limit, estadoFilter, debouncedSearch, fechaDesde, fechaHasta],
   );
 
   const handleCompletarOrder = useCallback(
@@ -312,7 +322,7 @@ export const OrdersList = () => {
   // Fetch orders when dependencies change
   useEffect(() => {
     fetchOrders(1);
-  }, [debouncedSearch, estadoFilter, fetchOrders]);
+  }, [debouncedSearch, estadoFilter, fechaDesde, fechaHasta, fetchOrders]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -328,12 +338,12 @@ export const OrdersList = () => {
       {/* Filters */}
       <Card className={cn(cards({ border: "default" }))}>
         <CardBody className="gap-4">
-          <div className="flex flex-col gap-6 md:flex-row">
+          <div className="flex flex-col gap-4 md:flex-row">
             <Input
               isClearable
               className="flex-1"
               label="Buscar Pedido"
-              placeholder="Buscar por folio, vendedor, cliente o codigo..."
+              placeholder="Buscar por folio, vendedor, cliente, codigo o encargado..."
               size="lg"
               startContent={
                 <Icons.search className="size-5 text-default-400" />
@@ -355,6 +365,30 @@ export const OrdersList = () => {
                 <SelectItem key={option.value}>{option.label}</SelectItem>
               ))}
             </Select>
+          </div>
+          <div className="flex flex-col gap-4 sm:flex-row">
+            <Input
+              isClearable
+              className="flex-1"
+              label="Fecha desde"
+              size="lg"
+              type="date"
+              value={fechaDesde}
+              variant="bordered"
+              onChange={(e) => setFechaDesde(e.target.value)}
+              onClear={() => setFechaDesde("")}
+            />
+            <Input
+              isClearable
+              className="flex-1"
+              label="Fecha hasta"
+              size="lg"
+              type="date"
+              value={fechaHasta}
+              variant="bordered"
+              onChange={(e) => setFechaHasta(e.target.value)}
+              onClear={() => setFechaHasta("")}
+            />
           </div>
         </CardBody>
       </Card>
@@ -435,7 +469,7 @@ export const OrdersList = () => {
                           Cliente:
                         </span>
                         <span className="text-sm font-bold text-primary">
-                          {order.cliente?.nombre ?? "N/A"}
+                          {order.encargado ?? "N/A"}
                         </span>
                       </div>
                     </div>
@@ -583,7 +617,7 @@ export const OrdersList = () => {
                       <div>
                         <p className="text-xs text-default-500">Cliente</p>
                         <code className="block w-full p-2 text-sm break-all bg-white border rounded select-all">
-                          {selectedOrder?.cliente?.nombre || "Sin Cliente"}
+                          {selectedOrder?.encargado || "Sin Cliente"}
                         </code>
                         <p className="mt-2 text-xs text-default-500">Codigo</p>
                         <code className="block w-full p-2 text-sm break-all bg-white border rounded select-all">
@@ -607,11 +641,11 @@ export const OrdersList = () => {
                         </code>
                       </div>
                     )}
-                    {selectedOrder?.encargado && (
+                    {selectedOrder?.cliente?.nombre && (
                       <div>
-                        <p className="text-xs text-default-500">Encargado</p>
+                        <p className="text-xs text-default-500">Local</p>
                         <code className="block w-full p-2 text-sm break-all bg-white border rounded select-all">
-                          {selectedOrder.encargado}
+                          {selectedOrder.cliente?.nombre}
                         </code>
                       </div>
                     )}

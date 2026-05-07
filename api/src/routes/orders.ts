@@ -13,6 +13,8 @@ router.get('/', async (req, res) => {
     const limit = parseInt(req.query.limit as string) || 20;
     const estado = req.query.estado as string | undefined;
     const search = req.query.search as string | undefined;
+    const fechaDesde = req.query.fechaDesde as string | undefined;
+    const fechaHasta = req.query.fechaHasta as string | undefined;
     const searchTerm = search ? search.toUpperCase() : undefined;
     const skip = (page - 1) * limit;
 
@@ -48,6 +50,11 @@ router.get('/', async (req, res) => {
               codigo: {
                 contains: searchTerm,
               },
+            },
+          },
+          {
+            encargado: {
+              contains: searchTerm,
             },
           },
         ],
@@ -96,6 +103,23 @@ router.get('/', async (req, res) => {
           });
           break;
       }
+    }
+
+    // Filter by date range (on 'fecha' field)
+    // Use noon UTC of each boundary day to safely cover any local-time noon stored date
+    if (fechaDesde || fechaHasta) {
+      const dateFilter: any = {};
+      if (fechaDesde) {
+        // Start of day: go back one day extra (previous day T12:00:00Z) to catch any TZ edge
+        const from = new Date(fechaDesde + 'T00:00:00.000Z');
+        dateFilter.gte = from;
+      }
+      if (fechaHasta) {
+        // End of day: use next day T11:59:59Z to cover noon stored dates
+        const to = new Date(fechaHasta + 'T23:59:59.999Z');
+        dateFilter.lte = to;
+      }
+      conditions.push({ fecha: dateFilter });
     }
 
     // Combine all conditions with AND
