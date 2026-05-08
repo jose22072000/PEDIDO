@@ -449,19 +449,25 @@ async function processOrderRecord(record: OrderRecordDto, results: any) {
   if (existingOrder) {
     // Update the order's fecha_comprometida if the new record has a different one
     // Use the latest (most future) fecha_comprometida
+    const updateData: any = {};
     if (record.order.fecha_comprometida) {
       const existingFecha = existingOrder.fecha_comprometida;
       const newFecha = record.order.fecha_comprometida;
-      
-      // Update if existing has no fecha_comprometida, or if new fecha is later
       if (!existingFecha || newFecha > existingFecha) {
-        await prisma.pedido.update({
-          where: { id: existingOrder.id },
-          data: {
-            fecha_comprometida: newFecha,
-          },
-        });
+        updateData.fecha_comprometida = newFecha;
       }
+    }
+    if (record.order.pedido_cobrado !== undefined) {
+      updateData.pedido_cobrado = record.order.pedido_cobrado;
+    }
+    if (record.order.requiere_domicilio !== undefined) {
+      updateData.requiere_domicilio = record.order.requiere_domicilio;
+    }
+    if (Object.keys(updateData).length > 0) {
+      await prisma.pedido.update({
+        where: { id: existingOrder.id },
+        data: updateData,
+      });
     }
 
     // Check if item already exists in this order
@@ -511,6 +517,8 @@ async function processOrderRecord(record: OrderRecordDto, results: any) {
         fecha: record.order.fecha,
         fecha_comprometida: record.order.fecha_comprometida,
         estado: 'en_proceso',
+        pedido_cobrado: record.order.pedido_cobrado ?? null,
+        requiere_domicilio: record.order.requiere_domicilio ?? null,
         items: {
           create: {
             producto: record.item.producto,

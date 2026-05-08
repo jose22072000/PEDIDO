@@ -61,6 +61,8 @@ interface Order {
   fecha: string;
   fecha_comprometida?: string | null;
   estado: string;
+  pedido_cobrado?: string | null;
+  requiere_domicilio?: boolean | null;
   createdAt: string;
   items: OrderItem[];
 }
@@ -667,6 +669,40 @@ export const OrdersList = () => {
                             selectedOrder.fecha_comprometida,
                           ).toLocaleDateString()}
                         </p>
+                      </div>
+                    )}
+                    {selectedOrder?.pedido_cobrado != null && (
+                      <div>
+                        <p className="text-xs text-default-500">Cobro</p>
+                        <Chip
+                          size="sm"
+                          variant="flat"
+                          color={
+                            selectedOrder.pedido_cobrado === 'parcial'
+                              ? 'warning'
+                              : selectedOrder.pedido_cobrado === 'no_pagado'
+                              ? 'danger'
+                              : 'success'
+                          }
+                        >
+                          {selectedOrder.pedido_cobrado === 'parcial'
+                            ? 'Parcialmente cobrado'
+                            : selectedOrder.pedido_cobrado === 'no_pagado'
+                            ? 'No cobrado'
+                            : selectedOrder.pedido_cobrado}
+                        </Chip>
+                      </div>
+                    )}
+                    {selectedOrder?.requiere_domicilio != null && (
+                      <div>
+                        <p className="text-xs text-default-500">Domicilio</p>
+                        <Chip
+                          size="sm"
+                          variant="flat"
+                          color={selectedOrder.requiere_domicilio ? 'primary' : 'default'}
+                        >
+                          {selectedOrder.requiere_domicilio ? 'Requiere domicilio' : 'Sin domicilio'}
+                        </Chip>
                       </div>
                     )}
                   </div>

@@ -58,6 +58,8 @@ model Pedido {
     fecha              DateTime
     fecha_comprometida DateTime?
     estado             String?      @map("status")
+    pedido_cobrado     String?      @map("paymentStatus")
+    requiere_domicilio Boolean?     @map("requiresDelivery")
     createdAt          DateTime     @default(now())
     items              PedidoItem[]
 

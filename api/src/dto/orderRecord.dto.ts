@@ -27,6 +27,8 @@ export interface OrderDto {
   telefono?: string | null;
   fecha: Date;
   fecha_comprometida?: Date | null;
+  pedido_cobrado?: string | null;
+  requiere_domicilio?: boolean | null;
 }
 
 // Main DTO that contains all related entities
@@ -61,9 +63,14 @@ export function mapCsvToOrderRecord(csvRecord: any): OrderRecordDto {
     },
     client: {
       nombre: clienteNombre,
-      // Accept multiple possible CSV headers for the client code
-      codigo:
-        csvRecord.codigo_cliente || csvRecord.codigoCliente || csvRecord.clienteId || csvRecord.cliente_id || null,
+      // Accept multiple possible CSV headers for the client code.
+      // Only treat it as valid if it is purely numeric; otherwise use null.
+      codigo: (() => {
+        const raw = csvRecord.codigo_cliente || csvRecord.codigoCliente || csvRecord.clienteId || csvRecord.cliente_id;
+        if (!raw) return null;
+        const str = String(raw).trim();
+        return /^\d+$/.test(str) ? str : null;
+      })(),
       zona: csvRecord.zona || csvRecord.Zona || null,
     },
     order: {
@@ -76,6 +83,16 @@ export function mapCsvToOrderRecord(csvRecord: any): OrderRecordDto {
       fecha_comprometida: csvRecord.fecha_comprometida 
         ? new Date(csvRecord.fecha_comprometida + 'T12:00:00') 
         : null,
+      pedido_cobrado: (() => {
+        const raw = csvRecord.pedido_cobrado || csvRecord.pedidoCobrado || null;
+        if (!raw || String(raw).trim() === '') return null;
+        return String(raw).trim().toLowerCase();
+      })(),
+      requiere_domicilio: (() => {
+        const raw = csvRecord.requiere_domicilio || csvRecord.requiereDomicilio;
+        if (raw === undefined || raw === null || String(raw).trim() === '') return null;
+        return String(raw).trim().toLowerCase() === 'true';
+      })(),
     },
     item: {
       producto: producto,
