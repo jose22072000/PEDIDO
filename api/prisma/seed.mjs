@@ -6,7 +6,7 @@ import path from 'path';
 const rawProvider = (process.env.DATABASE_PROVIDER ?? '').toLowerCase();
 const databaseUrl = process.env.DATABASE_URL ?? '';
 
-function getSqlitePathFromUrl(url: string) {
+function getSqlitePathFromUrl(url) {
   if (!url.startsWith('file:')) {
     return path.join(process.cwd(), 'prisma', 'dev.db');
   }
@@ -27,16 +27,21 @@ function shouldUseSqliteAdapter() {
   return databaseUrl === '' || databaseUrl.startsWith('file:');
 }
 
-const prisma = shouldUseSqliteAdapter()
-  ? new PrismaClient({
+function createPrismaClient() {
+  if (shouldUseSqliteAdapter()) {
+    return new PrismaClient({
       adapter: new PrismaBetterSqlite3({
         url: getSqlitePathFromUrl(databaseUrl),
       }),
-    })
-  : new PrismaClient();
+    });
+  }
+
+  return new PrismaClient();
+}
+
+const prisma = createPrismaClient();
 
 async function main() {
-  // Ensure the Roles contains the default roles.
   const roles = [
     { nombre: 'Administrador' },
     { nombre: 'Supervisor' },
@@ -51,13 +56,10 @@ async function main() {
     });
   }
 
-  console.log('Seeded roles:', roles.map(r => r.nombre).join(', '));
+  console.log('Seeded roles:', roles.map((r) => r.nombre).join(', '));
 
-  // Create default admin user with password '123456' and role 'Administrador'
   const adminPassword = 'Master.123';
   const hashed = await bcrypt.hash(adminPassword, 10);
-
-  // Find Administrador role id
   const adminRole = await prisma.rol.findFirst({ where: { nombre: 'Administrador' } });
 
   await prisma.usuario.upsert({
@@ -77,8 +79,8 @@ async function main() {
 }
 
 main()
-  .catch((e) => {
-    console.error('Seed error', e);
+  .catch((error) => {
+    console.error('Seed error', error);
     process.exitCode = 1;
   })
   .finally(async () => {

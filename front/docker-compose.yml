@@ -1,0 +1,10 @@
+services:
+  front:
+    build:
+      context: .
+      args:
+        VITE_API_BASE_URL: http://localhost:8400
+    container_name: procovar-front
+    restart: unless-stopped
+    ports:
+      - "5000:5000"

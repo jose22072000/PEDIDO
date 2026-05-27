@@ -2,11 +2,38 @@ import { PrismaClient } from '@prisma/client';
 import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
 import path from 'path';
 
-const dbPath = path.join(process.cwd(), 'prisma', 'dev.db');
-const adapter = new PrismaBetterSqlite3({ url: dbPath });
+const rawProvider = (process.env.DATABASE_PROVIDER ?? '').toLowerCase();
+const databaseUrl = process.env.DATABASE_URL ?? '';
+
+function getSqlitePathFromUrl(url: string) {
+  if (!url.startsWith('file:')) {
+    return path.join(process.cwd(), 'prisma', 'dev.db');
+  }
+
+  const filePath = url.replace(/^file:/, '');
+  return path.isAbsolute(filePath) ? filePath : path.join(process.cwd(), filePath);
+}
+
+function shouldUseSqliteAdapter() {
+  if (rawProvider === 'postgres' || rawProvider === 'postgresql') {
+    return false;
+  }
+
+  if (rawProvider === 'sqlite') {
+    return true;
+  }
+
+  return databaseUrl === '' || databaseUrl.startsWith('file:');
+}
 
 const prismaClientSingleton = () => {
-  return new PrismaClient({ adapter });
+  if (shouldUseSqliteAdapter()) {
+    const dbPath = getSqlitePathFromUrl(databaseUrl);
+    const adapter = new PrismaBetterSqlite3({ url: dbPath });
+    return new PrismaClient({ adapter });
+  }
+
+  return new PrismaClient();
 };
 
 declare global {

@@ -44,6 +44,11 @@ export const ANIMATIONS = {
 // Construir API URL basada en el host actual del navegador
 // Esto permite acceder a la API desde cualquier IP/host sin hardcodear localhost
 export const getApiBaseUrl = () => {
+  const envUrl = import.meta.env.VITE_API_BASE_URL as string | undefined;
+  if (envUrl && envUrl.trim()) {
+    return envUrl.trim().replace(/\/$/, "");
+  }
+
   const protocol = window.location.protocol;
   const hostname = window.location.hostname;
 
