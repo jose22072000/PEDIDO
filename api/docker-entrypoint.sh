@@ -4,7 +4,7 @@ set -e
 echo "[api] DATABASE_PROVIDER=${DATABASE_PROVIDER:-sqlite}"
 
 echo "[api] Applying Prisma schema..."
-npx prisma db push --skip-generate
+npx prisma db push
 
 if [ "${RUN_SEED:-true}" = "true" ]; then
   echo "[api] Running seed..."

@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
+import { PrismaPg } from '@prisma/adapter-pg';
 import bcrypt from 'bcryptjs';
 import path from 'path';
 
@@ -36,7 +37,9 @@ function createPrismaClient() {
     });
   }
 
-  return new PrismaClient();
+  return new PrismaClient({
+    adapter: new PrismaPg(databaseUrl),
+  });
 }
 
 const prisma = createPrismaClient();
