@@ -100,12 +100,46 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'No puedes crear usuarios en otra sucursal desde este contexto' });
     }
 
-    const targetSucursalId = requester.isGlobalAdmin
-      ? (incomingSucursalId || sucursalId || null)
-      : (sucursalId || null);
-
     if (!username || !password) {
       return res.status(400).json({ error: 'Username and password are required' });
+    }
+
+    let roleName: string | null = null;
+    if (rolId) {
+      const selectedRole = await prisma.rol.findUnique({
+        where: { id: rolId },
+        select: { nombre: true },
+      });
+
+      if (!selectedRole) {
+        return res.status(400).json({ error: 'Rol inválido' });
+      }
+
+      roleName = selectedRole.nombre;
+    }
+
+    const isAdminRole = String(roleName || '').toUpperCase() === 'ADMINISTRADOR';
+
+    // Admin users are global and must not be tied to a specific sucursal.
+    const targetSucursalId = isAdminRole
+      ? null
+      : requester.isGlobalAdmin
+        ? (incomingSucursalId || sucursalId || null)
+        : (sucursalId || null);
+
+    if (!isAdminRole && !targetSucursalId) {
+      return res.status(400).json({ error: 'Debes seleccionar una sucursal para este rol.' });
+    }
+
+    if (!isAdminRole && targetSucursalId) {
+      const targetSucursal = await prisma.sucursal.findUnique({
+        where: { id: targetSucursalId },
+        select: { id: true },
+      });
+
+      if (!targetSucursal) {
+        return res.status(400).json({ error: 'La sucursal seleccionada no existe o ya no es válida.' });
+      }
     }
 
     // Check if username already exists
@@ -174,11 +208,41 @@ router.patch('/:id', async (req, res) => {
 
     if (username) updateData.username = username;
     if (password) updateData.password = await bcrypt.hash(password, 10);
-    if (rolId !== undefined) updateData.rolId = rolId;
+    if (rolId !== undefined) {
+      if (rolId === null) {
+        updateData.rolId = null;
+      } else {
+        const selectedRole = await prisma.rol.findUnique({
+          where: { id: rolId },
+          select: { id: true },
+        });
+
+        if (!selectedRole) {
+          return res.status(400).json({ error: 'Rol inválido' });
+        }
+
+        updateData.rolId = rolId;
+      }
+    }
     if (!requester.isGlobalAdmin && sucursalId !== undefined && sucursalId !== activeSucursalId) {
       return res.status(400).json({ error: 'No puedes mover usuarios a otra sucursal desde este contexto' });
     }
-    if (sucursalId !== undefined) updateData.sucursalId = sucursalId;
+    if (sucursalId !== undefined) {
+      if (sucursalId === null || sucursalId === '') {
+        updateData.sucursalId = null;
+      } else {
+        const targetSucursal = await prisma.sucursal.findUnique({
+          where: { id: sucursalId },
+          select: { id: true },
+        });
+
+        if (!targetSucursal) {
+          return res.status(400).json({ error: 'La sucursal seleccionada no existe o ya no es válida.' });
+        }
+
+        updateData.sucursalId = sucursalId;
+      }
+    }
 
     const user = await prisma.usuario.update({
       where: { id },

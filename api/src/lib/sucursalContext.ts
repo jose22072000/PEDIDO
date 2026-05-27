@@ -27,6 +27,24 @@ interface ResolveScopeOptions {
   defaultAllForAdmin?: boolean;
 }
 
+type SucursalSelectionSource = 'body' | 'query' | 'header' | 'config' | null;
+
+function resolveSucursalSelection(req: Request): { sucursalId: string | null; source: SucursalSelectionSource } {
+  const bodySucursalId = typeof req.body?.sucursalId === 'string' ? req.body.sucursalId.trim() : '';
+  if (bodySucursalId) return { sucursalId: bodySucursalId, source: 'body' };
+
+  const querySucursalId = typeof req.query?.sucursalId === 'string' ? req.query.sucursalId.trim() : '';
+  if (querySucursalId) return { sucursalId: querySucursalId, source: 'query' };
+
+  const headerSucursalId = typeof req.headers['x-sucursal-id'] === 'string' ? req.headers['x-sucursal-id'].trim() : '';
+  if (headerSucursalId) return { sucursalId: headerSucursalId, source: 'header' };
+
+  const configuredSucursalId = readConfiguredSucursalId();
+  if (configuredSucursalId) return { sucursalId: configuredSucursalId, source: 'config' };
+
+  return { sucursalId: null, source: null };
+}
+
 function readConfiguredSucursalId(): string | null {
   try {
     if (!fs.existsSync(CONFIG_FILE)) return null;
@@ -74,16 +92,7 @@ export function getRequesterContext(req: Request): RequesterContext {
 }
 
 export function resolveSucursalId(req: Request): string | null {
-  const bodySucursalId = typeof req.body?.sucursalId === 'string' ? req.body.sucursalId.trim() : '';
-  if (bodySucursalId) return bodySucursalId;
-
-  const querySucursalId = typeof req.query?.sucursalId === 'string' ? req.query.sucursalId.trim() : '';
-  if (querySucursalId) return querySucursalId;
-
-  const headerSucursalId = typeof req.headers['x-sucursal-id'] === 'string' ? req.headers['x-sucursal-id'].trim() : '';
-  if (headerSucursalId) return headerSucursalId;
-
-  return readConfiguredSucursalId();
+  return resolveSucursalSelection(req).sucursalId;
 }
 
 export function requireSucursalId(req: Request): { sucursalId?: string; error?: string } {
@@ -114,7 +123,14 @@ export function resolveSucursalScope(
   } = options;
 
   const requester = getRequesterContext(req);
-  let selectedSucursalId = resolveSucursalId(req);
+  const selection = resolveSucursalSelection(req);
+  let selectedSucursalId = selection.sucursalId;
+
+  // For global admins, ignore implicit fallback from config.json unless sucursal
+  // was explicitly provided in request context.
+  if (requester.isGlobalAdmin && selection.source === 'config') {
+    selectedSucursalId = null;
+  }
 
   if (preferUserSucursal && requester.sucursalId && !selectedSucursalId) {
     selectedSucursalId = requester.sucursalId;
