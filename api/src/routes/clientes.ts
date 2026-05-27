@@ -1,18 +1,24 @@
 import express from 'express';
 import prisma from '../prismaClient';
+import { requireSucursalId } from '../lib/sucursalContext';
 
 const router = express.Router();
 
 // GET /clientes - List clientes with pagination
 router.get('/', async (req, res) => {
   try {
+    const { sucursalId, error: sucursalError } = requireSucursalId(req);
+    if (sucursalError || !sucursalId) {
+      return res.status(400).json({ error: sucursalError });
+    }
+
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 10;
     const search = req.query.search as string | undefined;
 
     const skip = (page - 1) * limit;
 
-    const where: any = {};
+    const where: any = { sucursalId };
     const searchTerm = search?.toUpperCase();
 
     if (searchTerm) {
@@ -54,9 +60,13 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
+    const { sucursalId, error: sucursalError } = requireSucursalId(req);
+    if (sucursalError || !sucursalId) {
+      return res.status(400).json({ error: sucursalError });
+    }
 
-    const cliente = await prisma.cliente.findUnique({
-      where: { id }
+    const cliente = await prisma.cliente.findFirst({
+      where: { id, sucursalId }
     });
 
     if (!cliente) {

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import prisma from '../prismaClient';
+import { resolveSucursalScope } from '../lib/sucursalContext';
 
 const router = Router();
 
@@ -26,6 +27,15 @@ function calculateEstado(order: { estado: string | null; fecha_comprometida: Dat
 // Reporte de pedidos por fecha
 router.get('/pedidos-por-fecha', async (req, res) => {
   try {
+    const { sucursalId, error: sucursalError } = resolveSucursalScope(req, {
+      allowAllForAdmin: true,
+      preferUserSucursal: true,
+      defaultAllForAdmin: false,
+    });
+    if (sucursalError) {
+      return res.status(403).json({ error: sucursalError });
+    }
+
     const { fechaInicio, fechaFin } = req.query;
 
     if (!fechaInicio || !fechaFin) {
@@ -35,13 +45,18 @@ router.get('/pedidos-por-fecha', async (req, res) => {
     const startDate = parseLocalDate(fechaInicio as string, false);
     const endDate = parseLocalDate(fechaFin as string, true);
 
-    const pedidos = await prisma.pedido.findMany({
-      where: {
-        fecha: {
-          gte: startDate,
-          lte: endDate,
-        },
+    const where: any = {
+      fecha: {
+        gte: startDate,
+        lte: endDate,
       },
+    };
+    if (sucursalId) {
+      where.sucursalId = sucursalId;
+    }
+
+    const pedidos = await prisma.pedido.findMany({
+      where,
       include: {
         vendedor: true,
         cliente: true,
@@ -74,6 +89,15 @@ router.get('/pedidos-por-fecha', async (req, res) => {
 // Reporte de pedidos por vendedor y fecha
 router.get('/pedidos-por-vendedor', async (req, res) => {
   try {
+    const { sucursalId, error: sucursalError } = resolveSucursalScope(req, {
+      allowAllForAdmin: true,
+      preferUserSucursal: true,
+      defaultAllForAdmin: false,
+    });
+    if (sucursalError) {
+      return res.status(403).json({ error: sucursalError });
+    }
+
     const { vendedorId, fechaInicio, fechaFin } = req.query;
 
     if (!fechaInicio || !fechaFin) {
@@ -89,6 +113,10 @@ router.get('/pedidos-por-vendedor', async (req, res) => {
         lte: endDate,
       },
     };
+
+    if (sucursalId) {
+      where.sucursalId = sucursalId;
+    }
 
     if (vendedorId && vendedorId !== 'all') {
       where.vendedorId = vendedorId as string;
@@ -149,6 +177,15 @@ router.get('/pedidos-por-vendedor', async (req, res) => {
 // Reporte de pedidos por estado, vendedor y fecha
 router.get('/pedidos-por-estado', async (req, res) => {
   try {
+    const { sucursalId, error: sucursalError } = resolveSucursalScope(req, {
+      allowAllForAdmin: true,
+      preferUserSucursal: true,
+      defaultAllForAdmin: false,
+    });
+    if (sucursalError) {
+      return res.status(403).json({ error: sucursalError });
+    }
+
     const { estado, vendedorId, fechaInicio, fechaFin } = req.query;
 
     if (!fechaInicio || !fechaFin) {
@@ -164,6 +201,10 @@ router.get('/pedidos-por-estado', async (req, res) => {
         lte: endDate,
       },
     };
+
+    if (sucursalId) {
+      where.sucursalId = sucursalId;
+    }
 
     if (vendedorId && vendedorId !== 'all') {
       where.vendedorId = vendedorId as string;
@@ -217,6 +258,15 @@ router.get('/pedidos-por-estado', async (req, res) => {
 // Reporte de productos por vendedor - Suma totales por tipo de producto
 router.get('/productos-por-vendedor', async (req, res) => {
   try {
+    const { sucursalId, error: sucursalError } = resolveSucursalScope(req, {
+      allowAllForAdmin: true,
+      preferUserSucursal: true,
+      defaultAllForAdmin: false,
+    });
+    if (sucursalError) {
+      return res.status(403).json({ error: sucursalError });
+    }
+
     const { vendedorId, fechaInicio, fechaFin, estado } = req.query;
 
     if (!fechaInicio || !fechaFin) {
@@ -232,6 +282,10 @@ router.get('/productos-por-vendedor', async (req, res) => {
         lte: endDate,
       },
     };
+
+    if (sucursalId) {
+      where.sucursalId = sucursalId;
+    }
 
     if (vendedorId && vendedorId !== 'all') {
       where.vendedorId = vendedorId as string;
@@ -356,9 +410,19 @@ router.get('/productos-por-vendedor', async (req, res) => {
 });
 
 // Obtener lista de vendedores para los filtros
-router.get('/vendedores', async (_req, res) => {
+router.get('/vendedores', async (req, res) => {
   try {
+    const { sucursalId, error: sucursalError } = resolveSucursalScope(req, {
+      allowAllForAdmin: true,
+      preferUserSucursal: true,
+      defaultAllForAdmin: false,
+    });
+    if (sucursalError) {
+      return res.status(403).json({ error: sucursalError });
+    }
+
     const vendedores = await prisma.vendedor.findMany({
+      where: sucursalId ? { sucursalId } : {},
       orderBy: { nombre: 'asc' },
       select: {
         id: true,

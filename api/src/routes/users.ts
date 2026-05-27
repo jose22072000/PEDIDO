@@ -1,13 +1,27 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import prisma from '../prismaClient';
+import { getRequesterContext, resolveSucursalScope } from '../lib/sucursalContext';
 
 const router = Router();
 
 // Get all users
 router.get('/', async (req, res) => {
   try {
+    const { sucursalId, error: sucursalError } = resolveSucursalScope(req, {
+      allowAllForAdmin: true,
+      preferUserSucursal: false,
+      defaultAllForAdmin: true,
+    });
+    if (sucursalError || !sucursalId) {
+      if (sucursalError) return res.status(403).json({ error: sucursalError });
+      if (!getRequesterContext(req).isGlobalAdmin) {
+        return res.status(400).json({ error: 'Debes tener una sucursal asignada para consultar usuarios.' });
+      }
+    }
+
     const users = await prisma.usuario.findMany({
+      where: sucursalId ? { sucursalId } : {},
       include: {
         rol: true,
         sucursal: true,
@@ -31,9 +45,20 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
+    const { sucursalId, error: sucursalError } = resolveSucursalScope(req, {
+      allowAllForAdmin: true,
+      preferUserSucursal: false,
+      defaultAllForAdmin: true,
+    });
+    if (sucursalError || !sucursalId) {
+      if (sucursalError) return res.status(403).json({ error: sucursalError });
+      if (!getRequesterContext(req).isGlobalAdmin) {
+        return res.status(400).json({ error: 'Debes tener una sucursal asignada para consultar usuarios.' });
+      }
+    }
 
-    const user = await prisma.usuario.findUnique({
-      where: { id },
+    const user = await prisma.usuario.findFirst({
+      where: sucursalId ? { id, sucursalId } : { id },
       include: {
         rol: true,
         sucursal: true,
@@ -57,7 +82,27 @@ router.get('/:id', async (req, res) => {
 // Create new user
 router.post('/', async (req, res) => {
   try {
-    const { username, password, rolId, sucursalId } = req.body;
+    const { username, password, rolId, sucursalId: incomingSucursalId } = req.body;
+    const requester = getRequesterContext(req);
+    const { sucursalId, error: sucursalError } = resolveSucursalScope(req, {
+      allowAllForAdmin: true,
+      preferUserSucursal: true,
+      defaultAllForAdmin: false,
+    });
+    if (sucursalError) {
+      return res.status(403).json({ error: sucursalError });
+    }
+    if (!requester.isGlobalAdmin && !sucursalId) {
+      return res.status(400).json({ error: 'Debes tener una sucursal asignada para crear usuarios.' });
+    }
+
+    if (!requester.isGlobalAdmin && incomingSucursalId && incomingSucursalId !== sucursalId) {
+      return res.status(400).json({ error: 'No puedes crear usuarios en otra sucursal desde este contexto' });
+    }
+
+    const targetSucursalId = requester.isGlobalAdmin
+      ? (incomingSucursalId || sucursalId || null)
+      : (sucursalId || null);
 
     if (!username || !password) {
       return res.status(400).json({ error: 'Username and password are required' });
@@ -81,7 +126,7 @@ router.post('/', async (req, res) => {
         username,
         password: hashedPassword,
         rolId: rolId || null,
-        sucursalId: sucursalId || null,
+        sucursalId: targetSucursalId || null,
       },
       include: {
         rol: true,
@@ -104,12 +149,35 @@ router.patch('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { username, password, rolId, sucursalId } = req.body;
+    const requester = getRequesterContext(req);
+    const { sucursalId: activeSucursalId, error: sucursalError } = resolveSucursalScope(req, {
+      allowAllForAdmin: true,
+      preferUserSucursal: false,
+      defaultAllForAdmin: true,
+    });
+    if (sucursalError) {
+      return res.status(403).json({ error: sucursalError });
+    }
+    if (!requester.isGlobalAdmin && !activeSucursalId) {
+      return res.status(400).json({ error: 'Debes tener una sucursal asignada para actualizar usuarios.' });
+    }
+
+    const existingUser = await prisma.usuario.findFirst({
+      where: activeSucursalId ? { id, sucursalId: activeSucursalId } : { id },
+    });
+
+    if (!existingUser) {
+      return res.status(404).json({ error: 'User not found' });
+    }
 
     const updateData: any = {};
 
     if (username) updateData.username = username;
     if (password) updateData.password = await bcrypt.hash(password, 10);
     if (rolId !== undefined) updateData.rolId = rolId;
+    if (!requester.isGlobalAdmin && sucursalId !== undefined && sucursalId !== activeSucursalId) {
+      return res.status(400).json({ error: 'No puedes mover usuarios a otra sucursal desde este contexto' });
+    }
     if (sucursalId !== undefined) updateData.sucursalId = sucursalId;
 
     const user = await prisma.usuario.update({
@@ -135,6 +203,25 @@ router.patch('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
+    const { sucursalId, error: sucursalError } = resolveSucursalScope(req, {
+      allowAllForAdmin: true,
+      preferUserSucursal: false,
+      defaultAllForAdmin: true,
+    });
+    if (sucursalError) {
+      return res.status(403).json({ error: sucursalError });
+    }
+    if (!getRequesterContext(req).isGlobalAdmin && !sucursalId) {
+      return res.status(400).json({ error: 'Debes tener una sucursal asignada para eliminar usuarios.' });
+    }
+
+    const existingUser = await prisma.usuario.findFirst({
+      where: sucursalId ? { id, sucursalId } : { id },
+    });
+
+    if (!existingUser) {
+      return res.status(404).json({ error: 'User not found' });
+    }
 
     await prisma.usuario.delete({
       where: { id },

@@ -8,6 +8,8 @@ export interface AuthRequest extends Request {
     userId: string;
     username: string;
     roleId?: string;
+    role?: string;
+    sucursalId?: string | null;
   };
 }
 
@@ -35,6 +37,8 @@ export const authenticateToken = (
       userId: string;
       username: string;
       roleId?: string;
+      role?: string;
+      sucursalId?: string | null;
     };
     req.user = decoded;
     next();

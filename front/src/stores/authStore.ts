@@ -7,6 +7,7 @@ interface UserData {
   id: string;
   username: string;
   role?: string;
+  sucursalId?: string | null;
   sucursal?: string;
 }
 
@@ -21,6 +22,7 @@ interface AuthState {
     rol?: string;
     sucursalId?: string;
     usuarioId?: string;
+    isGlobalAdmin?: boolean;
   } | null;
 
   // Actions
@@ -70,8 +72,12 @@ export const useAuthStore = create<AuthState>()(
                   rol: data.user?.role
                     ? String(data.user.role).toUpperCase()
                     : undefined,
-                  sucursalId: data.user?.sucursal || undefined,
-                  usuarioId: data.user?.username || undefined,
+                  sucursalId: data.user?.sucursalId || undefined,
+                  usuarioId: data.user?.id || undefined,
+                  isGlobalAdmin:
+                    String(data.user?.username || "").toLowerCase() === "admin" ||
+                    String(data.user?.role || "").toUpperCase() ===
+                      "ADMINISTRADOR",
                 },
                 isAuthenticated: true,
                 isLoading: false,
@@ -137,8 +143,12 @@ export const useAuthStore = create<AuthState>()(
               rol: data.user?.role
                 ? String(data.user.role).toUpperCase()
                 : undefined,
-              sucursalId: data.user?.sucursal || undefined,
-              usuarioId: data.user?.username || undefined,
+              sucursalId: data.user?.sucursalId || undefined,
+              usuarioId: data.user?.id || undefined,
+              isGlobalAdmin:
+                String(data.user?.username || "").toLowerCase() === "admin" ||
+                String(data.user?.role || "").toUpperCase() ===
+                  "ADMINISTRADOR",
             },
             isAuthenticated: true,
             error: null,

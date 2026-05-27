@@ -11,6 +11,9 @@ model Sucursal {
     nombre    String
     createdAt DateTime  @default(now())
     usuarios  Usuario[]
+    vendedores Vendedor[]
+    clientes   Cliente[]
+    pedidos    Pedido[]
 }
 
 model Rol {
@@ -37,17 +40,23 @@ model Usuario {
 
 model Vendedor {
     id        String   @id @default(cuid())
-    nombre    String   @unique @map("name")
-    codigo    String?  @unique @map("code")
+    nombre    String   @map("name")
+    codigo    String?  @map("code")
+    sucursalId String?
+    sucursal  Sucursal? @relation(fields: [sucursalId], references: [id])
     createdAt DateTime @default(now())
     pedidos   Pedido[]
 
+    @@unique([sucursalId, nombre])
+    @@unique([sucursalId, codigo])
     @@map("Seller")
 }
 
 model Pedido {
     id                 String       @id @default(cuid())
     folio              String
+    sucursalId         String?
+    sucursal           Sucursal?    @relation(fields: [sucursalId], references: [id])
     vendedorId         String?      @map("sellerId")
     vendedor           Vendedor?    @relation(fields: [vendedorId], references: [id])
     clienteId          String?      @map("clientId")
@@ -63,7 +72,7 @@ model Pedido {
     createdAt          DateTime     @default(now())
     items              PedidoItem[]
 
-    @@unique([folio, vendedorId])
+    @@unique([sucursalId, folio, vendedorId])
     @@index([fecha])
     @@map("Order")
 }
@@ -83,11 +92,14 @@ model PedidoItem {
 
 model Cliente {
     id        String   @id @default(cuid())
-    codigo    String?  @unique @map("parrandaId")
+    codigo    String?  @map("parrandaId")
+    sucursalId String?
+    sucursal  Sucursal? @relation(fields: [sucursalId], references: [id])
     nombre    String
     zona      String?
     createdAt DateTime @default(now())
     pedidos   Pedido[]
 
+    @@unique([sucursalId, codigo])
     @@map("Client")
 }

@@ -30,11 +30,26 @@ window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
   try {
     const token =
       typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
+    const authStorageRaw =
+      typeof window !== "undefined" ? localStorage.getItem("auth-storage") : null;
+    let sessionSucursalId: string | undefined;
+
+    if (authStorageRaw) {
+      try {
+        const parsed = JSON.parse(authStorageRaw) as {
+          state?: { session?: { sucursalId?: string } };
+        };
+        sessionSucursalId = parsed?.state?.session?.sucursalId;
+      } catch {
+        // ignore invalid persisted payload
+      }
+    }
 
     init = init || {};
     init.headers = Object.assign(
       {},
       (init.headers as Record<string, string>) || {},
+      sessionSucursalId ? { "x-sucursal-id": sessionSucursalId } : {},
       token ? { Authorization: `Bearer ${token}` } : {},
     );
   } catch (e) {

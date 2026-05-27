@@ -15,6 +15,7 @@ import Icons from "../icons/iconify";
 
 import { cards } from "@/components/primitives";
 import { getApiBaseUrl } from "@/config";
+import { useAuthStore } from "@/stores/authStore";
 
 interface Rol {
   id: string;
@@ -35,6 +36,7 @@ interface UsuarioFormData {
 }
 
 export const NuevoUsuarioForm = () => {
+  const { user, session } = useAuthStore();
   const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -56,13 +58,25 @@ export const NuevoUsuarioForm = () => {
     formState: { errors },
     watch,
     control,
+    setValue,
   } = useForm<UsuarioFormData>();
 
+  const isGlobalAdmin = Boolean(session?.isGlobalAdmin);
+  const userSucursalId = user?.sucursalId || session?.sucursalId || "";
+
   const password = watch("password");
+  const selectedRolId = watch("rolId");
+  const selectedRol = roles.find((r) => r.id === selectedRolId);
+  const isSelectedAdminRole =
+    String(selectedRol?.nombre || "").toUpperCase() === "ADMINISTRADOR";
 
   useEffect(() => {
     fetchRoles();
     fetchSucursales();
+
+    if (!isGlobalAdmin && userSucursalId) {
+      setValue("sucursalId", userSucursalId);
+    }
   }, []);
 
   const fetchRoles = async () => {
@@ -85,8 +99,12 @@ export const NuevoUsuarioForm = () => {
 
       if (response.ok) {
         const data = await response.json();
+        const scopedData =
+          !isGlobalAdmin && userSucursalId
+            ? data.filter((s: Sucursal) => s.id === userSucursalId)
+            : data;
 
-        setSucursales(data);
+        setSucursales(scopedData);
       }
     } catch (err) {
       // Error fetching sucursales
@@ -98,6 +116,13 @@ export const NuevoUsuarioForm = () => {
     setError(null);
 
     try {
+      const targetSucursalId =
+        isSelectedAdminRole
+          ? null
+          : isGlobalAdmin
+            ? data.sucursalId
+            : userSucursalId || data.sucursalId;
+
       const response = await fetch(`${getApiBaseUrl()}/users`, {
         method: "POST",
         headers: {
@@ -107,7 +132,7 @@ export const NuevoUsuarioForm = () => {
           username: data.username,
           password: data.password,
           rolId: data.rolId,
-          sucursalId: data.sucursalId,
+          sucursalId: targetSucursalId,
         }),
       });
 
@@ -249,32 +274,35 @@ export const NuevoUsuarioForm = () => {
               }}
             />
 
-            <Controller
-              control={control}
-              name="sucursalId"
-              render={({ field }) => (
-                <Select
-                  {...field}
-                  errorMessage={errors.sucursalId?.message}
-                  isInvalid={!!errors.sucursalId}
-                  label="Sucursal"
-                  selectedKeys={field.value ? [field.value] : []}
-                  variant="bordered"
-                  onSelectionChange={(keys) => {
-                    const value = Array.from(keys)[0] as string;
+            {!isSelectedAdminRole && (
+              <Controller
+                control={control}
+                name="sucursalId"
+                render={({ field }) => (
+                  <Select
+                    {...field}
+                    isDisabled={!isGlobalAdmin}
+                    errorMessage={errors.sucursalId?.message}
+                    isInvalid={!!errors.sucursalId}
+                    label="Sucursal"
+                    selectedKeys={field.value ? [field.value] : []}
+                    variant="bordered"
+                    onSelectionChange={(keys) => {
+                      const value = Array.from(keys)[0] as string;
 
-                    field.onChange(value);
-                  }}
-                >
-                  {sucursales.map((sucursal) => (
-                    <SelectItem key={sucursal.id}>{sucursal.nombre}</SelectItem>
-                  ))}
-                </Select>
-              )}
-              rules={{
-                required: "Seleccione una sucursal",
-              }}
-            />
+                      field.onChange(value);
+                    }}
+                  >
+                    {sucursales.map((sucursal) => (
+                      <SelectItem key={sucursal.id}>{sucursal.nombre}</SelectItem>
+                    ))}
+                  </Select>
+                )}
+                rules={{
+                  required: "Seleccione una sucursal",
+                }}
+              />
+            )}
           </div>
 
           <div className="flex flex-col md:flex-row gap-4 justify-end">

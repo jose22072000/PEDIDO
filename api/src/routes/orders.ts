@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { Prisma } from '@prisma/client';
 import prisma from '../prismaClient';
 import { mapCsvRecords, type OrderRecordDto } from '../dto/orderRecord.dto';
+import { requireSucursalId } from '../lib/sucursalContext';
 
 
 const router = Router();
@@ -9,6 +10,11 @@ const router = Router();
 // List orders with pagination and filters
 router.get('/', async (req, res) => {
   try {
+    const { sucursalId, error: sucursalError } = requireSucursalId(req);
+    if (sucursalError || !sucursalId) {
+      return res.status(400).json({ error: sucursalError });
+    }
+
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 20;
     const estado = req.query.estado as string | undefined;
@@ -19,7 +25,7 @@ router.get('/', async (req, res) => {
     const skip = (page - 1) * limit;
 
     // Build where clause
-    const where: any = {};
+    const where: any = { sucursalId };
     const conditions: any[] = [];
 
     // General search filter (vendedor, cliente, folio)
@@ -180,11 +186,17 @@ router.get('/', async (req, res) => {
 // Create a new order (basic)
 router.post('/', async (req, res) => {
   try {
+    const { sucursalId, error: sucursalError } = requireSucursalId(req);
+    if (sucursalError || !sucursalId) {
+      return res.status(400).json({ error: sucursalError });
+    }
+
     const { folio, sellerId, clientId, direccion, encargado, telefono, fecha, fecha_comprometida, items } = req.body;
 
     const order = await prisma.pedido.create({
       data: {
         folio: folio?.toUpperCase() || '',
+        sucursalId,
         vendedorId: sellerId || null,
         clienteId: clientId || null,
         direccion: direccion || null,
@@ -216,6 +228,19 @@ router.post('/', async (req, res) => {
 router.patch('/:id/completar', async (req, res) => {
   try {
     const { id } = req.params;
+    const { sucursalId, error: sucursalError } = requireSucursalId(req);
+    if (sucursalError || !sucursalId) {
+      return res.status(400).json({ error: sucursalError });
+    }
+
+    const existingOrder = await prisma.pedido.findFirst({
+      where: { id, sucursalId },
+      select: { id: true },
+    });
+
+    if (!existingOrder) {
+      return res.status(404).json({ error: 'Pedido no encontrado' });
+    }
 
     const order = await prisma.pedido.update({
       where: { id },
@@ -234,10 +259,14 @@ router.patch('/:id/completar', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
+    const { sucursalId, error: sucursalError } = requireSucursalId(req);
+    if (sucursalError || !sucursalId) {
+      return res.status(400).json({ error: sucursalError });
+    }
 
     // Check if order exists
-    const existingOrder = await prisma.pedido.findUnique({
-      where: { id },
+    const existingOrder = await prisma.pedido.findFirst({
+      where: { id, sucursalId },
       include: { items: true },
     });
 
@@ -265,6 +294,11 @@ router.delete('/:id', async (req, res) => {
 // Bulk create orders from CSV records
 router.post('/bulk', async (req, res) => {
   try {
+    const { sucursalId, error: sucursalError } = requireSucursalId(req);
+    if (sucursalError || !sucursalId) {
+      return res.status(400).json({ error: sucursalError });
+    }
+
     const { records } = req.body;
 
     if (!records || !Array.isArray(records)) {
@@ -284,7 +318,7 @@ router.post('/bulk', async (req, res) => {
     // Process mapped records
     for (const record of mappedRecords) {
       try {
-        await processOrderRecord(record, results);
+        await processOrderRecord(record, results, sucursalId);
       } catch (error) {
         results.failed++;
         results.errors.push({
@@ -305,10 +339,11 @@ router.post('/bulk', async (req, res) => {
   }
 });
 
-async function processOrderRecord(record: OrderRecordDto, results: any) {
+async function processOrderRecord(record: OrderRecordDto, results: any, sucursalId: string) {
   // Find or create seller
   let seller = await prisma.vendedor.findFirst({
     where: {
+      sucursalId,
       OR: [
         { nombre: record.seller.name.toUpperCase() },
         { codigo: record.seller.code },
@@ -323,6 +358,7 @@ async function processOrderRecord(record: OrderRecordDto, results: any) {
       data: {
         nombre: record.seller.name,
         codigo: record.seller.code,
+        sucursalId,
       },
     });
   } else {
@@ -331,6 +367,7 @@ async function processOrderRecord(record: OrderRecordDto, results: any) {
       data: {
         nombre: record.seller.name,
         codigo: record.seller.code,
+        sucursalId,
       },
     });
   }
@@ -338,7 +375,7 @@ async function processOrderRecord(record: OrderRecordDto, results: any) {
   // Keep client matching by name only (NOT by codigo), to avoid cross-vendor
   // collisions when CSVs contain repeated client codes.
   let existingClient = await prisma.cliente.findFirst({
-    where: { nombre: record.client.nombre.toUpperCase() },
+    where: { nombre: record.client.nombre.toUpperCase(), sucursalId },
   });
 
   let client;
@@ -354,6 +391,7 @@ async function processOrderRecord(record: OrderRecordDto, results: any) {
       data: {
         nombre: record.client.nombre,
         zona: record.client.zona,
+        sucursalId,
         codigo: canUpdateCode ? incomingCode : existingClient.codigo,
       },
     });
@@ -366,6 +404,7 @@ async function processOrderRecord(record: OrderRecordDto, results: any) {
           codigo: incomingCode,
           nombre: record.client.nombre,
           zona: record.client.zona,
+          sucursalId,
         },
       });
     } catch (error) {
@@ -379,6 +418,7 @@ async function processOrderRecord(record: OrderRecordDto, results: any) {
           data: {
             nombre: record.client.nombre,
             zona: record.client.zona,
+            sucursalId,
           },
         });
       } else {
@@ -395,6 +435,7 @@ async function processOrderRecord(record: OrderRecordDto, results: any) {
   // Check if order already exists for THIS client (with base folio or any suffix)
   const existingOrder = await prisma.pedido.findFirst({
     where: {
+      sucursalId,
       OR: [
         { folio: baseFolio },
         { folio: { startsWith: `${baseFolio}-` } },
@@ -413,6 +454,7 @@ async function processOrderRecord(record: OrderRecordDto, results: any) {
     // Find ALL existing folios with this base pattern in the database
     const existingFolios = await prisma.pedido.findMany({
       where: {
+        sucursalId,
         OR: [
           { folio: baseFolio },
           { folio: { startsWith: `${baseFolio}-` } },
@@ -509,6 +551,7 @@ async function processOrderRecord(record: OrderRecordDto, results: any) {
     await prisma.pedido.create({
       data: {
         folio: finalFolio,
+        sucursalId,
         vendedorId: seller.id,
         clienteId: client.id,
         direccion: record.order.direccion,
@@ -536,6 +579,11 @@ async function processOrderRecord(record: OrderRecordDto, results: any) {
 // Get dashboard statistics
 router.get('/stats', async (req, res) => {
   try {
+    const { sucursalId, error: sucursalError } = requireSucursalId(req);
+    if (sucursalError || !sucursalId) {
+      return res.status(400).json({ error: sucursalError });
+    }
+
     const now = new Date();
     const year = req.query.year ? parseInt(req.query.year as string) : null;
 
@@ -549,12 +597,16 @@ router.get('/stats', async (req, res) => {
 
     // Total de pedidos (del año seleccionado o todos)
     const totalPedidos = await prisma.pedido.count({
-      where: yearCondition
+      where: {
+        sucursalId,
+        ...yearCondition,
+      }
     });
 
     // Pedidos completados
     const pedidosCompletados = await prisma.pedido.count({
       where: {
+        sucursalId,
         estado: 'completada',
         ...yearCondition
       }
@@ -563,6 +615,7 @@ router.get('/stats', async (req, res) => {
     // Pedidos en proceso (no completados y no expirados)
     const pedidosEnProceso = await prisma.pedido.count({
       where: {
+        sucursalId,
         OR: [
           { estado: null },
           { estado: { not: 'completada' } }
@@ -582,6 +635,7 @@ router.get('/stats', async (req, res) => {
     // Pedidos expirados (no completados y con fecha vencida)
     const pedidosExpirados = await prisma.pedido.count({
       where: {
+        sucursalId,
         OR: [
           { estado: null },
           { estado: { not: 'completada' } }
@@ -597,6 +651,7 @@ router.get('/stats', async (req, res) => {
 
     // Estadísticas mensuales
     const allOrders = await prisma.pedido.findMany({
+      where: { sucursalId },
       select: {
         fecha_comprometida: true,
         estado: true

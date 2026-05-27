@@ -39,6 +39,8 @@ router.post('/login', async (req: Request, res: Response) => {
         userId: user.id,
         username: user.username,
         roleId: user.rolId,
+        role: user.rol?.nombre,
+        sucursalId: user.sucursalId,
       },
       JWT_SECRET,
       { expiresIn: JWT_EXPIRES_IN }
@@ -51,6 +53,7 @@ router.post('/login', async (req: Request, res: Response) => {
         id: user.id,
         username: user.username,
         role: user.rol?.nombre,
+        sucursalId: user.sucursalId,
         sucursal: user.sucursal?.nombre,
       },
     });
@@ -100,6 +103,7 @@ router.get('/me', authenticateToken, async (req: AuthRequest, res: Response) => 
         id: user.id,
         username: user.username,
         role: user.rol?.nombre,
+        sucursalId: user.sucursalId,
         sucursal: user.sucursal?.nombre,
       },
     });

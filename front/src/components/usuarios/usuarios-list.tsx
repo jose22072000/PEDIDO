@@ -38,7 +38,7 @@ interface Usuario {
 }
 
 export const UsuariosList = () => {
-  const { user } = useAuthStore();
+  const { user, session } = useAuthStore();
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -56,7 +56,10 @@ export const UsuariosList = () => {
     setError(null);
 
     try {
-      const response = await fetch(`${getApiBaseUrl()}/users`);
+      const isGlobalAdmin = Boolean(session?.isGlobalAdmin);
+      const response = await fetch(
+        `${getApiBaseUrl()}/users${isGlobalAdmin ? "?sucursalId=all" : ""}`,
+      );
 
       if (!response.ok) {
         throw new Error("Error al cargar los usuarios");

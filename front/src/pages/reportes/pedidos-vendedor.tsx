@@ -21,6 +21,7 @@ import { NavigationHeading } from "@/components/navigation-heading";
 import { getApiBaseUrl } from "@/config";
 import Icons from "@/components/icons/iconify";
 import { exportToExcel } from "@/utils/excelExport";
+import { useAuthStore } from "@/stores/authStore";
 
 interface PedidoItem {
   id: string;
@@ -54,9 +55,17 @@ interface Resumen {
   vendedores: number;
 }
 
+interface Sucursal {
+  id: string;
+  nombre: string;
+}
+
 export default function ReportePedidosVendedorPage() {
+  const { user, session } = useAuthStore();
   const [fechaInicio, setFechaInicio] = useState("");
   const [fechaFin, setFechaFin] = useState("");
+  const [sucursalId, setSucursalId] = useState("all");
+  const [sucursales, setSucursales] = useState<Sucursal[]>([]);
   const [vendedorId, setVendedorId] = useState("all");
   const [vendedores, setVendedores] = useState<Vendedor[]>([]);
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
@@ -66,6 +75,8 @@ export default function ReportePedidosVendedorPage() {
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const rowsPerPage = 10;
+  const isGlobalAdmin = Boolean(session?.isGlobalAdmin);
+  const userSucursalId = user?.sucursalId || session?.sucursalId || "";
 
   const paginatedPedidos = useMemo(() => {
     const start = (page - 1) * rowsPerPage;
@@ -78,11 +89,40 @@ export default function ReportePedidosVendedorPage() {
 
   useEffect(() => {
     fetchVendedores();
-  }, []);
+  }, [sucursalId, isGlobalAdmin]);
+
+  useEffect(() => {
+    if (isGlobalAdmin) {
+      fetchSucursales();
+    } else if (userSucursalId) {
+      setSucursalId(userSucursalId);
+    }
+  }, [isGlobalAdmin, userSucursalId]);
+
+  const fetchSucursales = async () => {
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/sucursales`);
+      if (response.ok) {
+        const data = await response.json();
+        setSucursales(data);
+      }
+    } catch {
+      // ignore
+    }
+  };
 
   const fetchVendedores = async () => {
     try {
-      const response = await fetch(`${getApiBaseUrl()}/reports/vendedores`);
+      const params = new URLSearchParams();
+      if (isGlobalAdmin) {
+        params.append("sucursalId", sucursalId || "all");
+      }
+
+      const url = params.toString()
+        ? `${getApiBaseUrl()}/reports/vendedores?${params.toString()}`
+        : `${getApiBaseUrl()}/reports/vendedores`;
+
+      const response = await fetch(url);
 
       if (response.ok) {
         const data = await response.json();
@@ -107,7 +147,16 @@ export default function ReportePedidosVendedorPage() {
     setError(null);
 
     try {
-      const url = `${getApiBaseUrl()}/reports/pedidos-por-vendedor?fechaInicio=${fechaInicio}&fechaFin=${fechaFin}&vendedorId=${vendedorId}`;
+      const params = new URLSearchParams({
+        fechaInicio,
+        fechaFin,
+        vendedorId,
+      });
+      if (isGlobalAdmin) {
+        params.append("sucursalId", sucursalId || "all");
+      }
+
+      const url = `${getApiBaseUrl()}/reports/pedidos-por-vendedor?${params.toString()}`;
       const response = await fetch(url);
 
       if (!response.ok) {
@@ -164,7 +213,25 @@ export default function ReportePedidosVendedorPage() {
         </CardHeader>
         <CardBody>
           <div className="flex flex-col lg:flex-row gap-4 items-end justify-between">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 flex-1 w-full">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 flex-1 w-full">
+              {isGlobalAdmin && (
+                <Select
+                  items={[
+                    { id: "all", nombre: "Todas las sucursales" },
+                    ...sucursales,
+                  ]}
+                  label="Sucursal"
+                  labelPlacement="outside"
+                  selectedKeys={[sucursalId]}
+                  onSelectionChange={(keys) => {
+                    const selected = Array.from(keys)[0] as string;
+                    setSucursalId(selected || "all");
+                    setVendedorId("all");
+                  }}
+                >
+                  {(item) => <SelectItem key={item.id}>{item.nombre}</SelectItem>}
+                </Select>
+              )}
               <Input
                 label="Fecha Inicio"
                 labelPlacement="outside"

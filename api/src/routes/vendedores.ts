@@ -1,12 +1,19 @@
 import express from 'express';
 import prisma from '../prismaClient';
+import { requireSucursalId } from '../lib/sucursalContext';
 
 const router = express.Router();
 
 // GET /vendedores - List all vendedores
 router.get('/', async (req, res) => {
   try {
+    const { sucursalId, error: sucursalError } = requireSucursalId(req);
+    if (sucursalError || !sucursalId) {
+      return res.status(400).json({ error: sucursalError });
+    }
+
     const vendedores = await prisma.vendedor.findMany({
+      where: { sucursalId },
       orderBy: {
         nombre: 'asc'
       }
@@ -24,9 +31,14 @@ router.get('/:id/stats', async (req, res) => {
   try {
     const { id } = req.params;
     const { year } = req.query;
+    const { sucursalId, error: sucursalError } = requireSucursalId(req);
+    if (sucursalError || !sucursalId) {
+      return res.status(400).json({ error: sucursalError });
+    }
 
     let whereClause: any = {
-      vendedorId: id
+      vendedorId: id,
+      sucursalId,
     };
 
     // Filter by year if provided
@@ -71,7 +83,7 @@ router.get('/:id/stats', async (req, res) => {
 
     // Get available years for this vendedor
     const pedidosWithDates = await prisma.pedido.findMany({
-      where: { vendedorId: id, fecha_comprometida: { not: null } },
+      where: { vendedorId: id, sucursalId, fecha_comprometida: { not: null } },
       select: { fecha_comprometida: true }
     });
 

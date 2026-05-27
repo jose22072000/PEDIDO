@@ -20,6 +20,7 @@ import Icons from "../icons/iconify";
 
 import { cards } from "@/components/primitives";
 import { getApiBaseUrl } from "@/config";
+import { useAuthStore } from "@/stores/authStore";
 
 interface Sucursal {
   id: string;
@@ -35,6 +36,7 @@ interface SucursalFormData {
 }
 
 export const ConfiguracionForm = () => {
+  const { user, session } = useAuthStore();
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
@@ -58,6 +60,9 @@ export const ConfiguracionForm = () => {
     reset,
   } = useForm<SucursalFormData>();
 
+  const isGlobalAdmin = Boolean(session?.isGlobalAdmin);
+  const userSucursalId = user?.sucursalId || session?.sucursalId || "";
+
   useEffect(() => {
     fetchConfig();
     fetchSucursales();
@@ -74,7 +79,9 @@ export const ConfiguracionForm = () => {
 
         setConfig(data);
 
-        if (data.sucursalId) {
+        if (!isGlobalAdmin && userSucursalId) {
+          setSelectedSucursal(userSucursalId);
+        } else if (data.sucursalId) {
           setSelectedSucursal(data.sucursalId);
         }
       }
@@ -93,8 +100,12 @@ export const ConfiguracionForm = () => {
 
       if (response.ok) {
         const data = await response.json();
+        const scopedData =
+          !isGlobalAdmin && userSucursalId
+            ? data.filter((s: Sucursal) => s.id === userSucursalId)
+            : data;
 
-        setSucursales(data);
+        setSucursales(scopedData);
       }
     } catch (err) {
       // Error fetching sucursales
@@ -102,7 +113,10 @@ export const ConfiguracionForm = () => {
   };
 
   const handleSave = async () => {
-    if (!selectedSucursal) {
+    const targetSucursalId =
+      isGlobalAdmin ? selectedSucursal : userSucursalId || selectedSucursal;
+
+    if (!targetSucursalId) {
       setError("Debe seleccionar una sucursal");
 
       return;
@@ -118,7 +132,7 @@ export const ConfiguracionForm = () => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          sucursalId: selectedSucursal,
+          sucursalId: targetSucursalId,
         }),
       });
 
@@ -244,20 +258,23 @@ export const ConfiguracionForm = () => {
                       No hay sucursales registradas en el sistema.
                     </p>
                   </div>
-                  <Button
-                    className="w-fit"
-                    color="primary"
-                    size="sm"
-                    startContent={<Icons.add className="size-4" />}
-                    onPress={onOpen}
-                  >
-                    Crear Sucursal
-                  </Button>
+                  {isGlobalAdmin && (
+                    <Button
+                      className="w-fit"
+                      color="primary"
+                      size="sm"
+                      startContent={<Icons.add className="size-4" />}
+                      onPress={onOpen}
+                    >
+                      Crear Sucursal
+                    </Button>
+                  )}
                 </div>
               </div>
             ) : (
               <>
                 <Select
+                  isDisabled={!isGlobalAdmin}
                   label="Sucursal del Sistema"
                   placeholder="Seleccione una sucursal"
                   selectedKeys={selectedSucursal ? [selectedSucursal] : []}
@@ -291,7 +308,7 @@ export const ConfiguracionForm = () => {
             )}
 
             <div className="flex gap-2 justify-between">
-              {sucursales.length > 0 && (
+              {isGlobalAdmin && sucursales.length > 0 && (
                 <Button
                   color="default"
                   size="sm"
@@ -305,7 +322,7 @@ export const ConfiguracionForm = () => {
               <Button
                 className="ml-auto"
                 color="primary"
-                isDisabled={!selectedSucursal}
+                isDisabled={isGlobalAdmin ? !selectedSucursal : !userSucursalId}
                 isLoading={isSaving}
                 onPress={handleSave}
               >
@@ -347,41 +364,43 @@ export const ConfiguracionForm = () => {
       </Card>
 
       {/* Modal para crear sucursal */}
-      <Modal
-        isOpen={isOpen}
-        placement="center"
-        scrollBehavior="outside"
-        onClose={onClose}
-      >
-        <ModalContent>
-          <form onSubmit={handleSubmit(onSubmitSucursal)}>
-            <ModalHeader>Crear Nueva Sucursal</ModalHeader>
-            <ModalBody>
-              <Input
-                {...register("nombre", {
-                  required: "El nombre es requerido",
-                  minLength: {
-                    value: 3,
-                    message: "Mínimo 3 caracteres",
-                  },
-                })}
-                errorMessage={formErrors.nombre?.message}
-                isInvalid={!!formErrors.nombre}
-                label="Nombre de la Sucursal"
-                placeholder="Ej: Sucursal Centro"
-              />
-            </ModalBody>
-            <ModalFooter>
-              <Button color="danger" variant="flat" onPress={onClose}>
-                Cancelar
-              </Button>
-              <Button color="primary" isLoading={isCreating} type="submit">
-                Crear
-              </Button>
-            </ModalFooter>
-          </form>
-        </ModalContent>
-      </Modal>
+      {isGlobalAdmin && (
+        <Modal
+          isOpen={isOpen}
+          placement="center"
+          scrollBehavior="outside"
+          onClose={onClose}
+        >
+          <ModalContent>
+            <form onSubmit={handleSubmit(onSubmitSucursal)}>
+              <ModalHeader>Crear Nueva Sucursal</ModalHeader>
+              <ModalBody>
+                <Input
+                  {...register("nombre", {
+                    required: "El nombre es requerido",
+                    minLength: {
+                      value: 3,
+                      message: "Mínimo 3 caracteres",
+                    },
+                  })}
+                  errorMessage={formErrors.nombre?.message}
+                  isInvalid={!!formErrors.nombre}
+                  label="Nombre de la Sucursal"
+                  placeholder="Ej: Sucursal Centro"
+                />
+              </ModalBody>
+              <ModalFooter>
+                <Button color="danger" variant="flat" onPress={onClose}>
+                  Cancelar
+                </Button>
+                <Button color="primary" isLoading={isCreating} type="submit">
+                  Crear
+                </Button>
+              </ModalFooter>
+            </form>
+          </ModalContent>
+        </Modal>
+      )}
 
       {/* Modal de confirmación para borrar base de datos */}
       <Modal isOpen={isDeleteOpen} placement="center" onClose={onDeleteClose}>
