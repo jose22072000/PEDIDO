@@ -9,6 +9,7 @@ datasource db {
 model Sucursal {
     id        String    @id @default(cuid())
     nombre    String
+    codigo    String?   @unique  // código de provincia (CAM, STG, TUN, ...); mapea con el consolidado y con Branch.externalId en delivery
     createdAt DateTime  @default(now())
     usuarios  Usuario[]
     vendedores Vendedor[]
@@ -69,6 +70,7 @@ model Pedido {
     estado             String?      @map("status")
     pedido_cobrado     String?      @map("paymentStatus")
     requiere_domicilio Boolean?     @map("requiresDelivery")
+    costoDomicilio     Float?       @map("deliveryCost")  // lo escribe delivery vía /integration
     createdAt          DateTime     @default(now())
     items              PedidoItem[]
 
@@ -97,6 +99,15 @@ model Cliente {
     sucursal  Sucursal? @relation(fields: [sucursalId], references: [id])
     nombre    String
     zona      String?
+    // Datos de geolocalización (del Consolidado_Geolocalizacion que entregó Parranda).
+    // El CSV de pedidos NO los trae; se enriquecen a los clientes por nombre+sucursal.
+    direccion       String?
+    municipio       String?
+    tipoCliente     String?  @map("clientType")      // Kiosko, Cafeteria, ...
+    estadoCompra    String?  @map("purchaseStatus")  // "Compra" | "No Compra"
+    latitud         Float?                           // usado por delivery para el cálculo de domicilio
+    longitud        Float?
+    geolocalizacion String?  @map("geoRaw")          // "lat,lng" crudo del consolidado
     createdAt DateTime @default(now())
     pedidos   Pedido[]
 
