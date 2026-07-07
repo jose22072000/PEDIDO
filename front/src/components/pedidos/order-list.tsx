@@ -120,6 +120,8 @@ export const OrdersList = () => {
   const [orderToComplete, setOrderToComplete] = useState<Order | null>(null);
   const [orderToDelete, setOrderToDelete] = useState<Order | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [live, setLive] = useState(false); // conexión SSE viva
+  const [nuevosPend, setNuevosPend] = useState(0); // pedidos nuevos no mostrados (con filtros/otra página)
   const { isOpen, onOpen, onClose } = useDisclosure();
   const {
     isOpen: isConfirmOpen,
@@ -336,6 +338,45 @@ export const OrdersList = () => {
     };
   }, []);
 
+  // Pedidos NUEVOS en tiempo real (SSE): aparecen sin refrescar la página.
+  useEffect(() => {
+    const token =
+      typeof window !== "undefined" ? localStorage.getItem("auth_token") || "" : "";
+    let sucursalId = "";
+    try {
+      const raw = typeof window !== "undefined" ? localStorage.getItem("auth-storage") : null;
+      if (raw) sucursalId = JSON.parse(raw)?.state?.session?.sucursalId || "";
+    } catch {
+      /* ignore */
+    }
+    const url = `${getApiBaseUrl()}/orders/stream?sucursalId=${encodeURIComponent(sucursalId)}&token=${encodeURIComponent(token)}`;
+    const es = new EventSource(url);
+    es.addEventListener("open", () => setLive(true));
+    es.addEventListener("error", () => setLive(false));
+    es.addEventListener("order", (e) => {
+      let order: Order;
+      try {
+        order = JSON.parse((e as MessageEvent).data);
+      } catch {
+        return;
+      }
+      const sinFiltros =
+        pagination.page === 1 &&
+        !debouncedSearch &&
+        estadoFilter === "todos" &&
+        !fechaDesde &&
+        !fechaHasta;
+      if (sinFiltros) {
+        setOrders((prev) =>
+          prev.some((o) => o.id === order.id) ? prev : [order, ...prev],
+        );
+      } else {
+        setNuevosPend((n) => n + 1);
+      }
+    });
+    return () => es.close();
+  }, [pagination.page, debouncedSearch, estadoFilter, fechaDesde, fechaHasta]);
+
   return (
     <div className="flex flex-col w-full gap-4">
       {/* Filters */}
@@ -395,6 +436,40 @@ export const OrdersList = () => {
           </div>
         </CardBody>
       </Card>
+
+      {/* Barra de tiempo real (SSE) */}
+      <div className="flex items-center justify-between">
+        <span
+          className={cn(
+            "inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-xs",
+            live
+              ? "bg-success-100 text-success-700"
+              : "bg-default-100 text-default-500",
+          )}
+        >
+          <span
+            className={cn(
+              "w-2 h-2 rounded-full",
+              live ? "bg-success-500 animate-pulse" : "bg-default-400",
+            )}
+          />
+          {live ? "En vivo" : "Conectando…"}
+        </span>
+        {nuevosPend > 0 && (
+          <Button
+            size="sm"
+            color="primary"
+            variant="flat"
+            startContent={<Icons.receipt className="size-4" />}
+            onPress={() => {
+              setNuevosPend(0);
+              fetchOrders(1);
+            }}
+          >
+            {nuevosPend} pedido{nuevosPend > 1 ? "s" : ""} nuevo{nuevosPend > 1 ? "s" : ""} — actualizar
+          </Button>
+        )}
+      </div>
 
       {/* Loading State */}
       {isLoading && (

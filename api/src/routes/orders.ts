@@ -183,6 +183,62 @@ router.get('/', async (req, res) => {
   }
 });
 
+// SSE: transmite los pedidos NUEVOS en tiempo real (aparecen en la lista sin
+// refrescar). Mismo scoping que GET / (requireSucursalId lee ?sucursalId= o token).
+// EventSource no manda headers, por eso el front pasa ?sucursalId= y ?token=.
+router.get('/stream', async (req, res) => {
+  const { sucursalId, error } = requireSucursalId(req);
+  if (error || !sucursalId) {
+    return res.status(400).json({ error: error || 'Sin sucursal' });
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  (res as any).flushHeaders?.();
+
+  let closed = false;
+  let since = new Date(); // solo pedidos creados DESPUÉS de conectarse
+
+  const send = (event: string, data: unknown) => {
+    if (!closed) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+  const computeEstado = (o: { estado: string | null; fecha_comprometida: Date | null }) => {
+    if (o.estado === 'completada') return 'completada';
+    if (o.fecha_comprometida && new Date(o.fecha_comprometida) < new Date()) return 'expirada';
+    return 'en_proceso';
+  };
+
+  send('ready', { since: since.toISOString() });
+
+  const tick = async () => {
+    if (closed) return;
+    try {
+      const nuevos = await prisma.pedido.findMany({
+        where: { sucursalId, createdAt: { gt: since } },
+        include: { items: true, cliente: true, vendedor: true },
+        orderBy: { createdAt: 'asc' },
+        take: 50,
+      });
+      if (nuevos.length) {
+        since = nuevos[nuevos.length - 1].createdAt;
+        for (const o of nuevos) send('order', { ...o, estado: computeEstado(o) });
+      }
+    } catch {
+      /* transitorio; el próximo tick reintenta */
+    }
+  };
+
+  const interval = setInterval(tick, 3000);
+  const keepAlive = setInterval(() => { if (!closed) res.write(': keep-alive\n\n'); }, 20000);
+  req.on('close', () => {
+    closed = true;
+    clearInterval(interval);
+    clearInterval(keepAlive);
+  });
+});
+
 // Create a new order (basic)
 router.post('/', async (req, res) => {
   try {
