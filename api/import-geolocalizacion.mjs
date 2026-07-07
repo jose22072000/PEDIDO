@@ -24,9 +24,10 @@ import 'dotenv/config';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import xlsx from 'xlsx';
-import { PrismaClient } from '@prisma/client';
+import { createPrismaClient } from './prisma-node-client.mjs';
 
-const prisma = new PrismaClient();
+// Prisma 7 requiere adapter (ver prisma-node-client.mjs); ya no vale `new PrismaClient()`.
+const prisma = createPrismaClient();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // ---- args ----
