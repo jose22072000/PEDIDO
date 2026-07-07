@@ -63,6 +63,7 @@ interface Order {
   estado: string;
   pedido_cobrado?: string | null;
   requiere_domicilio?: boolean | null;
+  costoDomicilio?: number | null;
   createdAt: string;
   items: OrderItem[];
 }
@@ -441,6 +442,23 @@ export const OrdersList = () => {
                       {estadoLabels[order.estado]}
                     </Chip>
                   </div>
+                  {(order.costoDomicilio != null ||
+                    order.requiere_domicilio) && (
+                    <div className="absolute top-0 right-0 z-10">
+                      <Chip
+                        className="-translate-y-7"
+                        color={
+                          order.costoDomicilio != null ? "success" : "warning"
+                        }
+                        size="sm"
+                        variant="flat"
+                      >
+                        {order.costoDomicilio != null
+                          ? `Domicilio: ${order.costoDomicilio}`
+                          : "Domicilio sin calcular"}
+                      </Chip>
+                    </div>
+                  )}
                   <div className="grid items-start justify-between w-full grid-cols-1 gap-4 md:grid-cols-4">
                     <div className="flex items-center gap-2">
                       <Icons.receipt className="size-12 min-w-12 text-primary" />
@@ -703,6 +721,31 @@ export const OrdersList = () => {
                         >
                           {selectedOrder.requiere_domicilio ? 'Requiere domicilio' : 'Sin domicilio'}
                         </Chip>
+                      </div>
+                    )}
+                    {(selectedOrder?.costoDomicilio != null ||
+                      selectedOrder?.requiere_domicilio) && (
+                      <div>
+                        <p className="text-xs text-default-500">Costo domicilio</p>
+                        {selectedOrder?.costoDomicilio != null ? (
+                          <>
+                            <code className="block w-full p-2 text-sm break-all bg-white border rounded select-all">
+                              {selectedOrder.costoDomicilio}
+                            </code>
+                            <Chip
+                              size="sm"
+                              variant="flat"
+                              color="success"
+                              className="mt-1"
+                            >
+                              Calculado
+                            </Chip>
+                          </>
+                        ) : (
+                          <Chip size="sm" variant="flat" color="warning">
+                            Sin calcular
+                          </Chip>
+                        )}
                       </div>
                     )}
                   </div>
