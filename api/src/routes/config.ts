@@ -1,91 +1,48 @@
 import { Router } from 'express';
-import fs from 'fs';
-import path from 'path';
+import { NextFunction, Response } from 'express';
 import prisma from '../prismaClient';
-import { getRequesterContext, requireSucursalId, resolveSucursalScope } from '../lib/sucursalContext';
+import { requireSucursalId } from '../lib/sucursalContext';
+import { authenticateToken, AuthRequest } from '../middleware/auth';
 
 const router = Router();
-const CONFIG_FILE = path.join(__dirname, '../../config.json');
 
-// Helper to read config
-function readConfig() {
-  try {
-    if (fs.existsSync(CONFIG_FILE)) {
-      const data = fs.readFileSync(CONFIG_FILE, 'utf8');
-      return JSON.parse(data);
-    }
-    return { sucursalId: null };
-  } catch (err) {
-    console.error('Error reading config:', err);
-    return { sucursalId: null };
-  }
-}
+const requireAdmin = (req: AuthRequest, res: Response, next: NextFunction) => {
+  const username = String(req.user?.username || '').toLowerCase();
+  const role = String(req.user?.role || '').toUpperCase();
+  const isAdmin = username === 'admin' || role === 'ADMINISTRADOR';
 
-// Helper to write config
-function writeConfig(config: any) {
-  try {
-    fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf8');
-    return true;
-  } catch (err) {
-    console.error('Error writing config:', err);
-    return false;
+  if (!isAdmin) {
+    return res.status(403).json({ error: 'Solo los administradores pueden acceder a configuracion.' });
   }
-}
+
+  next();
+};
+
+router.use(authenticateToken, requireAdmin);
 
 // Get current configuration
-router.get('/', async (req, res) => {
+router.get('/', async (req: AuthRequest, res: Response) => {
   try {
-    const config = readConfig();
-    res.json(config);
+    res.json({
+      mode: 'user-scoped',
+      sucursalId: req.user?.sucursalId || null,
+      message: 'La sucursal se determina automaticamente por el usuario autenticado.',
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to fetch configuration' });
   }
 });
 
-// Update configuration
-router.post('/', async (req, res) => {
-  try {
-    const { sucursalId } = req.body;
-    const requester = getRequesterContext(req);
-    const { sucursalId: allowedSucursalId, error: sucursalError } = resolveSucursalScope(req, {
-      allowAllForAdmin: false,
-      preferUserSucursal: true,
-      defaultAllForAdmin: false,
-    });
-
-    if (sucursalError) {
-      return res.status(403).json({ error: sucursalError });
-    }
-
-    if (!sucursalId) {
-      return res.status(400).json({ error: 'sucursalId is required' });
-    }
-
-    if (!requester.isGlobalAdmin && allowedSucursalId && sucursalId !== allowedSucursalId) {
-      return res.status(403).json({ error: 'No puedes cambiar la configuración a otra sucursal.' });
-    }
-
-    const config = {
-      sucursalId,
-      updatedAt: new Date().toISOString(),
-    };
-
-    const success = writeConfig(config);
-
-    if (!success) {
-      return res.status(500).json({ error: 'Failed to save configuration' });
-    }
-
-    res.json(config);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Failed to update configuration' });
-  }
+// Global sucursal config removed (kept route for backwards compatibility)
+router.post('/', async (_req: AuthRequest, res: Response) => {
+  return res.status(410).json({
+    error: 'La configuracion global de sucursal fue eliminada. Ahora se usa automaticamente la sucursal del usuario.',
+  });
 });
 
 // Reset database - delete all data except users, roles and sucursales
-router.delete('/reset-database', async (req, res) => {
+router.delete('/reset-database', async (req: AuthRequest, res: Response) => {
   try {
     const { sucursalId, error: sucursalError } = requireSucursalId(req);
     if (sucursalError || !sucursalId) {

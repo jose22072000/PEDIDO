@@ -1,10 +1,14 @@
 import {
   Card,
   CardBody,
-  Select,
-  SelectItem,
   Button,
   Spinner,
+  Table,
+  TableHeader,
+  TableColumn,
+  TableBody,
+  TableRow,
+  TableCell,
   Input,
   Modal,
   ModalContent,
@@ -14,145 +18,79 @@ import {
   useDisclosure,
 } from "@heroui/react";
 import { useEffect, useState } from "react";
-import { useForm } from "react-hook-form";
 
 import Icons from "../icons/iconify";
 
 import { cards } from "@/components/primitives";
 import { getApiBaseUrl } from "@/config";
-import { useAuthStore } from "@/stores/authStore";
-
-interface Sucursal {
-  id: string;
-  nombre: string;
-}
-
-interface Config {
-  sucursalId: string | null;
-}
-
-interface SucursalFormData {
-  nombre: string;
-}
 
 export const ConfiguracionForm = () => {
-  const { user, session } = useAuthStore();
-  const [isLoading, setIsLoading] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [isCreating, setIsCreating] = useState(false);
+  const [sucursales, setSucursales] = useState<Array<{ id: string; nombre: string }>>([]);
+  const [isLoadingSucursales, setIsLoadingSucursales] = useState(false);
+  const [isCreatingSucursal, setIsCreatingSucursal] = useState(false);
+  const [isUpdatingSucursal, setIsUpdatingSucursal] = useState(false);
+  const [isDeletingSucursal, setIsDeletingSucursal] = useState(false);
+  const [newSucursalName, setNewSucursalName] = useState("");
+  const [editSucursalName, setEditSucursalName] = useState("");
+  const [selectedSucursalId, setSelectedSucursalId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [sucursales, setSucursales] = useState<Sucursal[]>([]);
-  const [selectedSucursal, setSelectedSucursal] = useState<string>("");
-  const [config, setConfig] = useState<Config | null>(null);
-  const { isOpen, onOpen, onClose } = useDisclosure();
+  const {
+    isOpen: isCreateOpen,
+    onOpen: onCreateOpen,
+    onClose: onCreateClose,
+  } = useDisclosure();
+  const {
+    isOpen: isEditOpen,
+    onOpen: onEditOpen,
+    onClose: onEditClose,
+  } = useDisclosure();
+  const {
+    isOpen: isDeleteSucursalOpen,
+    onOpen: onDeleteSucursalOpen,
+    onClose: onDeleteSucursalClose,
+  } = useDisclosure();
   const {
     isOpen: isDeleteOpen,
     onOpen: onDeleteOpen,
     onClose: onDeleteClose,
   } = useDisclosure();
 
-  const {
-    register,
-    handleSubmit,
-    formState: { errors: formErrors },
-    reset,
-  } = useForm<SucursalFormData>();
-
-  const isGlobalAdmin = Boolean(session?.isGlobalAdmin);
-  const userSucursalId = user?.sucursalId || session?.sucursalId || "";
-
   useEffect(() => {
-    fetchConfig();
     fetchSucursales();
   }, []);
 
-  const fetchConfig = async () => {
-    setIsLoading(true);
-
-    try {
-      const response = await fetch(`${getApiBaseUrl()}/config`);
-
-      if (response.ok) {
-        const data = await response.json();
-
-        setConfig(data);
-
-        if (!isGlobalAdmin && userSucursalId) {
-          setSelectedSucursal(userSucursalId);
-        } else if (data.sucursalId) {
-          setSelectedSucursal(data.sucursalId);
-        }
-      }
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Error al cargar configuración",
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   const fetchSucursales = async () => {
+    setIsLoadingSucursales(true);
+
     try {
       const response = await fetch(`${getApiBaseUrl()}/sucursales`);
 
-      if (response.ok) {
-        const data = await response.json();
-        const scopedData =
-          !isGlobalAdmin && userSucursalId
-            ? data.filter((s: Sucursal) => s.id === userSucursalId)
-            : data;
-
-        setSucursales(scopedData);
+      if (!response.ok) {
+        throw new Error("Error al cargar las sucursales");
       }
+
+      const data = await response.json();
+
+      setSucursales(data);
     } catch (err) {
-      // Error fetching sucursales
+      setError(err instanceof Error ? err.message : "Error desconocido");
+    } finally {
+      setIsLoadingSucursales(false);
     }
   };
 
-  const handleSave = async () => {
-    const targetSucursalId =
-      isGlobalAdmin ? selectedSucursal : userSucursalId || selectedSucursal;
+  const handleCreateSucursal = async () => {
+    const nombre = newSucursalName.trim();
 
-    if (!targetSucursalId) {
-      setError("Debe seleccionar una sucursal");
+    if (!nombre) {
+      setError("El nombre de la sucursal es requerido");
 
       return;
     }
 
-    setIsSaving(true);
-    setError(null);
-
-    try {
-      const response = await fetch(`${getApiBaseUrl()}/config`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          sucursalId: targetSucursalId,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-
-        throw new Error(errorData.error || "Error al guardar configuración");
-      }
-
-      setSuccess("Configuración guardada correctamente");
-      fetchConfig();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Error desconocido");
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const onSubmitSucursal = async (data: SucursalFormData) => {
-    setIsCreating(true);
+    setIsCreatingSucursal(true);
     setError(null);
 
     try {
@@ -161,23 +99,113 @@ export const ConfiguracionForm = () => {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(data),
+        body: JSON.stringify({ nombre }),
       });
 
       if (!response.ok) {
         const errorData = await response.json();
 
-        throw new Error(errorData.error || "Error al crear sucursal");
+        throw new Error(errorData.error || "Error al crear la sucursal");
       }
 
       setSuccess("Sucursal creada correctamente");
-      reset();
-      onClose();
+      setNewSucursalName("");
+      onCreateClose();
       fetchSucursales();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error desconocido");
     } finally {
-      setIsCreating(false);
+      setIsCreatingSucursal(false);
+    }
+  };
+
+  const openEditSucursal = (sucursal: { id: string; nombre: string }) => {
+    setSelectedSucursalId(sucursal.id);
+    setEditSucursalName(sucursal.nombre);
+    onEditOpen();
+  };
+
+  const handleEditSucursal = async () => {
+    const nombre = editSucursalName.trim();
+
+    if (!selectedSucursalId) {
+      return;
+    }
+
+    if (!nombre) {
+      setError("El nombre de la sucursal es requerido");
+
+      return;
+    }
+
+    setIsUpdatingSucursal(true);
+    setError(null);
+
+    try {
+      const response = await fetch(
+        `${getApiBaseUrl()}/sucursales/${selectedSucursalId}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ nombre }),
+        },
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+
+        throw new Error(errorData.error || "Error al editar la sucursal");
+      }
+
+      setSuccess("Sucursal editada correctamente");
+      onEditClose();
+      setSelectedSucursalId(null);
+      setEditSucursalName("");
+      fetchSucursales();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error desconocido");
+    } finally {
+      setIsUpdatingSucursal(false);
+    }
+  };
+
+  const openDeleteSucursal = (sucursalId: string) => {
+    setSelectedSucursalId(sucursalId);
+    onDeleteSucursalOpen();
+  };
+
+  const handleDeleteSucursal = async () => {
+    if (!selectedSucursalId) {
+      return;
+    }
+
+    setIsDeletingSucursal(true);
+    setError(null);
+
+    try {
+      const response = await fetch(
+        `${getApiBaseUrl()}/sucursales/${selectedSucursalId}`,
+        {
+          method: "DELETE",
+        },
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+
+        throw new Error(errorData.error || "Error al eliminar la sucursal");
+      }
+
+      setSuccess("Sucursal eliminada correctamente");
+      onDeleteSucursalClose();
+      setSelectedSucursalId(null);
+      fetchSucursales();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error desconocido");
+    } finally {
+      setIsDeletingSucursal(false);
     }
   };
 
@@ -198,23 +226,12 @@ export const ConfiguracionForm = () => {
 
       setSuccess("Base de datos borrada correctamente");
       onDeleteClose();
-      // Refrescar datos
-      fetchConfig();
-      fetchSucursales();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error desconocido");
     } finally {
       setIsDeleting(false);
     }
   };
-
-  if (isLoading) {
-    return (
-      <div className="flex justify-center p-8">
-        <Spinner color="primary" size="lg" />
-      </div>
-    );
-  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -240,95 +257,77 @@ export const ConfiguracionForm = () => {
             )}
 
             <div className="bg-default-100 p-4 rounded-lg">
-              <p className="text-sm text-default-600 flex items-center gap-2">
-                <span className="text-lg">ℹ️</span>
-                <span>
-                  La sucursal seleccionada determinará qué datos se mostrarán en
-                  este sistema.
-                </span>
+              <p className="text-sm text-default-700">
+                La sucursal activa se asigna automaticamente por usuario.
+                Aqui solo se gestionan sucursales del sistema.
               </p>
             </div>
 
-            {sucursales.length === 0 ? (
-              <div className="bg-warning-50 border-l-4 border-warning p-4 rounded">
-                <div className="flex flex-col gap-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-lg">⚠️</span>
-                    <p className="text-sm text-warning-700">
-                      No hay sucursales registradas en el sistema.
-                    </p>
-                  </div>
-                  {isGlobalAdmin && (
-                    <Button
-                      className="w-fit"
-                      color="primary"
-                      size="sm"
-                      startContent={<Icons.add className="size-4" />}
-                      onPress={onOpen}
-                    >
-                      Crear Sucursal
-                    </Button>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <>
-                <Select
-                  isDisabled={!isGlobalAdmin}
-                  label="Sucursal del Sistema"
-                  placeholder="Seleccione una sucursal"
-                  selectedKeys={selectedSucursal ? [selectedSucursal] : []}
-                  variant="bordered"
-                  onSelectionChange={(keys) => {
-                    const selected = Array.from(keys)[0] as string;
-
-                    setSelectedSucursal(selected);
-                  }}
-                >
-                  {sucursales.map((sucursal) => (
-                    <SelectItem key={sucursal.id}>{sucursal.nombre}</SelectItem>
-                  ))}
-                </Select>
-
-                {config?.sucursalId && (
-                  <div className="bg-success-50 p-3 rounded-lg">
-                    <p className="text-sm text-success-700 flex items-center gap-2">
-                      <Icons.check className="size-4" />
-                      <span>
-                        Sucursal actual configurada:{" "}
-                        <strong>
-                          {sucursales.find((s) => s.id === config.sucursalId)
-                            ?.nombre || "Desconocida"}
-                        </strong>
-                      </span>
-                    </p>
-                  </div>
-                )}
-              </>
-            )}
-
-            <div className="flex gap-2 justify-between">
-              {isGlobalAdmin && sucursales.length > 0 && (
-                <Button
-                  color="default"
-                  size="sm"
-                  startContent={<Icons.add className="size-4" />}
-                  variant="flat"
-                  onPress={onOpen}
-                >
-                  Agregar Sucursal
-                </Button>
-              )}
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-lg font-semibold text-primary">
+                Gestion de Sucursales
+              </h3>
               <Button
-                className="ml-auto"
                 color="primary"
-                isDisabled={isGlobalAdmin ? !selectedSucursal : !userSucursalId}
-                isLoading={isSaving}
-                onPress={handleSave}
+                startContent={<Icons.add className="size-4" />}
+                onPress={onCreateOpen}
               >
-                Guardar Configuración
+                Nueva Sucursal
               </Button>
             </div>
+
+            {isLoadingSucursales ? (
+              <div className="flex justify-center p-8">
+                <Spinner color="primary" size="lg" />
+              </div>
+            ) : (
+              <Table
+                aria-label="Tabla de sucursales"
+                classNames={{
+                  th: "bg-primary text-white text-sm font-bold",
+                  tr: "hover:bg-primary/5 transition-colors",
+                  td: "align-middle text-sm",
+                }}
+              >
+                <TableHeader>
+                  <TableColumn>NOMBRE</TableColumn>
+                  <TableColumn className="text-right">ACCIONES</TableColumn>
+                </TableHeader>
+                <TableBody emptyContent="No hay sucursales registradas">
+                  {sucursales.map((sucursal) => (
+                    <TableRow key={sucursal.id}>
+                      <TableCell className="font-bold text-medium text-primary">
+                        {sucursal.nombre}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            color="primary"
+                            isIconOnly
+                            size="sm"
+                            variant="flat"
+                            aria-label="Editar sucursal"
+                            onPress={() => openEditSucursal(sucursal)}
+                          >
+                            <Icons.edit className="size-4" />
+                          </Button>
+                          <Button
+                            color="danger"
+                            isIconOnly
+                            size="sm"
+                            variant="flat"
+                            aria-label="Eliminar sucursal"
+                            onPress={() => openDeleteSucursal(sucursal.id)}
+                          >
+                            <Icons.trash className="size-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
           </div>
         </CardBody>
       </Card>
@@ -340,7 +339,7 @@ export const ConfiguracionForm = () => {
             <div className="flex items-center gap-2">
               <span className="text-2xl">⚠️</span>
               <h3 className="text-lg font-semibold text-danger">
-                Zona de Peligro
+                Zona de Peligro (Solo Administrador)
               </h3>
             </div>
 
@@ -363,44 +362,86 @@ export const ConfiguracionForm = () => {
         </CardBody>
       </Card>
 
-      {/* Modal para crear sucursal */}
-      {isGlobalAdmin && (
-        <Modal
-          isOpen={isOpen}
-          placement="center"
-          scrollBehavior="outside"
-          onClose={onClose}
-        >
-          <ModalContent>
-            <form onSubmit={handleSubmit(onSubmitSucursal)}>
-              <ModalHeader>Crear Nueva Sucursal</ModalHeader>
-              <ModalBody>
-                <Input
-                  {...register("nombre", {
-                    required: "El nombre es requerido",
-                    minLength: {
-                      value: 3,
-                      message: "Mínimo 3 caracteres",
-                    },
-                  })}
-                  errorMessage={formErrors.nombre?.message}
-                  isInvalid={!!formErrors.nombre}
-                  label="Nombre de la Sucursal"
-                  placeholder="Ej: Sucursal Centro"
-                />
-              </ModalBody>
-              <ModalFooter>
-                <Button color="danger" variant="flat" onPress={onClose}>
-                  Cancelar
-                </Button>
-                <Button color="primary" isLoading={isCreating} type="submit">
-                  Crear
-                </Button>
-              </ModalFooter>
-            </form>
-          </ModalContent>
-        </Modal>
-      )}
+      {/* Modal crear sucursal */}
+      <Modal isOpen={isCreateOpen} placement="center" onClose={onCreateClose}>
+        <ModalContent>
+          <ModalHeader>Crear Sucursal</ModalHeader>
+          <ModalBody>
+            <Input
+              label="Nombre"
+              placeholder="Ej: Las Tunas"
+              value={newSucursalName}
+              onValueChange={setNewSucursalName}
+            />
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="flat" onPress={onCreateClose}>
+              Cancelar
+            </Button>
+            <Button
+              color="primary"
+              isLoading={isCreatingSucursal}
+              onPress={handleCreateSucursal}
+            >
+              Crear
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      {/* Modal editar sucursal */}
+      <Modal isOpen={isEditOpen} placement="center" onClose={onEditClose}>
+        <ModalContent>
+          <ModalHeader>Editar Sucursal</ModalHeader>
+          <ModalBody>
+            <Input
+              label="Nombre"
+              placeholder="Ej: Las Tunas"
+              value={editSucursalName}
+              onValueChange={setEditSucursalName}
+            />
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="flat" onPress={onEditClose}>
+              Cancelar
+            </Button>
+            <Button
+              color="primary"
+              isLoading={isUpdatingSucursal}
+              onPress={handleEditSucursal}
+            >
+              Guardar
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      {/* Modal eliminar sucursal */}
+      <Modal
+        isOpen={isDeleteSucursalOpen}
+        placement="center"
+        onClose={onDeleteSucursalClose}
+      >
+        <ModalContent>
+          <ModalHeader>Eliminar Sucursal</ModalHeader>
+          <ModalBody>
+            <p>Esta accion no se puede deshacer.</p>
+            <p>Se eliminara permanentemente la sucursal seleccionada.</p>
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="flat" onPress={onDeleteSucursalClose}>
+              Cancelar
+            </Button>
+            <Button
+              color="danger"
+              isLoading={isDeletingSucursal}
+              onPress={handleDeleteSucursal}
+            >
+              Eliminar
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
 
       {/* Modal de confirmación para borrar base de datos */}
       <Modal isOpen={isDeleteOpen} placement="center" onClose={onDeleteClose}>

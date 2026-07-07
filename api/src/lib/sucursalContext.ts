@@ -1,9 +1,6 @@
 import { Request } from 'express';
-import fs from 'fs';
 import jwt from 'jsonwebtoken';
-import path from 'path';
 
-const CONFIG_FILE = path.join(__dirname, '../../config.json');
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-key';
 
 interface TokenPayload {
@@ -27,7 +24,7 @@ interface ResolveScopeOptions {
   defaultAllForAdmin?: boolean;
 }
 
-type SucursalSelectionSource = 'body' | 'query' | 'header' | 'config' | null;
+type SucursalSelectionSource = 'body' | 'query' | 'header' | null;
 
 function resolveSucursalSelection(req: Request): { sucursalId: string | null; source: SucursalSelectionSource } {
   const bodySucursalId = typeof req.body?.sucursalId === 'string' ? req.body.sucursalId.trim() : '';
@@ -39,21 +36,7 @@ function resolveSucursalSelection(req: Request): { sucursalId: string | null; so
   const headerSucursalId = typeof req.headers['x-sucursal-id'] === 'string' ? req.headers['x-sucursal-id'].trim() : '';
   if (headerSucursalId) return { sucursalId: headerSucursalId, source: 'header' };
 
-  const configuredSucursalId = readConfiguredSucursalId();
-  if (configuredSucursalId) return { sucursalId: configuredSucursalId, source: 'config' };
-
   return { sucursalId: null, source: null };
-}
-
-function readConfiguredSucursalId(): string | null {
-  try {
-    if (!fs.existsSync(CONFIG_FILE)) return null;
-    const raw = fs.readFileSync(CONFIG_FILE, 'utf8');
-    const parsed = JSON.parse(raw) as { sucursalId?: string | null };
-    return parsed.sucursalId?.trim() || null;
-  } catch {
-    return null;
-  }
 }
 
 function parseBearerToken(req: Request): TokenPayload | null {
@@ -106,7 +89,7 @@ export function requireSucursalId(req: Request): { sucursalId?: string; error?: 
   }
 
   if (!sucursalId) {
-    return { error: 'No hay sucursal configurada. Envia sucursalId en body/query/header x-sucursal-id o configura /config.' };
+    return { error: 'No hay sucursal disponible para esta solicitud. Inicia sesion con un usuario asignado a sucursal o envia sucursalId en body/query/header x-sucursal-id.' };
   }
 
   return { sucursalId };
@@ -125,12 +108,6 @@ export function resolveSucursalScope(
   const requester = getRequesterContext(req);
   const selection = resolveSucursalSelection(req);
   let selectedSucursalId = selection.sucursalId;
-
-  // For global admins, ignore implicit fallback from config.json unless sucursal
-  // was explicitly provided in request context.
-  if (requester.isGlobalAdmin && selection.source === 'config') {
-    selectedSucursalId = null;
-  }
 
   if (preferUserSucursal && requester.sucursalId && !selectedSucursalId) {
     selectedSucursalId = requester.sucursalId;

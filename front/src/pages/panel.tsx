@@ -1,56 +1,22 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
 import { NavigationHeading } from "@/components/navigation-heading";
 import ActionCard from "@/components/action-card";
-import { getApiBaseUrl } from "@/config";
 import { useDashboard } from "@/providers/DashboardProvider";
 import { KPICard } from "@/components/dashboard/KPICard";
 import { LineChartCard } from "@/components/dashboard/LineChartCard";
-
-interface Config {
-  sucursalId: string | null;
-}
-
-interface Sucursal {
-  id: string;
-  nombre: string;
-}
+import { useAuthStore } from "@/stores/authStore";
 
 export default function PanelPage() {
-  const [sucursalNombre, setSucursalNombre] = useState<string>("");
+  const { user } = useAuthStore();
   const { stats, isLoading, refetch } = useDashboard();
+  const sucursalNombre = user?.sucursal || "";
+  const isAdmin = String(user?.role || "").toLowerCase() === "administrador";
 
   useEffect(() => {
-    fetchSucursalConfig();
     // Refetch stats cada vez que se entre a la página
     refetch();
   }, []);
-
-  const fetchSucursalConfig = async () => {
-    try {
-      // Obtener la configuración
-      const configResponse = await fetch(`${getApiBaseUrl()}/config`);
-
-      if (configResponse.ok) {
-        const config: Config = await configResponse.json();
-
-        if (config.sucursalId) {
-          // Obtener el nombre de la sucursal
-          const sucursalResponse = await fetch(
-            `${getApiBaseUrl()}/sucursales/${config.sucursalId}`,
-          );
-
-          if (sucursalResponse.ok) {
-            const sucursal: Sucursal = await sucursalResponse.json();
-
-            setSucursalNombre(sucursal.nombre);
-          }
-        }
-      }
-    } catch (err) {
-      // Error al cargar la configuración
-    }
-  };
 
   return (
     <section className="flex flex-col gap-4">
@@ -111,13 +77,15 @@ export default function PanelPage() {
               icon="reports"
               title="Reportes"
             />
-            <ActionCard
-              color="warning"
-              description="Configurar parámetros del sistema"
-              href="/panel/configuracion"
-              icon="configuracion"
-              title="Configuración"
-            />
+            {isAdmin && (
+              <ActionCard
+                color="warning"
+                description="Configurar parámetros del sistema"
+                href="/panel/configuracion"
+                icon="configuracion"
+                title="Configuración"
+              />
+            )}
           </div>
         </div>
         <div className="col-span-1 lg:col-span-8">

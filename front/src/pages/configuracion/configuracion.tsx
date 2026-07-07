@@ -7,8 +7,8 @@ export default function ConfiguracionPage() {
       <NavigationHeading
         cta={{ href: "/panel", label: "Ir a Panel de Control" }}
         icon="configuracion"
-        paragraph="Configura los parámetros del sistema"
-        title="Configuración del Sistema"
+        paragraph="Opciones sensibles de administracion del sistema"
+        title="Configuracion de Administrador"
       />
       <div className="mt-6">
         <ConfiguracionForm />

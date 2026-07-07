@@ -75,9 +75,6 @@ function App() {
           element={<ReporteProductosVendedorPage />}
           path="/panel/reportes/productos-vendedor"
         />
-
-        {/* Configuración */}
-        <Route element={<ConfiguracionPage />} path="/panel/configuracion" />
       </Route>
 
       {/* Rutas protegidas para Administrador y Supervisor */}
@@ -108,6 +105,9 @@ function App() {
             element={<ListaUsuariosPage />}
             path="/panel/panel-usuarios/lista"
           />
+
+          {/* Configuración */}
+          <Route element={<ConfiguracionPage />} path="/panel/configuracion" />
 
         </Route>
       </Route>
