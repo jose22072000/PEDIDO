@@ -19,11 +19,15 @@ router.get('/', async (req, res) => {
     const skip = (page - 1) * limit;
 
     const where: any = { sucursalId };
-    const searchTerm = search?.toUpperCase();
+    const searchTerm = search?.trim().toUpperCase();
 
     if (searchTerm) {
+      // Búsqueda por PALABRAS: el nombre debe contener TODAS las palabras buscadas,
+      // sin importar cuántos espacios haya entre ellas. Así "MIVIALA RIVERO CONSUEGRA"
+      // encuentra a "MIVIALA RIVERO  CONSUEGRA" (doble espacio, típico de estos datos).
+      const palabras = searchTerm.split(/\s+/).filter(Boolean);
       where.OR = [
-        { nombre: { contains: searchTerm } },
+        { AND: palabras.map((w) => ({ nombre: { contains: w } })) },
         { codigo: { contains: searchTerm } },
         { zona: { contains: searchTerm } },
       ];
