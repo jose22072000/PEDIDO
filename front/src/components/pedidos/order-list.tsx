@@ -536,7 +536,7 @@ export const OrdersList = () => {
                         variant="flat"
                       >
                         {order.costoDomicilio != null
-                          ? `Domicilio: ${order.costoDomicilio}`
+                          ? `Domicilio: $${order.costoDomicilio}`
                           : "Domicilio sin calcular"}
                       </Chip>
                     </div>
@@ -811,7 +811,10 @@ export const OrdersList = () => {
                       <p className="text-xs text-default-500">Costo domicilio</p>
                       {selectedOrder?.costoDomicilio != null ? (
                         <>
+                          {/* El "$" es solo adorno (select-none): al copiar el bloque
+                              (select-all) sale unicamente el numero, no el simbolo. */}
                           <code className="block w-full p-2 text-sm break-all bg-white border rounded select-all">
+                            <span className="select-none text-default-400">$</span>
                             {selectedOrder.costoDomicilio}
                           </code>
                           <Chip
