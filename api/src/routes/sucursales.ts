@@ -21,10 +21,15 @@ function soloSuperAdmin(req: any, res: any): boolean {
   return true;
 }
 
-// Get all sucursales
-router.get('/', async (_req, res) => {
+// Get all sucursales. El Super Admin ve todas; cualquier otro usuario ve SOLO la suya
+// (para no filtrar ni nombres de otras sucursales).
+router.get('/', async (req, res) => {
   try {
-    const sucursales = await prisma.sucursal.findMany({ orderBy: { nombre: 'asc' } });
+    const ctx = getRequesterContext(req);
+    const where = ctx.isSuperAdmin
+      ? {}
+      : { id: ctx.sucursalId ?? '__ninguna__' };
+    const sucursales = await prisma.sucursal.findMany({ where, orderBy: { nombre: 'asc' } });
     res.json(sucursales);
   } catch (err) {
     console.error(err);
@@ -32,10 +37,15 @@ router.get('/', async (_req, res) => {
   }
 });
 
-// Get sucursal by ID
+// Get sucursal by ID. Devuelve los USUARIOS de la sucursal, así que solo el Super Admin
+// (o el propio usuario de esa sucursal) puede consultarla.
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
+    const ctx = getRequesterContext(req);
+    if (!ctx.isSuperAdmin && ctx.sucursalId !== id) {
+      return res.status(403).json({ error: 'No puedes ver otra sucursal.' });
+    }
     const sucursal = await prisma.sucursal.findUnique({
       where: { id },
       include: {

@@ -1,7 +1,16 @@
 import { Router } from 'express';
 import prisma from '../prismaClient';
+import { getRequesterContext } from '../lib/sucursalContext';
 
 const router = Router();
+
+// Crear/borrar roles es estructura del sistema: solo el Super Admin.
+const soloSuperAdmin = (req: any, res: any, next: any) => {
+  if (!getRequesterContext(req).isSuperAdmin) {
+    return res.status(403).json({ error: 'Solo el Super Admin puede gestionar roles.' });
+  }
+  next();
+};
 
 // Get all roles
 router.get('/', async (req, res) => {
@@ -40,7 +49,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // Create new role
-router.post('/', async (req, res) => {
+router.post('/', soloSuperAdmin, async (req, res) => {
   try {
     const { nombre } = req.body;
 
@@ -62,7 +71,7 @@ router.post('/', async (req, res) => {
 });
 
 // Delete role
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', soloSuperAdmin, async (req, res) => {
   try {
     const { id } = req.params;
 

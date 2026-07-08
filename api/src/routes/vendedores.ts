@@ -104,6 +104,16 @@ router.patch('/:id/activo', async (req, res) => {
     });
     if (!vendedor) return res.status(404).json({ error: 'Vendedor no encontrado' });
 
+    // Un usuario scopeado solo da de baja/alta vendedores de SU sucursal.
+    const requester = getRequesterContext(req);
+    if (
+      !requester.isGlobalAdmin &&
+      vendedor.sucursalId &&
+      vendedor.sucursalId !== requester.sucursalId
+    ) {
+      return res.status(403).json({ error: 'Ese vendedor es de otra sucursal.' });
+    }
+
     const updated = await prisma.vendedor.update({ where: { id }, data: { activo } });
 
     res.json({
