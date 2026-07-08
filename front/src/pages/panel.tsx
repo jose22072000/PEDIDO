@@ -57,13 +57,6 @@ export default function PanelPage() {
               title="Vendedores"
             />
             <ActionCard
-              color="warning"
-              description="Enlazar cada vendedor con su gestor"
-              href="/panel/gestores"
-              icon="partners"
-              title="Gestores"
-            />
-            <ActionCard
               color="secondary"
               description="Gestionar clientes del sistema"
               href="/panel/clientes"
