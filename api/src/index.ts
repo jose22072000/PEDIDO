@@ -14,6 +14,7 @@ import clientesRouter from './routes/clientes';
 import reportsRouter from './routes/reports';
 import integrationRouter from './routes/integration';
 import geolocalizacionRouter from './routes/geolocalizacion';
+import mantenimientoRouter from './routes/mantenimiento';
 import prisma from './prismaClient';
 
 const app = express();
@@ -55,6 +56,7 @@ app.use('/clientes', clientesRouter);
 app.use('/reports', reportsRouter);
 app.use('/integration', integrationRouter);
 app.use('/geolocalizacion', geolocalizacionRouter);
+app.use('/mantenimiento', mantenimientoRouter);
 
 app.listen(port, '0.0.0.0', async () => {
   console.log(`API listening on http://0.0.0.0:${port}`);

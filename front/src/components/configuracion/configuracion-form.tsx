@@ -23,6 +23,7 @@ import { useEffect, useState } from "react";
 import Icons from "../icons/iconify";
 
 import { cards } from "@/components/primitives";
+import { MantenimientoPanel } from "./mantenimiento-panel";
 import { getApiBaseUrl } from "@/config";
 
 export const ConfiguracionForm = () => {
@@ -356,6 +357,9 @@ export const ConfiguracionForm = () => {
         </CardBody>
       </Card>
 
+      {/* Panel de Mantenimiento (correr los scripts desde la UI) */}
+      <MantenimientoPanel />
+
       {/* Card de Zona de Peligro */}
       <Card className={cards()}>
         <CardBody>
@@ -363,7 +367,7 @@ export const ConfiguracionForm = () => {
             <div className="flex items-center gap-2">
               <span className="text-2xl">⚠️</span>
               <h3 className="text-lg font-semibold text-danger">
-                Zona de Peligro (Solo Administrador)
+                Zona de Peligro (Solo Super Admin)
               </h3>
             </div>
 
@@ -371,7 +375,8 @@ export const ConfiguracionForm = () => {
               <p className="text-sm text-danger-700 mb-3">
                 <strong>Borrar Base de Datos:</strong> Esta acción eliminará
                 permanentemente todos los datos del sistema incluyendo pedidos,
-                clientes, vendedores y configuraciones.
+                clientes, vendedores y configuraciones. Descarga primero un backup
+                desde la sección de Mantenimiento.
               </p>
               <Button
                 color="danger"
