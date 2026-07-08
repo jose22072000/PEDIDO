@@ -28,6 +28,14 @@ interface Cliente {
   codigo?: string | null;
   zona?: string | null;
   createdAt: string;
+  // Datos del Consolidado de Parranda. La lat/lng es la que usa delivery para
+  // calcular el costo del domicilio: sin ella, ese cliente no se puede cotizar.
+  direccion?: string | null;
+  municipio?: string | null;
+  tipoCliente?: string | null;
+  estadoCompra?: string | null;
+  latitud?: number | null;
+  longitud?: number | null;
 }
 
 interface PaginationData {
@@ -326,6 +334,74 @@ export const ClientesList = () => {
                         </p>
                       </div>
                     </div>
+                  </div>
+
+                  {/* Datos del Consolidado de Parranda */}
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    {selectedCliente?.direccion && (
+                      <div className="p-3 rounded-lg bg-default-50 sm:col-span-2">
+                        <p className="mb-1 text-xs text-default-500">Dirección</p>
+                        <code className="block w-full p-2 text-sm bg-white border rounded break-all select-all">
+                          {selectedCliente.direccion}
+                        </code>
+                      </div>
+                    )}
+                    {selectedCliente?.municipio && (
+                      <div className="p-3 rounded-lg bg-default-50">
+                        <p className="mb-1 text-xs text-default-500">Municipio</p>
+                        <p className="font-semibold">{selectedCliente.municipio}</p>
+                      </div>
+                    )}
+                    {selectedCliente?.zona && (
+                      <div className="p-3 rounded-lg bg-default-50">
+                        <p className="mb-1 text-xs text-default-500">Zona</p>
+                        <p className="font-semibold">{selectedCliente.zona}</p>
+                      </div>
+                    )}
+                    {selectedCliente?.tipoCliente && (
+                      <div className="p-3 rounded-lg bg-default-50">
+                        <p className="mb-1 text-xs text-default-500">Tipo</p>
+                        <Chip color="primary" size="sm" variant="flat">
+                          {selectedCliente.tipoCliente}
+                        </Chip>
+                      </div>
+                    )}
+                    {selectedCliente?.estadoCompra && (
+                      <div className="p-3 rounded-lg bg-default-50">
+                        <p className="mb-1 text-xs text-default-500">Estado de compra</p>
+                        <Chip
+                          color={
+                            selectedCliente.estadoCompra.toLowerCase() === "compra"
+                              ? "success"
+                              : "default"
+                          }
+                          size="sm"
+                          variant="flat"
+                        >
+                          {selectedCliente.estadoCompra}
+                        </Chip>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Geolocalización: sin ella delivery no puede cotizar el domicilio */}
+                  <div className="p-3 rounded-lg bg-default-50">
+                    <p className="mb-1 text-xs text-default-500">Geolocalización</p>
+                    {selectedCliente?.latitud != null &&
+                    selectedCliente?.longitud != null ? (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <code className="p-2 text-sm bg-white border rounded select-all">
+                          {selectedCliente.latitud}, {selectedCliente.longitud}
+                        </code>
+                        <Chip color="success" size="sm" variant="flat">
+                          Se puede calcular el domicilio
+                        </Chip>
+                      </div>
+                    ) : (
+                      <Chip color="warning" size="sm" variant="flat">
+                        Sin geolocalización — no se le puede calcular el domicilio
+                      </Chip>
+                    )}
                   </div>
 
                   <div className="p-3 bg-default-50 rounded-lg">
