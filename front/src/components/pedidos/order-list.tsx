@@ -805,31 +805,34 @@ export const OrdersList = () => {
                         </Chip>
                       </div>
                     )}
-                    {(selectedOrder?.costoDomicilio != null ||
-                      selectedOrder?.requiere_domicilio) && (
-                      <div>
-                        <p className="text-xs text-default-500">Costo domicilio</p>
-                        {selectedOrder?.costoDomicilio != null ? (
-                          <>
-                            <code className="block w-full p-2 text-sm break-all bg-white border rounded select-all">
-                              {selectedOrder.costoDomicilio}
-                            </code>
-                            <Chip
-                              size="sm"
-                              variant="flat"
-                              color="success"
-                              className="mt-1"
-                            >
-                              Calculado
-                            </Chip>
-                          </>
-                        ) : (
-                          <Chip size="sm" variant="flat" color="warning">
-                            Sin calcular
+                    {/* El costo de domicilio SIEMPRE se muestra (aunque este vacio),
+                        para poder copiarlo cuando ya lo calculo el delivery. */}
+                    <div>
+                      <p className="text-xs text-default-500">Costo domicilio</p>
+                      {selectedOrder?.costoDomicilio != null ? (
+                        <>
+                          <code className="block w-full p-2 text-sm break-all bg-white border rounded select-all">
+                            {selectedOrder.costoDomicilio}
+                          </code>
+                          <Chip
+                            size="sm"
+                            variant="flat"
+                            color="success"
+                            className="mt-1"
+                          >
+                            Calculado
                           </Chip>
-                        )}
-                      </div>
-                    )}
+                        </>
+                      ) : selectedOrder?.requiere_domicilio ? (
+                        <Chip size="sm" variant="flat" color="warning">
+                          Sin calcular todavía
+                        </Chip>
+                      ) : (
+                        <Chip size="sm" variant="flat" color="default">
+                          No requiere domicilio
+                        </Chip>
+                      )}
+                    </div>
                   </div>
 
                   <Divider />
