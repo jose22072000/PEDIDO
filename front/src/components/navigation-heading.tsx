@@ -4,6 +4,7 @@ import React from "react";
 import { Avatar, Button, Link } from "@heroui/react";
 
 import Icons from "@/components/icons/iconify";
+import { SucursalSelector } from "@/components/sucursal-selector";
 
 export const NavigationHeading = ({
   title,
@@ -44,7 +45,9 @@ export const NavigationHeading = ({
         </div>
         <p className="block md:hidden text-lg text-default-500">{paragraph}</p>
       </div>
-      <div className="w-full flex justify-center md:w-fit md:min-w-fit">
+      <div className="w-full flex flex-col items-center gap-2 md:w-fit md:min-w-fit">
+        {/* Solo lo ve el Super Admin: le permite enfocarse en una sola sucursal. */}
+        <SucursalSelector />
         <Button
           as={Link}
           className="btn w-full max-w-[300px] min-w-[300px] text-center"

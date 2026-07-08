@@ -20,7 +20,11 @@ const DRY = process.argv.includes('--dry');
 // Misma regla que src/dto/orderRecord.dto.ts -> generateSellerCode.
 // OJO: si estas dos divergen, el import dejaría de encontrar a los vendedores y
 // crearía duplicados. Cualquier cambio va en los DOS sitios.
-const sinTildes = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '');
+const sinTildes = (s) =>
+  s
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, '');
 
 function sellerCode(name) {
   const parts = sinTildes(String(name).trim()).split(/\s+/);

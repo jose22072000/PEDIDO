@@ -2,16 +2,22 @@ import { Router } from 'express';
 import { Prisma } from '@prisma/client';
 import prisma from '../prismaClient';
 import { mapCsvRecords, type OrderRecordDto } from '../dto/orderRecord.dto';
-import { requireSucursalId, resolveSucursalScope } from '../lib/sucursalContext';
+import {
+  requireSucursalId,
+  resolveSucursalFilter,
+  resolveSucursalScope,
+} from '../lib/sucursalContext';
 
 
 const router = Router();
 
-// List orders with pagination and filters
+// List orders with pagination and filters.
+// Lectura: el Super Admin sin sucursal elegida ve TODAS; si elige una (x-sucursal-id)
+// se enfoca solo en esa. El resto de usuarios, siempre la suya.
 router.get('/', async (req, res) => {
   try {
-    const { sucursalId, error: sucursalError } = requireSucursalId(req);
-    if (sucursalError || !sucursalId) {
+    const { sucursalId, error: sucursalError } = resolveSucursalFilter(req);
+    if (sucursalError) {
       return res.status(400).json({ error: sucursalError });
     }
 
@@ -187,9 +193,9 @@ router.get('/', async (req, res) => {
 // refrescar). Mismo scoping que GET / (requireSucursalId lee ?sucursalId= o token).
 // EventSource no manda headers, por eso el front pasa ?sucursalId= y ?token=.
 router.get('/stream', async (req, res) => {
-  const { sucursalId, error } = requireSucursalId(req);
-  if (error || !sucursalId) {
-    return res.status(400).json({ error: error || 'Sin sucursal' });
+  const { sucursalId, error } = resolveSucursalFilter(req);
+  if (error) {
+    return res.status(400).json({ error });
   }
 
   res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
@@ -741,8 +747,8 @@ async function processOrderRecord(
 // Get dashboard statistics
 router.get('/stats', async (req, res) => {
   try {
-    const { sucursalId, error: sucursalError } = requireSucursalId(req);
-    if (sucursalError || !sucursalId) {
+    const { sucursalId, error: sucursalError } = resolveSucursalFilter(req);
+    if (sucursalError) {
       return res.status(400).json({ error: sucursalError });
     }
 

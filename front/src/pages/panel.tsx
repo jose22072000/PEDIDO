@@ -11,7 +11,9 @@ export default function PanelPage() {
   const { user } = useAuthStore();
   const { stats, isLoading, refetch } = useDashboard();
   const sucursalNombre = user?.sucursal || "";
-  const isAdmin = String(user?.role || "").toLowerCase() === "administrador";
+  // Configuración (crear sucursales, borrar la base) es SOLO del Super Admin: un
+  // Administrador pertenece a UNA sucursal y no debe tocar nada de eso.
+  const isSuperAdmin = String(user?.role || "").toLowerCase() === "super admin";
 
   useEffect(() => {
     // Refetch stats cada vez que se entre a la página
@@ -77,10 +79,10 @@ export default function PanelPage() {
               icon="reports"
               title="Reportes"
             />
-            {isAdmin && (
+            {isSuperAdmin && (
               <ActionCard
                 color="warning"
-                description="Configurar parámetros del sistema"
+                description="Sucursales y parámetros del sistema"
                 href="/panel/configuracion"
                 icon="configuracion"
                 title="Configuración"

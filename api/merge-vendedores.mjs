@@ -47,31 +47,68 @@ async function main() {
   if (!into) throw new Error(`No encontré el vendedor destino '${intoRef}'.`);
   if (from.id === into.id) throw new Error('--from y --into resuelven al mismo vendedor.');
 
-  const pedidosFrom = await prisma.pedido.count({ where: { vendedorId: from.id } });
-  const pedidosInto = await prisma.pedido.count({ where: { vendedorId: into.id } });
+  const delOrigen = await prisma.pedido.findMany({
+    where: { vendedorId: from.id },
+    select: { id: true, folio: true, clienteId: true },
+  });
+  const delDestino = await prisma.pedido.findMany({
+    where: { vendedorId: into.id },
+    select: { folio: true, clienteId: true },
+  });
 
-  console.log(`ORIGEN   ${from.codigo ?? from.id}  "${from.nombre}"  -> ${pedidosFrom} pedidos`);
-  console.log(`DESTINO  ${into.codigo ?? into.id}  "${into.nombre}"  -> ${pedidosInto} pedidos`);
-  console.log(`\nSe moverán ${pedidosFrom} pedidos y se borrará el vendedor origen.`);
-  console.log(`Total tras la fusión: ${pedidosFrom + pedidosInto} pedidos.${DRY ? '  [DRY-RUN]' : ''}\n`);
+  // Pedido es único por (sucursalId, folio, vendedorId): si el destino ya tiene ese
+  // folio, mover el del origen violaría la restricción. Eso pasa cuando el MISMO CSV
+  // se importó dos veces (una con el encoding roto): son el mismo pedido duplicado.
+  const destinoPorFolio = new Map(delDestino.map((p) => [p.folio, p.clienteId]));
+
+  const aMover = [];
+  const aBorrar = [];
+  const conflictivos = [];
+  for (const p of delOrigen) {
+    if (!destinoPorFolio.has(p.folio)) aMover.push(p);
+    else if (destinoPorFolio.get(p.folio) === p.clienteId) aBorrar.push(p); // duplicado exacto
+    else conflictivos.push(p); // mismo folio, OTRO cliente: no se puede decidir solo
+  }
+
+  console.log(`ORIGEN   ${from.codigo ?? from.id}  "${from.nombre}"  -> ${delOrigen.length} pedidos`);
+  console.log(`DESTINO  ${into.codigo ?? into.id}  "${into.nombre}"  -> ${delDestino.length} pedidos\n`);
+  console.log(`  a MOVER  (folios que el destino no tiene) : ${aMover.length}`);
+  console.log(`  a BORRAR (duplicado exacto: mismo folio y cliente): ${aBorrar.length}`);
+  if (conflictivos.length) {
+    console.error(`\n❌ ${conflictivos.length} pedidos tienen el mismo folio que el destino pero OTRO cliente.`);
+    conflictivos.slice(0, 10).forEach((p) => console.error(`   folio ${p.folio}`));
+    console.error('   No se puede decidir automáticamente. Revísalos a mano. No se cambió nada.');
+    process.exitCode = 1;
+    return;
+  }
+
+  const esperado = delDestino.length + aMover.length;
+  console.log(`\n'${into.nombre}' quedaría con ${esperado} pedidos.${DRY ? '  [DRY-RUN]' : ''}\n`);
 
   if (DRY) { console.log('[DRY] no se escribió nada.'); return; }
 
-  const movidos = await prisma.$transaction(async (tx) => {
-    const r = await tx.pedido.updateMany({
-      where: { vendedorId: from.id },
-      data: { vendedorId: into.id },
-    });
+  await prisma.$transaction(async (tx) => {
+    // Los duplicados se eliminan (con sus items) porque ya existen en el destino.
+    if (aBorrar.length) {
+      const ids = aBorrar.map((p) => p.id);
+      await tx.pedidoItem.deleteMany({ where: { pedidoId: { in: ids } } });
+      await tx.pedido.deleteMany({ where: { id: { in: ids } } });
+    }
+    if (aMover.length) {
+      await tx.pedido.updateMany({
+        where: { id: { in: aMover.map((p) => p.id) } },
+        data: { vendedorId: into.id },
+      });
+    }
     const quedan = await tx.pedido.count({ where: { vendedorId: from.id } });
     if (quedan !== 0) throw new Error(`Aún quedan ${quedan} pedidos en el origen: se aborta.`);
     await tx.vendedor.delete({ where: { id: from.id } });
-    return r.count;
   });
 
   const final = await prisma.pedido.count({ where: { vendedorId: into.id } });
-  console.log(`✔ Movidos ${movidos} pedidos. Vendedor origen eliminado.`);
-  console.log(`✔ '${into.nombre}' queda con ${final} pedidos (esperado ${pedidosFrom + pedidosInto}).`);
-  if (final !== pedidosFrom + pedidosInto) {
+  console.log(`✔ Movidos ${aMover.length} · eliminados ${aBorrar.length} duplicados. Vendedor origen borrado.`);
+  console.log(`✔ '${into.nombre}' queda con ${final} pedidos (esperado ${esperado}).`);
+  if (final !== esperado) {
     console.error('⚠ El total no cuadra: revísalo.');
     process.exitCode = 1;
   }

@@ -45,11 +45,19 @@ window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
       }
     }
 
+    // El Super Admin no tiene sucursal propia: puede elegir una para enfocarse
+    // ("sucursal_activa"). Si no elige ninguna, no se manda header y ve TODAS.
+    const sucursalActiva =
+      typeof window !== "undefined"
+        ? localStorage.getItem("sucursal_activa")
+        : null;
+    const sucursalId = sucursalActiva || sessionSucursalId;
+
     init = init || {};
     init.headers = Object.assign(
       {},
       (init.headers as Record<string, string>) || {},
-      sessionSucursalId ? { "x-sucursal-id": sessionSucursalId } : {},
+      sucursalId ? { "x-sucursal-id": sucursalId } : {},
       token ? { Authorization: `Bearer ${token}` } : {},
     );
   } catch (e) {

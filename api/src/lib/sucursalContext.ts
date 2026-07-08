@@ -92,6 +92,34 @@ export function resolveSucursalId(req: Request): string | null {
   return resolveSucursalSelection(req).sucursalId;
 }
 
+/**
+ * Para endpoints de LECTURA. Devuelve la sucursal por la que filtrar.
+ *
+ * El Super Admin es global y NO tiene sucursal: en ese caso devuelve `undefined` y la
+ * consulta no filtra -> ve TODAS las sucursales (Prisma ignora un `where` undefined).
+ * Cualquier otro usuario debe tener la suya, como siempre.
+ *
+ * Los endpoints de ESCRITURA siguen usando requireSucursalId: nunca se crea nada sin
+ * saber a qué sucursal pertenece.
+ */
+export function resolveSucursalFilter(req: Request): { sucursalId?: string; error?: string } {
+  const { sucursalId, error } = resolveSucursalScope(req, {
+    allowAllForAdmin: true,
+    preferUserSucursal: true,
+    defaultAllForAdmin: true,
+  });
+
+  if (error) return { error };
+
+  if (!sucursalId && !getRequesterContext(req).isGlobalAdmin) {
+    return {
+      error: 'No hay sucursal disponible para esta solicitud. Inicia sesion con un usuario asignado a sucursal o envia sucursalId en body/query/header x-sucursal-id.',
+    };
+  }
+
+  return { sucursalId: sucursalId ?? undefined };
+}
+
 export function requireSucursalId(req: Request): { sucursalId?: string; error?: string } {
   const { sucursalId, error } = resolveSucursalScope(req, {
     allowAllForAdmin: false,

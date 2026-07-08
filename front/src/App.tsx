@@ -108,9 +108,14 @@ function App() {
             path="/panel/panel-usuarios/lista"
           />
 
-          {/* Configuración */}
-          <Route element={<ConfiguracionPage />} path="/panel/configuracion" />
+        </Route>
+      </Route>
 
+      {/* Configuración (sucursales, parámetros, borrar base): SOLO Super Admin.
+          Un Administrador es de una única sucursal y no debe entrar aquí. */}
+      <Route element={<ProtectedRoute />}>
+        <Route element={<AdminRoute allowedRoles={["Super Admin"]} />}>
+          <Route element={<ConfiguracionPage />} path="/panel/configuracion" />
         </Route>
       </Route>
     </Routes>

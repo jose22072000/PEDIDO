@@ -61,11 +61,17 @@ export function mapCsvToOrderRecord(csvRecord: any): OrderRecordDto {
   //
   // Además se quitan las TILDES: los archivos que exporta Parranda vienen sin ellas
   // ("alexander.padron.pedidos.csv"), y ese nombre no lo podemos cambiar.
+  // Además de las tildes se quitan los caracteres de CONTROL (C0/C1). Un nombre que
+  // llegó con el encoding roto ("PADRÃN") arrastra un byte invisible (U+0093) que se
+  // colaba en el código y lo volvía imposible de escribir o buscar.
   const sinTildes = (s: string) =>
-    s.normalize('NFD').replace(/[̀-ͯ]/g, '');
+    s
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[\u0000-\u001f\u007f-\u009f]/g, '');
 
   const generateSellerCode = (name: string): string => {
-    const parts = sinTildes(name.trim()).split(/\s+/);
+    const parts = sinTildes(name.trim()).split(/\s+/).filter(Boolean);
     if (parts.length >= 3) {
       return `${parts[0]}.${parts[parts.length - 2]}`.toLowerCase();
     }

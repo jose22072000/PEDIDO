@@ -342,10 +342,17 @@ export const OrdersList = () => {
   useEffect(() => {
     const token =
       typeof window !== "undefined" ? localStorage.getItem("auth_token") || "" : "";
-    let sucursalId = "";
+    // Igual que el wrapper de fetch: la sucursal elegida por el Super Admin manda;
+    // si no hay ninguna, la del usuario (y si tampoco, el stream trae todas).
+    let sucursalId =
+      (typeof window !== "undefined"
+        ? localStorage.getItem("sucursal_activa")
+        : "") || "";
     try {
-      const raw = typeof window !== "undefined" ? localStorage.getItem("auth-storage") : null;
-      if (raw) sucursalId = JSON.parse(raw)?.state?.session?.sucursalId || "";
+      if (!sucursalId) {
+        const raw = typeof window !== "undefined" ? localStorage.getItem("auth-storage") : null;
+        if (raw) sucursalId = JSON.parse(raw)?.state?.session?.sucursalId || "";
+      }
     } catch {
       /* ignore */
     }

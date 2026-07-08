@@ -1,14 +1,14 @@
 import express from 'express';
 import prisma from '../prismaClient';
-import { requireSucursalId } from '../lib/sucursalContext';
+import { resolveSucursalFilter } from '../lib/sucursalContext';
 
 const router = express.Router();
 
 // GET /clientes - List clientes with pagination
 router.get('/', async (req, res) => {
   try {
-    const { sucursalId, error: sucursalError } = requireSucursalId(req);
-    if (sucursalError || !sucursalId) {
+    const { sucursalId, error: sucursalError } = resolveSucursalFilter(req);
+    if (sucursalError) {
       return res.status(400).json({ error: sucursalError });
     }
 
@@ -60,8 +60,8 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { sucursalId, error: sucursalError } = requireSucursalId(req);
-    if (sucursalError || !sucursalId) {
+    const { sucursalId, error: sucursalError } = resolveSucursalFilter(req);
+    if (sucursalError) {
       return res.status(400).json({ error: sucursalError });
     }
 
