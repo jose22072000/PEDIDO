@@ -35,6 +35,9 @@ model Usuario {
     sucursalId String?
     sucursal   Sucursal? @relation(fields: [sucursalId], references: [id])
     createdAt  DateTime  @default(now())
+    // Vendedores que gestiona este usuario (solo aplica a los de rol "Gestor").
+    // La sucursal del pedido se deriva: vendedor -> gestor -> gestor.sucursalId.
+    vendedores Vendedor[] @relation("VendedorGestor")
 
     @@map("User")
 }
@@ -42,14 +45,20 @@ model Usuario {
 model Vendedor {
     id        String   @id @default(cuid())
     nombre    String   @map("name")
-    codigo    String?  @map("code")
+    // El CSV se nombra con este código (ej. "andy.almanza" = nombre.apellido).
+    // Es ÚNICO GLOBAL: al importar se busca el vendedor por aquí, sin saber la
+    // sucursal. Si el código existe con OTRO nombre, es otra persona -> colisión.
+    codigo    String?  @unique @map("code")
     sucursalId String?
     sucursal  Sucursal? @relation(fields: [sucursalId], references: [id])
+    // Gestor (Usuario con rol "Gestor") al que pertenece este vendedor.
+    // NULL = "Sin asignar": sus pedidos quedan ocultos hasta que se enlace.
+    gestorId  String?
+    gestor    Usuario? @relation("VendedorGestor", fields: [gestorId], references: [id])
     createdAt DateTime @default(now())
     pedidos   Pedido[]
 
     @@unique([sucursalId, nombre])
-    @@unique([sucursalId, codigo])
     @@map("Seller")
 }
 

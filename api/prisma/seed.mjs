@@ -49,6 +49,9 @@ async function main() {
     { nombre: 'Administrador' },
     { nombre: 'Supervisor' },
     { nombre: 'Operador' },
+    // Gestor: usuario al que se enlazan los vendedores. La sucursal del pedido
+    // se deriva vendedor -> gestor -> gestor.sucursalId.
+    { nombre: 'Gestor' },
   ];
 
   for (const role of roles) {

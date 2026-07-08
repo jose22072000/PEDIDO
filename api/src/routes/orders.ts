@@ -347,14 +347,49 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
+// Resuelve el vendedor del CSV SIN saber la sucursal: se busca por `codigo`
+// (único global, ej. "andy.almanza"). La sucursal se deriva del gestor.
+//   - no existe        -> se crea sin gestor  => "Sin asignar" (pedidos ocultos)
+//   - existe, mismo    -> se reutiliza        => sucursal = gestor.sucursalId
+//   - existe, OTRO nombre -> colisión: es otra persona con el mismo código.
+type SellerResolution = { seller: { id: string }; sucursalId: string | null };
+
+class VendedorColisionError extends Error {
+  constructor(codigo: string, existente: string, entrante: string) {
+    super(
+      `Colisión de vendedor: el código '${codigo}' ya pertenece a '${existente}', ` +
+        `pero el archivo trae '${entrante}'. Son personas distintas: el archivo no se importó.`,
+    );
+    this.name = 'VendedorColisionError';
+  }
+}
+
+async function resolveSeller(name: string, code: string): Promise<SellerResolution> {
+  const nombre = name.toUpperCase().trim();
+
+  const existing = code
+    ? await prisma.vendedor.findUnique({ where: { codigo: code }, include: { gestor: true } })
+    : null;
+
+  if (existing) {
+    if (existing.nombre.toUpperCase().trim() !== nombre) {
+      throw new VendedorColisionError(code, existing.nombre, name);
+    }
+    // Vendedor conocido: su gestor decide la sucursal (null = aún sin asignar).
+    return { seller: existing, sucursalId: existing.gestor?.sucursalId ?? null };
+  }
+
+  // Vendedor nuevo: entra sin gestor. Sus pedidos quedan "Sin asignar" (ocultos)
+  // hasta que se le enlace un gestor desde la vista de Gestores.
+  const seller = await prisma.vendedor.create({
+    data: { nombre: name, codigo: code || null, sucursalId: null, gestorId: null },
+  });
+  return { seller, sucursalId: null };
+}
+
 // Bulk create orders from CSV records
 router.post('/bulk', async (req, res) => {
   try {
-    const { sucursalId, error: sucursalError } = requireSucursalId(req);
-    if (sucursalError || !sucursalId) {
-      return res.status(400).json({ error: sucursalError });
-    }
-
     const { records } = req.body;
 
     if (!records || !Array.isArray(records)) {
@@ -364,17 +399,38 @@ router.post('/bulk', async (req, res) => {
     // Map CSV records to DTO
     const mappedRecords = mapCsvRecords(records);
 
+    // El CSV es de UN vendedor (a veces más). Resolvemos TODOS los vendedores antes
+    // de importar nada: si alguno colisiona, se rechaza el archivo completo.
+    const sellersByCode = new Map<string, SellerResolution>();
+    try {
+      for (const r of mappedRecords) {
+        const key = r.seller.code || r.seller.name.toUpperCase().trim();
+        if (!sellersByCode.has(key)) {
+          sellersByCode.set(key, await resolveSeller(r.seller.name, r.seller.code));
+        }
+      }
+    } catch (error) {
+      if (error instanceof VendedorColisionError) {
+        return res.status(409).json({ error: error.message, imported: 0 });
+      }
+      throw error;
+    }
+
     const results = {
       created: 0,
       updated: 0,
       failed: 0,
+      sinAsignar: 0,
       errors: [] as any[],
     };
 
     // Process mapped records
     for (const record of mappedRecords) {
+      const key = record.seller.code || record.seller.name.toUpperCase().trim();
+      const resolved = sellersByCode.get(key)!;
       try {
-        await processOrderRecord(record, results, sucursalId);
+        await processOrderRecord(record, results, resolved.seller.id, resolved.sucursalId);
+        if (resolved.sucursalId === null) results.sinAsignar++;
       } catch (error) {
         results.failed++;
         results.errors.push({
@@ -395,38 +451,16 @@ router.post('/bulk', async (req, res) => {
   }
 });
 
-async function processOrderRecord(record: OrderRecordDto, results: any, sucursalId: string) {
-  // Find or create seller
-  let seller = await prisma.vendedor.findFirst({
-    where: {
-      sucursalId,
-      OR: [
-        { nombre: record.seller.name.toUpperCase() },
-        { codigo: record.seller.code },
-      ],
-    },
-  });
-
-  if (seller) {
-    // Update existing seller
-    seller = await prisma.vendedor.update({
-      where: { id: seller.id },
-      data: {
-        nombre: record.seller.name,
-        codigo: record.seller.code,
-        sucursalId,
-      },
-    });
-  } else {
-    // Create new seller
-    seller = await prisma.vendedor.create({
-      data: {
-        nombre: record.seller.name,
-        codigo: record.seller.code,
-        sucursalId,
-      },
-    });
-  }
+// `sellerId` viene ya resuelto (global por código) y `sucursalId` sale de su gestor.
+// sucursalId = null  =>  "Sin asignar": el pedido entra pero queda oculto en la
+// vista de pedidos (que scopea por sucursal) hasta que se enlace el vendedor.
+async function processOrderRecord(
+  record: OrderRecordDto,
+  results: any,
+  sellerId: string,
+  sucursalId: string | null,
+) {
+  const seller = { id: sellerId };
 
   // Keep client matching by name only (NOT by codigo), to avoid cross-vendor
   // collisions when CSVs contain repeated client codes.
