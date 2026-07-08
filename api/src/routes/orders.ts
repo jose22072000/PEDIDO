@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { Prisma } from '@prisma/client';
 import prisma from '../prismaClient';
 import { mapCsvRecords, type OrderRecordDto } from '../dto/orderRecord.dto';
-import { requireSucursalId } from '../lib/sucursalContext';
+import { requireSucursalId, resolveSucursalScope } from '../lib/sucursalContext';
 
 
 const router = Router();
@@ -374,12 +374,49 @@ class VendedorInactivoError extends Error {
   }
 }
 
-async function resolveSeller(name: string, code: string): Promise<SellerResolution> {
+// `uploaderSucursalId` = la sucursal del que sube (como SIEMPRE se ha hecho). El
+// gestor solo AÑADE una forma de rutear cuando existe; si no, todo sigue igual.
+async function resolveSeller(
+  name: string,
+  code: string,
+  uploaderSucursalId: string | null,
+): Promise<SellerResolution> {
   const nombre = name.toUpperCase().trim();
 
-  const existing = code
+  // 1) Por código (clave nueva). 2) Si no aparece, POR NOMBRE: así seguimos
+  //    encontrando a los vendedores creados con la regla de código vieja
+  //    ("glenda.melisa") y les corregimos el código al vuelo, sin duplicarlos.
+  let existing = code
     ? await prisma.vendedor.findUnique({ where: { codigo: code }, include: { gestor: true } })
     : null;
+
+  if (!existing) {
+    const porNombre = await prisma.vendedor.findFirst({
+      where: { nombre: { equals: name } },
+      include: { gestor: true },
+    });
+    if (porNombre) {
+      if (!porNombre.activo) throw new VendedorInactivoError(porNombre.nombre);
+      if (code && porNombre.codigo !== code) {
+        try {
+          existing = await prisma.vendedor.update({
+            where: { id: porNombre.id },
+            data: { codigo: code },
+            include: { gestor: true },
+          });
+        } catch (e) {
+          // El código nuevo ya lo tiene OTRA persona -> colisión real.
+          if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+            const dueno = await prisma.vendedor.findUnique({ where: { codigo: code } });
+            throw new VendedorColisionError(code, dueno?.nombre ?? '(otro)', name);
+          }
+          throw e;
+        }
+      } else {
+        existing = porNombre;
+      }
+    }
+  }
 
   if (existing) {
     if (existing.nombre.toUpperCase().trim() !== nombre) {
@@ -389,16 +426,25 @@ async function resolveSeller(name: string, code: string): Promise<SellerResoluti
     if (!existing.activo) {
       throw new VendedorInactivoError(existing.nombre);
     }
-    // Vendedor conocido: su gestor decide la sucursal (null = aún sin asignar).
-    return { seller: existing, sucursalId: existing.gestor?.sucursalId ?? null };
+    // Sucursal: la del gestor si está enlazado; si no, la del que sube (como hasta
+    // ahora); si tampoco (p. ej. Super Admin en la nube), la propia del vendedor.
+    // Solo queda null —y por tanto oculto— si no hay ninguna de las tres.
+    const sucursalId =
+      existing.gestor?.sucursalId ?? uploaderSucursalId ?? existing.sucursalId ?? null;
+
+    // Si el vendedor aún no tenía sucursal, se la fijamos (comportamiento de siempre).
+    if (!existing.sucursalId && sucursalId) {
+      await prisma.vendedor.update({ where: { id: existing.id }, data: { sucursalId } });
+    }
+    return { seller: existing, sucursalId };
   }
 
-  // Vendedor nuevo: entra sin gestor. Sus pedidos quedan "Sin asignar" (ocultos)
-  // hasta que se le enlace un gestor desde la vista de Gestores.
+  // Vendedor nuevo: se crea en la sucursal del que sube (igual que antes). Queda sin
+  // gestor hasta que se le enlace uno desde la vista de Vendedores.
   const seller = await prisma.vendedor.create({
-    data: { nombre: name, codigo: code || null, sucursalId: null, gestorId: null },
+    data: { nombre: name, codigo: code || null, sucursalId: uploaderSucursalId, gestorId: null },
   });
-  return { seller, sucursalId: null };
+  return { seller, sucursalId: uploaderSucursalId };
 }
 
 // Bulk create orders from CSV records
@@ -410,6 +456,15 @@ router.post('/bulk', async (req, res) => {
       return res.status(400).json({ error: 'Invalid records data' });
     }
 
+    // Sucursal del que sube: es la que se ha usado siempre. Ya no es obligatoria
+    // (puede subir cualquiera), pero si la hay manda como antes.
+    const { sucursalId: uploaderSucursalId, error: scopeError } = resolveSucursalScope(req, {
+      allowAllForAdmin: true,
+      preferUserSucursal: true,
+      defaultAllForAdmin: false,
+    });
+    if (scopeError) return res.status(403).json({ error: scopeError });
+
     // Map CSV records to DTO
     const mappedRecords = mapCsvRecords(records);
 
@@ -420,7 +475,10 @@ router.post('/bulk', async (req, res) => {
       for (const r of mappedRecords) {
         const key = r.seller.code || r.seller.name.toUpperCase().trim();
         if (!sellersByCode.has(key)) {
-          sellersByCode.set(key, await resolveSeller(r.seller.name, r.seller.code));
+          sellersByCode.set(
+            key,
+            await resolveSeller(r.seller.name, r.seller.code, uploaderSucursalId ?? null),
+          );
         }
       }
     } catch (error) {

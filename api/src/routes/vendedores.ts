@@ -1,6 +1,10 @@
 import express from 'express';
 import prisma from '../prismaClient';
-import { requireSucursalId } from '../lib/sucursalContext';
+import {
+  getRequesterContext,
+  requireSucursalId,
+  resolveSucursalScope,
+} from '../lib/sucursalContext';
 
 const router = express.Router();
 
@@ -27,13 +31,30 @@ router.get('/', async (req, res) => {
 });
 
 // GET /vendedores/gestores
-// Datos de la vista "Gestores": todos los vendedores con su gestor (o null =
-// "Sin asignar"), más la lista de gestores disponibles. NO se scopea por sucursal
-// a propósito: los vendedores sin asignar todavía no tienen ninguna.
-router.get('/gestores', async (_req, res) => {
+// Datos para enlazar vendedor <-> gestor desde la vista de Vendedores.
+// Scopeado: el Super Admin ve todos; el resto ve los de SU sucursal MÁS los que aún
+// no tienen ninguna (los "sin asignar"), que si no serían imposibles de enlazar.
+router.get('/gestores', async (req, res) => {
   try {
+    const { isGlobalAdmin } = getRequesterContext(req);
+    const { sucursalId, error: scopeError } = resolveSucursalScope(req, {
+      allowAllForAdmin: true,
+      preferUserSucursal: true,
+      defaultAllForAdmin: true,
+    });
+    if (scopeError) return res.status(403).json({ error: scopeError });
+    if (!isGlobalAdmin && !sucursalId) {
+      return res.status(400).json({ error: 'Debes tener una sucursal asignada.' });
+    }
+
+    const scopeVendedores = sucursalId
+      ? { OR: [{ sucursalId }, { sucursalId: null }] }
+      : {};
+    const scopeGestores = sucursalId ? { sucursalId } : {};
+
     const [vendedores, gestores] = await Promise.all([
       prisma.vendedor.findMany({
+        where: scopeVendedores,
         include: {
           gestor: { select: { id: true, username: true, sucursalId: true } },
           sucursal: { select: { id: true, nombre: true, codigo: true } },
@@ -42,7 +63,7 @@ router.get('/gestores', async (_req, res) => {
         orderBy: [{ nombre: 'asc' }],
       }),
       prisma.usuario.findMany({
-        where: { rol: { nombre: 'Gestor' } },
+        where: { rol: { nombre: 'Gestor' }, ...scopeGestores },
         select: {
           id: true,
           username: true,
@@ -104,8 +125,19 @@ router.patch('/:id/gestor', async (req, res) => {
     const { id } = req.params;
     const { gestorId } = req.body as { gestorId?: string | null };
 
+    const requester = getRequesterContext(req);
+
     const vendedor = await prisma.vendedor.findUnique({ where: { id } });
     if (!vendedor) return res.status(404).json({ error: 'Vendedor no encontrado' });
+
+    // Un usuario scopeado solo toca vendedores de su sucursal (o los sin asignar).
+    if (
+      !requester.isGlobalAdmin &&
+      vendedor.sucursalId &&
+      vendedor.sucursalId !== requester.sucursalId
+    ) {
+      return res.status(403).json({ error: 'Ese vendedor es de otra sucursal.' });
+    }
 
     let sucursalId: string | null = null;
     if (gestorId) {
@@ -119,6 +151,10 @@ router.patch('/:id/gestor', async (req, res) => {
       }
       if (!gestor.sucursalId) {
         return res.status(400).json({ error: 'El gestor no tiene sucursal asignada' });
+      }
+      // Y tampoco puede enlazarlo a un gestor de otra sucursal.
+      if (!requester.isGlobalAdmin && gestor.sucursalId !== requester.sucursalId) {
+        return res.status(403).json({ error: 'Ese gestor es de otra sucursal.' });
       }
       sucursalId = gestor.sucursalId;
     }
