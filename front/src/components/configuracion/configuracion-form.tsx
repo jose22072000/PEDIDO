@@ -40,6 +40,7 @@ export const ConfiguracionForm = () => {
   const [editSucursalCodigo, setEditSucursalCodigo] = useState("");
   const [selectedSucursalId, setSelectedSucursalId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [confirmCodigo, setConfirmCodigo] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const {
@@ -229,6 +230,9 @@ export const ConfiguracionForm = () => {
     try {
       const response = await fetch(`${getApiBaseUrl()}/config/reset-database`, {
         method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        // El servidor exige el codigo de la sucursal como confirmacion.
+        body: JSON.stringify({ confirmacion: confirmCodigo.trim() }),
       });
 
       if (!response.ok) {
@@ -237,7 +241,14 @@ export const ConfiguracionForm = () => {
         throw new Error(errorData.error || "Error al borrar la base de datos");
       }
 
-      setSuccess("Base de datos borrada correctamente");
+      const data = await response.json();
+
+      setSuccess(
+        data?.borrados
+          ? `Borrado: ${data.borrados.pedidos} pedidos, ${data.borrados.clientes} clientes, ${data.borrados.vendedores} vendedores.`
+          : "Base de datos borrada correctamente",
+      );
+      setConfirmCodigo("");
       onDeleteClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error desconocido");
@@ -509,9 +520,20 @@ export const ConfiguracionForm = () => {
                 ✓ Se mantendrán: Usuarios, Roles y Sucursales
               </p>
               <p className="text-sm text-danger-700 font-semibold mt-3">
-                Esta acción NO se puede deshacer.
+                Esta acción NO se puede deshacer. Descarga primero un backup desde
+                Mantenimiento.
               </p>
             </div>
+            <p className="text-sm text-default-600">
+              Se borrará <b>solo la sucursal seleccionada arriba</b>. Para confirmar,
+              escribe su <b>código</b>:
+            </p>
+            <Input
+              autoFocus
+              placeholder="Código de la sucursal (ej: CAM)"
+              value={confirmCodigo}
+              onValueChange={(v) => setConfirmCodigo(v.toUpperCase())}
+            />
           </ModalBody>
           <ModalFooter>
             <Button color="default" variant="flat" onPress={onDeleteClose}>
@@ -519,6 +541,7 @@ export const ConfiguracionForm = () => {
             </Button>
             <Button
               color="danger"
+              isDisabled={!confirmCodigo.trim()}
               isLoading={isDeleting}
               onPress={handleDeleteDatabase}
             >
