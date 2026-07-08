@@ -8,6 +8,7 @@ import UsuariosPanelPage from "./pages/usuarios/panel-usuarios";
 import NuevoUsuarioPage from "./pages/usuarios/nuevo-usuario";
 import ListaUsuariosPage from "./pages/usuarios/lista-usuarios";
 import VendedoresPage from "./pages/vendedores/vendedores";
+import GestoresPage from "./pages/gestores/gestores";
 import ClientesPage from "./pages/clientes/clientes";
 import ConfiguracionPage from "./pages/configuracion/configuracion";
 import ReportesPage from "./pages/reportes/reportes";
@@ -95,6 +96,9 @@ function App() {
       {/* Rutas protegidas solo para Administrador */}
       <Route element={<ProtectedRoute />}>
         <Route element={<AdminRoute />}>
+          {/* Gestores: enlazar cada vendedor con su gestor */}
+          <Route element={<GestoresPage />} path="/panel/gestores" />
+
           {/* Usuarios */}
           <Route element={<UsuariosPanelPage />} path="/panel/panel-usuarios" />
           <Route
