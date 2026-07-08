@@ -55,6 +55,9 @@ model Vendedor {
     // NULL = "Sin asignar": sus pedidos quedan ocultos hasta que se enlace.
     gestorId  String?
     gestor    Usuario? @relation("VendedorGestor", fields: [gestorId], references: [id])
+    // Baja del vendedor (se fue / lo botaron): deja de aceptarse su CSV y
+    // desaparece de las listas, pero se CONSERVA su histórico de pedidos.
+    activo    Boolean  @default(true)
     createdAt DateTime @default(now())
     pedidos   Pedido[]
 

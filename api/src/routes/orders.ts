@@ -364,6 +364,16 @@ class VendedorColisionError extends Error {
   }
 }
 
+class VendedorInactivoError extends Error {
+  constructor(nombre: string) {
+    super(
+      `El vendedor '${nombre}' está dado de baja: no se aceptan sus pedidos. ` +
+        `Si volvió, reactívalo desde la vista de Gestores.`,
+    );
+    this.name = 'VendedorInactivoError';
+  }
+}
+
 async function resolveSeller(name: string, code: string): Promise<SellerResolution> {
   const nombre = name.toUpperCase().trim();
 
@@ -374,6 +384,10 @@ async function resolveSeller(name: string, code: string): Promise<SellerResoluti
   if (existing) {
     if (existing.nombre.toUpperCase().trim() !== nombre) {
       throw new VendedorColisionError(code, existing.nombre, name);
+    }
+    // Vendedor dado de baja: su CSV ya no debería llegar; si llega, se rechaza.
+    if (!existing.activo) {
+      throw new VendedorInactivoError(existing.nombre);
     }
     // Vendedor conocido: su gestor decide la sucursal (null = aún sin asignar).
     return { seller: existing, sucursalId: existing.gestor?.sucursalId ?? null };
@@ -410,7 +424,7 @@ router.post('/bulk', async (req, res) => {
         }
       }
     } catch (error) {
-      if (error instanceof VendedorColisionError) {
+      if (error instanceof VendedorColisionError || error instanceof VendedorInactivoError) {
         return res.status(409).json({ error: error.message, imported: 0 });
       }
       throw error;

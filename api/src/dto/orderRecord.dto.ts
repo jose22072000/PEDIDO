@@ -47,10 +47,23 @@ export function mapCsvToOrderRecord(csvRecord: any): OrderRecordDto {
   const folio = (csvRecord.folio || csvRecord.Folio || '').toUpperCase();
   const producto = (csvRecord.producto || csvRecord.Producto || '').toUpperCase();
   
-  // Generate code as "nombre.apellido" in lowercase
+  // Código del vendedor = "nombre.primer_apellido" (es la CLAVE ÚNICA GLOBAL con la
+  // que el import ubica al vendedor, ya que el CSV no trae la sucursal).
+  //
+  // Los nombres cubanos son: nombre [segundo nombre] apellido1 [apellido2].
+  // Tomar las 2 primeras palabras agarraría el SEGUNDO NOMBRE, no el apellido:
+  //   "GLENDA MELISA BLANCO ÁLVAREZ" -> glenda.melisa  ✗   (y colisiona fácil)
+  // El primer apellido es la penúltima palabra cuando hay 2 apellidos, y la última
+  // cuando solo hay uno. Esto reproduce los nombres de archivo del Drive:
+  //   "GLENDA MELISA BLANCO ÁLVAREZ" -> glenda.blanco   ✓
+  //   "DIANGO DAVID GOLA BLANCO"     -> diango.gola     ✓
+  //   "ALEXANDER PADRON"             -> alexander.padron ✓
   const generateSellerCode = (name: string): string => {
     const parts = name.trim().split(/\s+/);
-    if (parts.length >= 2) {
+    if (parts.length >= 3) {
+      return `${parts[0]}.${parts[parts.length - 2]}`.toLowerCase();
+    }
+    if (parts.length === 2) {
       return `${parts[0]}.${parts[1]}`.toLowerCase();
     }
     return name.toLowerCase();

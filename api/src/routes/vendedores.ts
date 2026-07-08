@@ -56,11 +56,42 @@ router.get('/gestores', async (_req, res) => {
     res.json({
       gestores,
       vendedores,
-      sinAsignar: vendedores.filter((v) => !v.gestorId).length,
+      // "Sin asignar" solo cuenta a los vendedores activos (los de baja no importan).
+      sinAsignar: vendedores.filter((v) => v.activo && !v.gestorId).length,
+      inactivos: vendedores.filter((v) => !v.activo).length,
     });
   } catch (error) {
     console.error('Error fetching gestores:', error);
     res.status(500).json({ error: 'Error al obtener gestores' });
+  }
+});
+
+// PATCH /vendedores/:id/activo   body: { activo: boolean }
+// Baja/alta del vendedor. Al darlo de baja deja de aceptarse su CSV y desaparece de
+// las listas, pero se CONSERVA su histórico de pedidos (no se borra nada).
+router.patch('/:id/activo', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { activo } = req.body as { activo?: boolean };
+    if (typeof activo !== 'boolean') {
+      return res.status(400).json({ error: 'Falta el campo booleano "activo"' });
+    }
+
+    const vendedor = await prisma.vendedor.findUnique({
+      where: { id },
+      include: { _count: { select: { pedidos: true } } },
+    });
+    if (!vendedor) return res.status(404).json({ error: 'Vendedor no encontrado' });
+
+    const updated = await prisma.vendedor.update({ where: { id }, data: { activo } });
+
+    res.json({
+      vendedor: updated,
+      pedidosConservados: vendedor._count.pedidos,
+    });
+  } catch (error) {
+    console.error('Error updating vendedor activo:', error);
+    res.status(500).json({ error: 'Error al actualizar el vendedor' });
   }
 });
 
