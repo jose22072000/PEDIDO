@@ -42,21 +42,31 @@ export default function CrearPedidoForm() {
   };
 
   const processFile = async (file: File): Promise<any> => {
-    // Primero leer el archivo como texto para detectar encoding
+    // Detección de encoding.
+    //
+    // La versión anterior hacía: si al leer como UTF-8 aparece UN "�", releer TODO
+    // como ISO-8859-1. Eso es peligroso: un CSV UTF-8 correcto con un único byte
+    // basura hacía que se releyeran TODOS los acentos como latin-1, corrompiendo
+    // cada nombre ("PADRÓN" -> "PADRÃN") y creando vendedores fantasma.
+    //
+    // Ahora: se valida UTF-8 en estricto. Solo si el archivo NO es UTF-8 válido y
+    // además tiene MUCHOS bytes inválidos (típico de un latin-1 con acentos), se
+    // relee como windows-1252. Con basura puntual se prefiere perder ese carácter
+    // antes que corromper el archivo entero.
     const detectEncoding = async (file: File): Promise<string> => {
-      return new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          const text = e.target?.result as string;
-          // Si contiene caracteres de reemplazo, probablemente no es UTF-8
-          if (text.includes("�") || text.includes("ï»¿")) {
-            resolve("ISO-8859-1");
-          } else {
-            resolve("UTF-8");
-          }
-        };
-        reader.readAsText(file, "UTF-8");
-      });
+      const buf = await file.arrayBuffer();
+
+      try {
+        new TextDecoder("utf-8", { fatal: true }).decode(buf);
+
+        return "UTF-8";
+      } catch {
+        const laxo = new TextDecoder("utf-8").decode(buf);
+        const invalidos = (laxo.match(/�/g) || []).length;
+        const umbral = Math.max(2, Math.floor(laxo.length * 0.001));
+
+        return invalidos <= umbral ? "UTF-8" : "windows-1252";
+      }
     };
 
     const encoding = await detectEncoding(file);
