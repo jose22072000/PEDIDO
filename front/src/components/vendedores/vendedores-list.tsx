@@ -14,6 +14,7 @@ import {
   Select,
   SelectItem,
   Chip,
+  Pagination,
   addToast,
 } from "@heroui/react";
 import { useEffect, useState, useCallback } from "react";
@@ -75,6 +76,8 @@ export const VendedoresList = () => {
   const [gestores, setGestores] = useState<Gestor[]>([]);
   const [sinAsignar, setSinAsignar] = useState(0);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const rowsPerPage = 10;
   const { isOpen, onOpen, onClose } = useDisclosure();
 
   // Se lee de /vendedores/gestores (NO scopeado por sucursal) porque los vendedores
@@ -240,6 +243,11 @@ export const VendedoresList = () => {
     [selectedVendedor, fetchVendedorStats],
   );
 
+  // Volver a la primera página al cambiar la búsqueda.
+  useEffect(() => {
+    setPage(1);
+  }, [searchValue]);
+
   // Filter vendedores by search
   useEffect(() => {
     if (searchValue.trim() === "") {
@@ -267,6 +275,13 @@ export const VendedoresList = () => {
   const detalle = selectedVendedor
     ? (vendedores.find((v) => v.id === selectedVendedor.id) ?? selectedVendedor)
     : null;
+
+  // Paginación en cliente: /vendedores/gestores devuelve la lista completa.
+  const totalPages = Math.ceil(filteredVendedores.length / rowsPerPage) || 1;
+  const paginatedVendedores = filteredVendedores.slice(
+    (page - 1) * rowsPerPage,
+    (page - 1) * rowsPerPage + rowsPerPage,
+  );
 
   return (
     <div className="flex flex-col gap-4 w-full">
@@ -330,7 +345,7 @@ export const VendedoresList = () => {
             </CardHeader>
             <CardBody>
               <div className="flex flex-col gap-2">
-                {filteredVendedores.map((vendedor) => (
+                {paginatedVendedores.map((vendedor) => (
                   <div
                     key={vendedor.id}
                     className="flex flex-col md:flex-row items-start md:items-center justify-between p-4 bg-default-50 rounded-lg hover:bg-default-100 transition-colors gap-3"
@@ -446,6 +461,28 @@ export const VendedoresList = () => {
                   <p className="text-default-500">
                     No se encontraron vendedores con los filtros aplicados
                   </p>
+                </div>
+              )}
+
+              {/* Pagination */}
+              {totalPages > 1 && (
+                <div className="flex w-full justify-center mt-4">
+                  <Pagination
+                    isCompact
+                    showControls
+                    showShadow
+                    classNames={{
+                      wrapper: "shadow-xl shadow-primary/5",
+                      item: "cursor-pointer font-semibold",
+                      cursor: "font-semibold",
+                    }}
+                    color="primary"
+                    page={page}
+                    siblings={1}
+                    size="lg"
+                    total={totalPages}
+                    onChange={(p) => setPage(p)}
+                  />
                 </div>
               )}
             </CardBody>

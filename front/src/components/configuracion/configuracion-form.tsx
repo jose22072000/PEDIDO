@@ -11,6 +11,7 @@ import {
   TableCell,
   Chip,
   Input,
+  Pagination,
   Modal,
   ModalContent,
   ModalHeader,
@@ -18,7 +19,7 @@ import {
   ModalFooter,
   useDisclosure,
 } from "@heroui/react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import Icons from "../icons/iconify";
 
@@ -43,6 +44,9 @@ export const ConfiguracionForm = () => {
   const [confirmCodigo, setConfirmCodigo] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [searchValue, setSearchValue] = useState("");
+  const [page, setPage] = useState(1);
+  const rowsPerPage = 10;
   const {
     isOpen: isCreateOpen,
     onOpen: onCreateOpen,
@@ -67,6 +71,31 @@ export const ConfiguracionForm = () => {
   useEffect(() => {
     fetchSucursales();
   }, []);
+
+  // Filtro por texto (nombre o código) y paginación en cliente: /sucursales devuelve todo.
+  const filteredSucursales = useMemo(() => {
+    const q = searchValue.trim().toLowerCase();
+
+    if (!q) return sucursales;
+
+    return sucursales.filter(
+      (s) =>
+        s.nombre.toLowerCase().includes(q) ||
+        (s.codigo ?? "").toLowerCase().includes(q),
+    );
+  }, [sucursales, searchValue]);
+
+  const totalPages = Math.ceil(filteredSucursales.length / rowsPerPage) || 1;
+
+  const paginatedSucursales = useMemo(() => {
+    const start = (page - 1) * rowsPerPage;
+
+    return filteredSucursales.slice(start, start + rowsPerPage);
+  }, [filteredSucursales, page]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [searchValue]);
 
   const fetchSucursales = async () => {
     setIsLoadingSucursales(true);
@@ -300,6 +329,16 @@ export const ConfiguracionForm = () => {
               </Button>
             </div>
 
+            <Input
+              isClearable
+              placeholder="Buscar por nombre o código..."
+              startContent={<Icons.search className="size-5 text-default-400" />}
+              value={searchValue}
+              variant="bordered"
+              onChange={(e) => setSearchValue(e.target.value)}
+              onClear={() => setSearchValue("")}
+            />
+
             {isLoadingSucursales ? (
               <div className="flex justify-center p-8">
                 <Spinner color="primary" size="lg" />
@@ -307,6 +346,21 @@ export const ConfiguracionForm = () => {
             ) : (
               <Table
                 aria-label="Tabla de sucursales"
+                bottomContent={
+                  totalPages > 1 ? (
+                    <div className="flex w-full justify-center">
+                      <Pagination
+                        isCompact
+                        showControls
+                        showShadow
+                        color="primary"
+                        page={page}
+                        total={totalPages}
+                        onChange={(p) => setPage(p)}
+                      />
+                    </div>
+                  ) : null
+                }
                 classNames={{
                   th: "bg-primary text-white text-sm font-bold",
                   tr: "hover:bg-primary/5 transition-colors",
@@ -319,7 +373,7 @@ export const ConfiguracionForm = () => {
                   <TableColumn className="text-right">ACCIONES</TableColumn>
                 </TableHeader>
                 <TableBody emptyContent="No hay sucursales registradas">
-                  {sucursales.map((sucursal) => (
+                  {paginatedSucursales.map((sucursal) => (
                     <TableRow key={sucursal.id}>
                       <TableCell className="font-bold text-medium text-primary">
                         {sucursal.nombre}

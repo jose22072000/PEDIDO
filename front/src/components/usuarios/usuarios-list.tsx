@@ -1,7 +1,10 @@
 import {
   Card,
   CardBody,
+  CardHeader,
   Button,
+  Input,
+  Pagination,
   Spinner,
   Table,
   TableHeader,
@@ -17,7 +20,7 @@ import {
   ModalFooter,
   useDisclosure,
 } from "@heroui/react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import Icons from "../icons/iconify";
 
@@ -45,11 +48,41 @@ export const UsuariosList = () => {
   const [success, setSuccess] = useState<string | null>(null);
   const [selectedUsuario, setSelectedUsuario] = useState<Usuario | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [searchValue, setSearchValue] = useState("");
+  const [page, setPage] = useState(1);
+  const rowsPerPage = 10;
   const { isOpen, onOpen, onClose } = useDisclosure();
 
   useEffect(() => {
     fetchUsuarios();
   }, []);
+
+  // Filtro por texto (usuario, rol o sucursal) en cliente: /users devuelve la lista completa.
+  const filteredUsuarios = useMemo(() => {
+    const q = searchValue.trim().toLowerCase();
+
+    if (!q) return usuarios;
+
+    return usuarios.filter(
+      (u) =>
+        u.username.toLowerCase().includes(q) ||
+        (u.rol?.nombre ?? "").toLowerCase().includes(q) ||
+        (u.sucursal?.nombre ?? "").toLowerCase().includes(q),
+    );
+  }, [usuarios, searchValue]);
+
+  const totalPages = Math.ceil(filteredUsuarios.length / rowsPerPage) || 1;
+
+  const paginatedUsuarios = useMemo(() => {
+    const start = (page - 1) * rowsPerPage;
+
+    return filteredUsuarios.slice(start, start + rowsPerPage);
+  }, [filteredUsuarios, page]);
+
+  // Volver a la primera página al cambiar la búsqueda.
+  useEffect(() => {
+    setPage(1);
+  }, [searchValue]);
 
   const fetchUsuarios = async () => {
     setIsLoading(true);
@@ -139,8 +172,41 @@ export const UsuariosList = () => {
         </div>
       )}
 
+      <Card className={cards({ border: "default" }) + " mb-4"}>
+        <CardHeader>
+          <h3 className="font-bold text-lg">Filtrar</h3>
+        </CardHeader>
+        <CardBody>
+          <Input
+            isClearable
+            placeholder="Buscar por usuario, rol o sucursal..."
+            size="lg"
+            startContent={<Icons.search className="size-5 text-default-400" />}
+            value={searchValue}
+            variant="bordered"
+            onChange={(e) => setSearchValue(e.target.value)}
+            onClear={() => setSearchValue("")}
+          />
+        </CardBody>
+      </Card>
+
       <Table
         aria-label="Tabla de usuarios"
+        bottomContent={
+          totalPages > 1 ? (
+            <div className="flex w-full justify-center">
+              <Pagination
+                isCompact
+                showControls
+                showShadow
+                color="primary"
+                page={page}
+                total={totalPages}
+                onChange={(p) => setPage(p)}
+              />
+            </div>
+          ) : null
+        }
         classNames={{
           th: "bg-primary text-white text-sm font-bold",
           tr: "hover:bg-primary/5 transition-colors",
@@ -155,7 +221,7 @@ export const UsuariosList = () => {
           <TableColumn>ACCIONES</TableColumn>
         </TableHeader>
         <TableBody emptyContent="No hay usuarios registrados">
-          {usuarios.map((usuario) => (
+          {paginatedUsuarios.map((usuario) => (
             <TableRow key={usuario.id}>
               <TableCell className="font-bold text-medium text-primary">
                 {usuario.username}
