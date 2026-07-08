@@ -17,12 +17,16 @@ import { createPrismaClient } from './prisma-node-client.mjs';
 const prisma = createPrismaClient();
 const DRY = process.argv.includes('--dry');
 
-// Misma regla que src/dto/orderRecord.dto.ts -> generateSellerCode
+// Misma regla que src/dto/orderRecord.dto.ts -> generateSellerCode.
+// OJO: si estas dos divergen, el import dejaría de encontrar a los vendedores y
+// crearía duplicados. Cualquier cambio va en los DOS sitios.
+const sinTildes = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '');
+
 function sellerCode(name) {
-  const parts = String(name).trim().split(/\s+/);
+  const parts = sinTildes(String(name).trim()).split(/\s+/);
   if (parts.length >= 3) return `${parts[0]}.${parts[parts.length - 2]}`.toLowerCase();
   if (parts.length === 2) return `${parts[0]}.${parts[1]}`.toLowerCase();
-  return String(name).toLowerCase();
+  return sinTildes(String(name)).toLowerCase();
 }
 
 async function main() {

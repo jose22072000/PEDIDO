@@ -58,15 +58,21 @@ export function mapCsvToOrderRecord(csvRecord: any): OrderRecordDto {
   //   "GLENDA MELISA BLANCO ÁLVAREZ" -> glenda.blanco   ✓
   //   "DIANGO DAVID GOLA BLANCO"     -> diango.gola     ✓
   //   "ALEXANDER PADRON"             -> alexander.padron ✓
+  //
+  // Además se quitan las TILDES: los archivos que exporta Parranda vienen sin ellas
+  // ("alexander.padron.pedidos.csv"), y ese nombre no lo podemos cambiar.
+  const sinTildes = (s: string) =>
+    s.normalize('NFD').replace(/[̀-ͯ]/g, '');
+
   const generateSellerCode = (name: string): string => {
-    const parts = name.trim().split(/\s+/);
+    const parts = sinTildes(name.trim()).split(/\s+/);
     if (parts.length >= 3) {
       return `${parts[0]}.${parts[parts.length - 2]}`.toLowerCase();
     }
     if (parts.length === 2) {
       return `${parts[0]}.${parts[1]}`.toLowerCase();
     }
-    return name.toLowerCase();
+    return sinTildes(name).toLowerCase();
   };
   
   return {
