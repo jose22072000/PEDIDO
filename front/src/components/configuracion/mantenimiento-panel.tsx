@@ -32,6 +32,7 @@ export const MantenimientoPanel = () => {
   const [fromId, setFromId] = useState("");
   const [intoId, setIntoId] = useState("");
   const geoInputRef = useRef<HTMLInputElement>(null);
+  const restoreInputRef = useRef<HTMLInputElement>(null);
 
   const cargar = async () => {
     try {
@@ -121,6 +122,30 @@ export const MantenimientoPanel = () => {
   // --- Backup ---
   const backup = () => {
     window.open(`${getApiBaseUrl()}/mantenimiento/backup`, "_blank");
+  };
+
+  // --- Restaurar / importar backup de otro servidor local (fusiona, no borra) ---
+  const restore = async (file: File) => {
+    setCargando("restore");
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch(`${getApiBaseUrl()}/mantenimiento/restore`, { method: "POST", body: fd });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Error");
+      const c = j.cuenta;
+      const suc = (j.sucursales || []).map((s: any) => s.codigo || s.nombre).join(", ");
+      ok(
+        "Backup importado",
+        `De: ${suc || "?"} · ${c.pedidos} pedidos, ${c.clientes} clientes, ${c.vendedores} vendedores (usuarios nuevos: ${j.usuariosNuevos ?? 0})`,
+      );
+      cargar();
+    } catch (e) {
+      err(e instanceof Error ? e.message : "No se pudo importar");
+    } finally {
+      setCargando(null);
+      if (restoreInputRef.current) restoreInputRef.current.value = "";
+    }
   };
 
   const t = estado?.totales;
@@ -268,6 +293,35 @@ export const MantenimientoPanel = () => {
               onPress={backup}
             >
               Descargar backup
+            </Button>
+          </div>
+
+          {/* Restaurar / importar */}
+          <div className="p-4 border rounded-lg">
+            <p className="mb-1 font-semibold">Importar datos de otro servidor</p>
+            <p className="mb-3 text-sm text-default-500">
+              Sube el <b>backup (.json)</b> de otro servidor local para consolidar sus
+              datos aquí. <b>Fusiona</b> por id: no borra ni pisa lo que ya existe, así
+              no se pierden los históricos. (Las contraseñas de usuarios no se pisan.)
+            </p>
+            <input
+              ref={restoreInputRef}
+              accept=".json,application/json"
+              className="hidden"
+              type="file"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) restore(f);
+              }}
+            />
+            <Button
+              color="primary"
+              isLoading={cargando === "restore"}
+              startContent={<Icons.import className="size-4" />}
+              variant="flat"
+              onPress={() => restoreInputRef.current?.click()}
+            >
+              Importar backup (.json)
             </Button>
           </div>
         </div>
