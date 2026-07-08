@@ -74,10 +74,12 @@ export const useAuthStore = create<AuthState>()(
                     : undefined,
                   sucursalId: data.user?.sucursalId || undefined,
                   usuarioId: data.user?.id || undefined,
+                  // Solo el Super Admin ve todas las sucursales; el Administrador
+                  // quedó scopeado a la suya.
                   isGlobalAdmin:
                     String(data.user?.username || "").toLowerCase() === "admin" ||
                     String(data.user?.role || "").toUpperCase() ===
-                      "ADMINISTRADOR",
+                      "SUPER ADMIN",
                 },
                 isAuthenticated: true,
                 isLoading: false,

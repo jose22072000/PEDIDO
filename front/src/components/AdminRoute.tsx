@@ -7,7 +7,8 @@ interface AdminRouteProps {
 }
 
 export default function AdminRoute({
-  allowedRoles = ["Administrador"],
+  // El Super Admin está por encima del Administrador: siempre debe pasar.
+  allowedRoles = ["Administrador", "Super Admin"],
 }: AdminRouteProps) {
   const { user, isAuthenticated, isLoading } = useAuthStore();
 

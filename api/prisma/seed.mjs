@@ -46,6 +46,10 @@ const prisma = createPrismaClient();
 
 async function main() {
   const roles = [
+    // Super Admin: el ÚNICO rol global. Va SIN sucursal (null), ve todas y es el
+    // único que puede crear otros Super Admin.
+    { nombre: 'Super Admin' },
+    // Administrador: gestiona usuarios, pero scopeado a SU sucursal (obligatoria).
     { nombre: 'Administrador' },
     { nombre: 'Supervisor' },
     { nombre: 'Operador' },
@@ -66,7 +70,9 @@ async function main() {
 
   const adminPassword = 'Master.123';
   const hashed = await bcrypt.hash(adminPassword, 10);
-  const adminRole = await prisma.rol.findFirst({ where: { nombre: 'Administrador' } });
+  // El usuario semilla `admin` es Super Admin (global, sin sucursal): es quien crea
+  // las sucursales y los Administradores de cada una.
+  const adminRole = await prisma.rol.findFirst({ where: { nombre: 'Super Admin' } });
 
   await prisma.usuario.upsert({
     where: { username: 'admin' },

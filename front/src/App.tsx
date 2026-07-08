@@ -81,7 +81,9 @@ function App() {
       <Route element={<ProtectedRoute />}>
         <Route
           element={
-            <AdminRoute allowedRoles={["Administrador", "Supervisor"]} />
+            <AdminRoute
+              allowedRoles={["Super Admin", "Administrador", "Supervisor"]}
+            />
           }
         >
           {/* Nuevo Pedido */}

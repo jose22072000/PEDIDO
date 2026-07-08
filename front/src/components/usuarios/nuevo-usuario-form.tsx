@@ -67,8 +67,14 @@ export const NuevoUsuarioForm = () => {
   const password = watch("password");
   const selectedRolId = watch("rolId");
   const selectedRol = roles.find((r) => r.id === selectedRolId);
-  const isSelectedAdminRole =
-    String(selectedRol?.nombre || "").toUpperCase() === "ADMINISTRADOR";
+  // El ÚNICO rol global (y por tanto sin sucursal) es Super Admin. El Administrador
+  // ahora está scopeado y SÍ necesita sucursal.
+  const isSelectedSuperAdminRole =
+    String(selectedRol?.nombre || "").toUpperCase() === "SUPER ADMIN";
+  // Solo un Super Admin puede crear otro Super Admin: se oculta la opción al resto.
+  const rolesDisponibles = isGlobalAdmin
+    ? roles
+    : roles.filter((r) => String(r.nombre).toUpperCase() !== "SUPER ADMIN");
 
   useEffect(() => {
     fetchRoles();
@@ -117,7 +123,7 @@ export const NuevoUsuarioForm = () => {
 
     try {
       const targetSucursalId =
-        isSelectedAdminRole
+        isSelectedSuperAdminRole
           ? null
           : isGlobalAdmin
             ? data.sucursalId
@@ -264,7 +270,7 @@ export const NuevoUsuarioForm = () => {
                     field.onChange(value);
                   }}
                 >
-                  {roles.map((rol) => (
+                  {rolesDisponibles.map((rol) => (
                     <SelectItem key={rol.id}>{rol.nombre}</SelectItem>
                   ))}
                 </Select>
@@ -274,7 +280,8 @@ export const NuevoUsuarioForm = () => {
               }}
             />
 
-            {!isSelectedAdminRole && (
+            {/* El Super Admin es global: no lleva sucursal. El resto sí. */}
+            {!isSelectedSuperAdminRole && (
               <Controller
                 control={control}
                 name="sucursalId"

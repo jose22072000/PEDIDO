@@ -8,16 +8,20 @@ const router = Router();
 // Get all users
 router.get('/', async (req, res) => {
   try {
+    const requester = getRequesterContext(req);
+    if (!requester.canManageUsers) {
+      return res.status(403).json({ error: 'No tienes permiso para gestionar usuarios.' });
+    }
+    // Super Admin sin selección -> null = todas las sucursales.
+    // Administrador -> siempre la suya (preferUserSucursal).
     const { sucursalId, error: sucursalError } = resolveSucursalScope(req, {
       allowAllForAdmin: true,
-      preferUserSucursal: false,
+      preferUserSucursal: true,
       defaultAllForAdmin: true,
     });
-    if (sucursalError || !sucursalId) {
-      if (sucursalError) return res.status(403).json({ error: sucursalError });
-      if (!getRequesterContext(req).isGlobalAdmin) {
-        return res.status(400).json({ error: 'Debes tener una sucursal asignada para consultar usuarios.' });
-      }
+    if (sucursalError) return res.status(403).json({ error: sucursalError });
+    if (!sucursalId && !requester.isGlobalAdmin) {
+      return res.status(400).json({ error: 'Debes tener una sucursal asignada para consultar usuarios.' });
     }
 
     const users = await prisma.usuario.findMany({
@@ -45,16 +49,18 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
+    const requester = getRequesterContext(req);
+    if (!requester.canManageUsers) {
+      return res.status(403).json({ error: 'No tienes permiso para gestionar usuarios.' });
+    }
     const { sucursalId, error: sucursalError } = resolveSucursalScope(req, {
       allowAllForAdmin: true,
-      preferUserSucursal: false,
+      preferUserSucursal: true,
       defaultAllForAdmin: true,
     });
-    if (sucursalError || !sucursalId) {
-      if (sucursalError) return res.status(403).json({ error: sucursalError });
-      if (!getRequesterContext(req).isGlobalAdmin) {
-        return res.status(400).json({ error: 'Debes tener una sucursal asignada para consultar usuarios.' });
-      }
+    if (sucursalError) return res.status(403).json({ error: sucursalError });
+    if (!sucursalId && !requester.isGlobalAdmin) {
+      return res.status(400).json({ error: 'Debes tener una sucursal asignada para consultar usuarios.' });
     }
 
     const user = await prisma.usuario.findFirst({
@@ -84,6 +90,9 @@ router.post('/', async (req, res) => {
   try {
     const { username, password, rolId, sucursalId: incomingSucursalId } = req.body;
     const requester = getRequesterContext(req);
+    if (!requester.canManageUsers) {
+      return res.status(403).json({ error: 'No tienes permiso para crear usuarios.' });
+    }
     const { sucursalId, error: sucursalError } = resolveSucursalScope(req, {
       allowAllForAdmin: true,
       preferUserSucursal: true,
@@ -118,20 +127,27 @@ router.post('/', async (req, res) => {
       roleName = selectedRole.nombre;
     }
 
-    const isAdminRole = String(roleName || '').toUpperCase() === 'ADMINISTRADOR';
+    const roleUpper = String(roleName || '').toUpperCase();
+    const isSuperAdminRole = roleUpper === 'SUPER ADMIN';
 
-    // Admin users are global and must not be tied to a specific sucursal.
-    const targetSucursalId = isAdminRole
+    // Solo un Super Admin puede crear otro Super Admin.
+    if (isSuperAdminRole && !requester.isSuperAdmin) {
+      return res.status(403).json({ error: 'Solo un Super Admin puede crear otro Super Admin.' });
+    }
+
+    // El Super Admin es el ÚNICO global: va SIN sucursal (null). Todos los demás
+    // roles (incluido Administrador, que ahora está scopeado) llevan sucursal.
+    const targetSucursalId = isSuperAdminRole
       ? null
       : requester.isGlobalAdmin
         ? (incomingSucursalId || sucursalId || null)
         : (sucursalId || null);
 
-    if (!isAdminRole && !targetSucursalId) {
+    if (!isSuperAdminRole && !targetSucursalId) {
       return res.status(400).json({ error: 'Debes seleccionar una sucursal para este rol.' });
     }
 
-    if (!isAdminRole && targetSucursalId) {
+    if (!isSuperAdminRole && targetSucursalId) {
       const targetSucursal = await prisma.sucursal.findUnique({
         where: { id: targetSucursalId },
         select: { id: true },
@@ -184,9 +200,12 @@ router.patch('/:id', async (req, res) => {
     const { id } = req.params;
     const { username, password, rolId, sucursalId } = req.body;
     const requester = getRequesterContext(req);
+    if (!requester.canManageUsers) {
+      return res.status(403).json({ error: 'No tienes permiso para actualizar usuarios.' });
+    }
     const { sucursalId: activeSucursalId, error: sucursalError } = resolveSucursalScope(req, {
       allowAllForAdmin: true,
-      preferUserSucursal: false,
+      preferUserSucursal: true,
       defaultAllForAdmin: true,
     });
     if (sucursalError) {
@@ -214,11 +233,19 @@ router.patch('/:id', async (req, res) => {
       } else {
         const selectedRole = await prisma.rol.findUnique({
           where: { id: rolId },
-          select: { id: true },
+          select: { id: true, nombre: true },
         });
 
         if (!selectedRole) {
           return res.status(400).json({ error: 'Rol inválido' });
+        }
+
+        // Solo un Super Admin puede otorgar (o quitar) el rol de Super Admin.
+        if (
+          String(selectedRole.nombre).toUpperCase() === 'SUPER ADMIN' &&
+          !requester.isSuperAdmin
+        ) {
+          return res.status(403).json({ error: 'Solo un Super Admin puede asignar el rol Super Admin.' });
         }
 
         updateData.rolId = rolId;

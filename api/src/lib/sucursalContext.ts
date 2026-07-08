@@ -15,7 +15,11 @@ interface RequesterContext {
   username?: string;
   role?: string;
   sucursalId?: string | null;
+  /** Ve TODAS las sucursales. Solo el Super Admin. */
   isGlobalAdmin: boolean;
+  isSuperAdmin: boolean;
+  /** Puede entrar a Usuarios (Super Admin o Administrador). */
+  canManageUsers: boolean;
 }
 
 interface ResolveScopeOptions {
@@ -62,15 +66,25 @@ export function getRequesterContext(req: Request): RequesterContext {
   const role = payload?.role ? String(payload.role).toUpperCase() : undefined;
   const username = payload?.username;
 
-  const isGlobalAdmin =
-    String(username || '').toLowerCase() === 'admin' ||
-    role === 'ADMINISTRADOR';
+  // "Super Admin" es el ÚNICO rol global: ve todas las sucursales y es el único que
+  // puede crear otros Super Admin. Se conserva el usuario semilla `admin` como Super
+  // Admin para no quedarse sin acceso al desplegar este cambio.
+  const isSuperAdmin =
+    role === 'SUPER ADMIN' || String(username || '').toLowerCase() === 'admin';
+
+  // OJO: antes "ver todas las sucursales" y "gestionar usuarios" eran LO MISMO
+  // (isGlobalAdmin incluía a ADMINISTRADOR). Ahora se separan: el Administrador queda
+  // scopeado a SU sucursal, pero sigue pudiendo gestionar los usuarios de ella.
+  const isGlobalAdmin = isSuperAdmin;
+  const canManageUsers = isSuperAdmin || role === 'ADMINISTRADOR';
 
   return {
     username,
     role,
     sucursalId: payload?.sucursalId ?? null,
     isGlobalAdmin,
+    isSuperAdmin,
+    canManageUsers,
   };
 }
 
@@ -123,15 +137,19 @@ export function resolveSucursalScope(
     };
   }
 
+  // Un usuario NO global solo puede operar SU sucursal. Se comprueba también cuando
+  // no tiene sucursal propia (requester.sucursalId null): si no, bastaría con mandar
+  // el header x-sucursal-id para operar cualquier sucursal.
   if (
-    requester.sucursalId &&
+    !requester.isGlobalAdmin &&
     selectedSucursalId &&
-    selectedSucursalId !== requester.sucursalId &&
-    !requester.isGlobalAdmin
+    selectedSucursalId !== requester.sucursalId
   ) {
     return {
       isGlobalAdmin: false,
-      error: 'No tienes permiso para operar otra sucursal.',
+      error: requester.sucursalId
+        ? 'No tienes permiso para operar otra sucursal.'
+        : 'Tu usuario no tiene sucursal asignada. Pide a un Super Admin que te asigne una.',
     };
   }
 
