@@ -9,6 +9,7 @@ import {
   TableBody,
   TableRow,
   TableCell,
+  Chip,
   Input,
   Modal,
   ModalContent,
@@ -25,13 +26,17 @@ import { cards } from "@/components/primitives";
 import { getApiBaseUrl } from "@/config";
 
 export const ConfiguracionForm = () => {
-  const [sucursales, setSucursales] = useState<Array<{ id: string; nombre: string }>>([]);
+  const [sucursales, setSucursales] = useState<
+    Array<{ id: string; nombre: string; codigo?: string | null }>
+  >([]);
   const [isLoadingSucursales, setIsLoadingSucursales] = useState(false);
   const [isCreatingSucursal, setIsCreatingSucursal] = useState(false);
   const [isUpdatingSucursal, setIsUpdatingSucursal] = useState(false);
   const [isDeletingSucursal, setIsDeletingSucursal] = useState(false);
   const [newSucursalName, setNewSucursalName] = useState("");
+  const [newSucursalCodigo, setNewSucursalCodigo] = useState("");
   const [editSucursalName, setEditSucursalName] = useState("");
+  const [editSucursalCodigo, setEditSucursalCodigo] = useState("");
   const [selectedSucursalId, setSelectedSucursalId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -99,7 +104,7 @@ export const ConfiguracionForm = () => {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ nombre }),
+        body: JSON.stringify({ nombre, codigo: newSucursalCodigo.trim() || null }),
       });
 
       if (!response.ok) {
@@ -110,6 +115,7 @@ export const ConfiguracionForm = () => {
 
       setSuccess("Sucursal creada correctamente");
       setNewSucursalName("");
+      setNewSucursalCodigo("");
       onCreateClose();
       fetchSucursales();
     } catch (err) {
@@ -119,9 +125,14 @@ export const ConfiguracionForm = () => {
     }
   };
 
-  const openEditSucursal = (sucursal: { id: string; nombre: string }) => {
+  const openEditSucursal = (sucursal: {
+    id: string;
+    nombre: string;
+    codigo?: string | null;
+  }) => {
     setSelectedSucursalId(sucursal.id);
     setEditSucursalName(sucursal.nombre);
+    setEditSucursalCodigo(sucursal.codigo ?? "");
     onEditOpen();
   };
 
@@ -149,7 +160,7 @@ export const ConfiguracionForm = () => {
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ nombre }),
+          body: JSON.stringify({ nombre, codigo: editSucursalCodigo.trim() || null }),
         },
       );
 
@@ -163,6 +174,7 @@ export const ConfiguracionForm = () => {
       onEditClose();
       setSelectedSucursalId(null);
       setEditSucursalName("");
+      setEditSucursalCodigo("");
       fetchSucursales();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error desconocido");
@@ -291,6 +303,7 @@ export const ConfiguracionForm = () => {
               >
                 <TableHeader>
                   <TableColumn>NOMBRE</TableColumn>
+                  <TableColumn>CÓDIGO</TableColumn>
                   <TableColumn className="text-right">ACCIONES</TableColumn>
                 </TableHeader>
                 <TableBody emptyContent="No hay sucursales registradas">
@@ -298,6 +311,17 @@ export const ConfiguracionForm = () => {
                     <TableRow key={sucursal.id}>
                       <TableCell className="font-bold text-medium text-primary">
                         {sucursal.nombre}
+                      </TableCell>
+                      <TableCell>
+                        {sucursal.codigo ? (
+                          <Chip color="primary" size="sm" variant="flat">
+                            {sucursal.codigo}
+                          </Chip>
+                        ) : (
+                          <Chip color="warning" size="sm" variant="flat">
+                            sin código
+                          </Chip>
+                        )}
                       </TableCell>
                       <TableCell>
                         <div className="flex justify-end gap-2">
@@ -373,6 +397,13 @@ export const ConfiguracionForm = () => {
               value={newSucursalName}
               onValueChange={setNewSucursalName}
             />
+            <Input
+              description="Enlaza con el delivery y el consolidado. Ej: TUN, STG, CAM."
+              label="Código"
+              placeholder="Ej: TUN"
+              value={newSucursalCodigo}
+              onValueChange={(v) => setNewSucursalCodigo(v.toUpperCase())}
+            />
           </ModalBody>
           <ModalFooter>
             <Button variant="flat" onPress={onCreateClose}>
@@ -399,6 +430,13 @@ export const ConfiguracionForm = () => {
               placeholder="Ej: Las Tunas"
               value={editSucursalName}
               onValueChange={setEditSucursalName}
+            />
+            <Input
+              description="Enlaza con el delivery y el consolidado. Ej: TUN, STG, CAM."
+              label="Código"
+              placeholder="Ej: TUN"
+              value={editSucursalCodigo}
+              onValueChange={(v) => setEditSucursalCodigo(v.toUpperCase())}
             />
           </ModalBody>
           <ModalFooter>
