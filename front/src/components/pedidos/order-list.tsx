@@ -703,136 +703,152 @@ export const OrdersList = () => {
               </ModalHeader>
               <ModalBody>
                 <div className="flex flex-col gap-4">
-                  {/* Vendor and Client Info */}
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                    <div className="flex items-center gap-3 p-3 rounded-lg bg-default-100">
-                      <Icons.workers className="size-10 text-primary" />
-                      <div>
-                        <p className="text-xs text-default-500">Vendedor</p>
-                        <code className="block w-full p-2 text-sm break-all bg-white border rounded select-all">
-                          {selectedOrder?.vendedor?.nombre || "Sin Vendedor"}
-                        </code>
+                  {/* Vendedor y Cliente */}
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div className="flex items-start gap-3 p-3 rounded-xl bg-default-100">
+                      <Icons.workers className="text-primary size-9 shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-semibold tracking-wide uppercase text-default-500">
+                          Vendedor
+                        </p>
+                        <p className="font-semibold break-words">
+                          {selectedOrder?.vendedor?.nombre || "Sin vendedor"}
+                        </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-3 p-3 rounded-lg bg-default-100">
-                      <Icons.client className="size-10 text-primary" />
-                      <div>
-                        <p className="text-xs text-default-500">Cliente</p>
-                        <code className="block w-full p-2 text-sm break-all bg-white border rounded select-all">
-                          {selectedOrder?.encargado || "Sin Cliente"}
-                        </code>
-                        <p className="mt-2 text-xs text-default-500">Codigo</p>
-                        <code className="block w-full p-2 text-sm break-all bg-white border rounded select-all">
-                          {selectedOrder?.cliente?.codigo ||
-                            selectedOrder?.cliente?.nombre ||
+                    <div className="flex items-start gap-3 p-3 rounded-xl bg-default-100">
+                      <Icons.client className="text-primary size-9 shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-semibold tracking-wide uppercase text-default-500">
+                          Cliente / Local
+                        </p>
+                        <p className="font-semibold break-words">
+                          {selectedOrder?.cliente?.nombre ||
+                            selectedOrder?.encargado ||
                             "Sin cliente"}
-                        </code>
+                        </p>
+                        {selectedOrder?.encargado && (
+                          <p className="text-xs break-words text-default-500">
+                            Encargado: {selectedOrder.encargado}
+                          </p>
+                        )}
+                        {selectedOrder?.cliente?.codigo && (
+                          <p className="text-xs text-default-500">
+                            Código: {selectedOrder.cliente.codigo}
+                          </p>
+                        )}
                       </div>
                     </div>
                   </div>
 
-                  <Divider />
+                  {/* Datos de entrega */}
+                  {(selectedOrder?.direccion ||
+                    selectedOrder?.telefono ||
+                    selectedOrder?.fecha_comprometida) && (
+                    <div>
+                      <h4 className="mb-2 text-sm font-semibold text-default-700">
+                        Datos de entrega
+                      </h4>
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        {selectedOrder?.direccion && (
+                          <div className="sm:col-span-2">
+                            <p className="mb-1 text-xs text-default-500">Dirección</p>
+                            <code className="block w-full p-2 text-sm break-all border rounded bg-default-50 select-all">
+                              {selectedOrder.direccion}
+                            </code>
+                          </div>
+                        )}
+                        {selectedOrder?.telefono && (
+                          <div>
+                            <p className="mb-1 text-xs text-default-500">Teléfono</p>
+                            <code className="block w-full p-2 text-sm break-all border rounded bg-default-50 select-all">
+                              {selectedOrder.telefono}
+                            </code>
+                          </div>
+                        )}
+                        {selectedOrder?.fecha_comprometida && (
+                          <div>
+                            <p className="mb-1 text-xs text-default-500">
+                              Fecha comprometida
+                            </p>
+                            <p className="text-sm font-medium">
+                              {new Date(
+                                selectedOrder.fecha_comprometida,
+                              ).toLocaleDateString("es-ES", {
+                                year: "numeric",
+                                month: "long",
+                                day: "numeric",
+                              })}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
-                  {/* Order Details */}
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                    {selectedOrder?.direccion && (
-                      <div>
-                        <p className="text-xs text-default-500">Dirección</p>
-                        <code className="block w-full p-2 text-sm break-all bg-white border rounded select-all">
-                          {selectedOrder.direccion}
-                        </code>
-                      </div>
-                    )}
-                    {selectedOrder?.cliente?.nombre && (
-                      <div>
-                        <p className="text-xs text-default-500">Local</p>
-                        <code className="block w-full p-2 text-sm break-all bg-white border rounded select-all">
-                          {selectedOrder.cliente?.nombre}
-                        </code>
-                      </div>
-                    )}
-                    {selectedOrder?.telefono && (
-                      <div>
-                        <p className="text-xs text-default-500">Teléfono</p>
-                        <code className="block w-full p-2 text-sm break-all bg-white border rounded select-all">
-                          {selectedOrder.telefono}
-                        </code>
-                      </div>
-                    )}
-                    {selectedOrder?.fecha_comprometida && (
-                      <div>
-                        <p className="text-xs text-default-500">
-                          Fecha Comprometida
-                        </p>
-                        <p className="text-sm">
-                          {new Date(
-                            selectedOrder.fecha_comprometida,
-                          ).toLocaleDateString()}
-                        </p>
-                      </div>
-                    )}
-                    {selectedOrder?.pedido_cobrado != null && (
-                      <div>
-                        <p className="text-xs text-default-500">Cobro</p>
+                  {/* Estado y domicilio */}
+                  <div>
+                    <h4 className="mb-2 text-sm font-semibold text-default-700">
+                      Estado
+                    </h4>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Chip
+                        color={estadoColors[selectedOrder?.estado || "en_proceso"]}
+                        size="sm"
+                        variant="flat"
+                      >
+                        {estadoLabels[selectedOrder?.estado || "en_proceso"]}
+                      </Chip>
+                      {selectedOrder?.pedido_cobrado != null && (
                         <Chip
                           size="sm"
                           variant="flat"
                           color={
-                            selectedOrder.pedido_cobrado === 'parcial'
-                              ? 'warning'
-                              : selectedOrder.pedido_cobrado === 'no_pagado'
-                              ? 'danger'
-                              : 'success'
+                            selectedOrder.pedido_cobrado === "parcial"
+                              ? "warning"
+                              : selectedOrder.pedido_cobrado === "no_pagado"
+                                ? "danger"
+                                : "success"
                           }
                         >
-                          {selectedOrder.pedido_cobrado === 'parcial'
-                            ? 'Parcialmente cobrado'
-                            : selectedOrder.pedido_cobrado === 'no_pagado'
-                            ? 'No cobrado'
-                            : selectedOrder.pedido_cobrado}
+                          {selectedOrder.pedido_cobrado === "parcial"
+                            ? "Parcialmente cobrado"
+                            : selectedOrder.pedido_cobrado === "no_pagado"
+                              ? "No cobrado"
+                              : "Cobrado"}
                         </Chip>
-                      </div>
-                    )}
-                    {selectedOrder?.requiere_domicilio != null && (
-                      <div>
-                        <p className="text-xs text-default-500">Domicilio</p>
-                        <Chip
-                          size="sm"
-                          variant="flat"
-                          color={selectedOrder.requiere_domicilio ? 'primary' : 'default'}
-                        >
-                          {selectedOrder.requiere_domicilio ? 'Requiere domicilio' : 'Sin domicilio'}
-                        </Chip>
-                      </div>
-                    )}
-                    {/* El costo de domicilio SIEMPRE se muestra (aunque este vacio),
-                        para poder copiarlo cuando ya lo calculo el delivery. */}
-                    <div>
-                      <p className="text-xs text-default-500">Costo domicilio</p>
+                      )}
+                      <Chip
+                        size="sm"
+                        variant="flat"
+                        color={selectedOrder?.requiere_domicilio ? "primary" : "default"}
+                      >
+                        {selectedOrder?.requiere_domicilio
+                          ? "Requiere domicilio"
+                          : "Sin domicilio"}
+                      </Chip>
+                    </div>
+
+                    {/* Costo del domicilio (copiable, sin el $) */}
+                    <div className="flex flex-wrap items-center gap-2 mt-3">
+                      <span className="text-xs text-default-500">Costo domicilio:</span>
                       {selectedOrder?.costoDomicilio != null ? (
                         <>
-                          {/* El "$" es solo adorno (select-none): al copiar el bloque
-                              (select-all) sale unicamente el numero, no el simbolo. */}
-                          <code className="block w-full p-2 text-sm break-all bg-white border rounded select-all">
+                          <code className="px-2 py-1 text-sm border rounded bg-default-50 select-all">
                             <span className="select-none text-default-400">$</span>
                             {selectedOrder.costoDomicilio}
                           </code>
-                          <Chip
-                            size="sm"
-                            variant="flat"
-                            color="success"
-                            className="mt-1"
-                          >
+                          <Chip color="success" size="sm" variant="flat">
                             Calculado
                           </Chip>
                         </>
                       ) : selectedOrder?.requiere_domicilio ? (
-                        <Chip size="sm" variant="flat" color="warning">
+                        <Chip color="warning" size="sm" variant="flat">
                           Sin calcular todavía
                         </Chip>
                       ) : (
-                        <Chip size="sm" variant="flat" color="default">
-                          No requiere domicilio
+                        <Chip color="default" size="sm" variant="flat">
+                          No aplica
                         </Chip>
                       )}
                     </div>
@@ -842,9 +858,9 @@ export const OrdersList = () => {
 
                   {/* Products */}
                   <div>
-                    <h3 className="mb-3 font-semibold">
+                    <h4 className="mb-2 text-sm font-semibold text-default-700">
                       Productos ({selectedOrder?.items.length || 0})
-                    </h3>
+                    </h4>
                     <div className="flex flex-col gap-2 overflow-y-auto max-h-60">
                       {selectedOrder?.items.map((item) => (
                         <div
