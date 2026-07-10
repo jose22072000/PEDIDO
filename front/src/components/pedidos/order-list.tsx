@@ -100,9 +100,22 @@ const estadoOptions = [
   { value: "expirada", label: "Expirado" },
 ];
 
+// Formatea el costo de domicilio (USD) a 2 decimales para mostrar.
+const fmtUsd = (v: number) =>
+  v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const domicilioOptions = [
+  { value: "todos", label: "Todos" },
+  { value: "calculado", label: "Con domicilio (con precio)" },
+  { value: "pendiente", label: "Domicilio sin calcular" },
+  { value: "requiere", label: "Requieren domicilio" },
+  { value: "sin", label: "Sin domicilio" },
+];
+
 export const OrdersList = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [estadoFilter, setEstadoFilter] = useState<string>("todos");
+  const [domicilioFilter, setDomicilioFilter] = useState<string>("todos");
   const [fechaDesde, setFechaDesde] = useState<string>("");
   const [fechaHasta, setFechaHasta] = useState<string>("");
   const [pagination, setPagination] = useState<PaginationData>({
@@ -176,6 +189,10 @@ export const OrdersList = () => {
           params.append("fechaHasta", fechaHasta);
         }
 
+        if (domicilioFilter !== "todos") {
+          params.append("domicilio", domicilioFilter);
+        }
+
         const response = await fetch(`${getApiBaseUrl()}/orders?${params}`, {
           signal: abortControllerRef.current.signal,
         });
@@ -198,7 +215,7 @@ export const OrdersList = () => {
         setIsLoading(false);
       }
     },
-    [pagination.limit, estadoFilter, debouncedSearch, fechaDesde, fechaHasta],
+    [pagination.limit, estadoFilter, domicilioFilter, debouncedSearch, fechaDesde, fechaHasta],
   );
 
   const handleCompletarOrder = useCallback(
@@ -327,7 +344,7 @@ export const OrdersList = () => {
   // Fetch orders when dependencies change
   useEffect(() => {
     fetchOrders(1);
-  }, [debouncedSearch, estadoFilter, fechaDesde, fechaHasta, fetchOrders]);
+  }, [debouncedSearch, estadoFilter, domicilioFilter, fechaDesde, fechaHasta, fetchOrders]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -371,6 +388,7 @@ export const OrdersList = () => {
         pagination.page === 1 &&
         !debouncedSearch &&
         estadoFilter === "todos" &&
+        domicilioFilter === "todos" &&
         !fechaDesde &&
         !fechaHasta;
       if (sinFiltros) {
@@ -382,7 +400,7 @@ export const OrdersList = () => {
       }
     });
     return () => es.close();
-  }, [pagination.page, debouncedSearch, estadoFilter, fechaDesde, fechaHasta]);
+  }, [pagination.page, debouncedSearch, estadoFilter, domicilioFilter, fechaDesde, fechaHasta]);
 
   return (
     <div className="flex flex-col w-full gap-4">
@@ -413,6 +431,21 @@ export const OrdersList = () => {
               onChange={(e) => setEstadoFilter(e.target.value)}
             >
               {estadoOptions.map((option) => (
+                <SelectItem key={option.value}>{option.label}</SelectItem>
+              ))}
+            </Select>
+            <Select
+              className="w-full sm:w-56"
+              label="Domicilio"
+              selectedKeys={[domicilioFilter]}
+              size="lg"
+              startContent={
+                <Icons.delivery className="size-5 text-default-400" />
+              }
+              variant="bordered"
+              onChange={(e) => setDomicilioFilter(e.target.value || "todos")}
+            >
+              {domicilioOptions.map((option) => (
                 <SelectItem key={option.value}>{option.label}</SelectItem>
               ))}
             </Select>
@@ -536,7 +569,7 @@ export const OrdersList = () => {
                         variant="flat"
                       >
                         {order.costoDomicilio != null
-                          ? `Domicilio: $${order.costoDomicilio}`
+                          ? `Domicilio: $${fmtUsd(order.costoDomicilio)}`
                           : "Domicilio sin calcular"}
                       </Chip>
                     </div>
@@ -836,7 +869,7 @@ export const OrdersList = () => {
                         <>
                           <code className="px-2 py-1 text-sm border rounded bg-default-50 select-all">
                             <span className="select-none text-default-400">$</span>
-                            {selectedOrder.costoDomicilio}
+                            {fmtUsd(selectedOrder.costoDomicilio)}
                           </code>
                           <Chip color="success" size="sm" variant="flat">
                             Calculado

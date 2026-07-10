@@ -27,6 +27,7 @@ router.get('/', async (req, res) => {
     const search = req.query.search as string | undefined;
     const fechaDesde = req.query.fechaDesde as string | undefined;
     const fechaHasta = req.query.fechaHasta as string | undefined;
+    const domicilio = req.query.domicilio as string | undefined;
     const searchTerm = search ? search.toUpperCase() : undefined;
     const skip = (page - 1) * limit;
 
@@ -132,6 +133,34 @@ router.get('/', async (req, res) => {
         dateFilter.lte = to;
       }
       conditions.push({ fecha: dateFilter });
+    }
+
+    // Filter by domicilio (para ver los pedidos con envío a domicilio y su costo)
+    if (domicilio) {
+      switch (domicilio) {
+        case 'calculado':
+          // Ya tiene un costo de domicilio calculado
+          conditions.push({ costoDomicilio: { not: null } });
+          break;
+        case 'pendiente':
+          // Requiere domicilio pero el worker aún no lo calcula (falta geo del cliente)
+          conditions.push({ requiere_domicilio: true });
+          conditions.push({ costoDomicilio: null });
+          break;
+        case 'requiere':
+          // Todos los que llevan domicilio (calculado o no)
+          conditions.push({ requiere_domicilio: true });
+          break;
+        case 'sin':
+          // No llevan domicilio
+          conditions.push({
+            OR: [
+              { requiere_domicilio: false },
+              { requiere_domicilio: null },
+            ],
+          });
+          break;
+      }
     }
 
     // Combine all conditions with AND

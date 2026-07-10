@@ -1208,6 +1208,7 @@ const Icons = {
   user: TablerUserSquareRounded,
   calendar: SolarCalendarBold,
   filter: SolarFilterBold,
+  delivery: SolarDeliveryBold,
 };
 
 export default Icons;
