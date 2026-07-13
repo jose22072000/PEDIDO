@@ -571,55 +571,75 @@ async function processOrderRecord(
 
   // Keep client matching by name only (NOT by codigo), to avoid cross-vendor
   // collisions when CSVs contain repeated client codes.
-  let existingClient = await prisma.cliente.findFirst({
-    where: { nombre: record.client.nombre.toUpperCase(), sucursalId },
-  });
+  //
+  // El nombre se guarda SIEMPRE en mayúsculas, que es como se busca: si se guardara
+  // crudo, la búsqueda no encontraría al cliente y lo duplicaría.
+  const nombreCliente = record.client.nombre.toUpperCase();
+  const incomingCode = record.client.codigo?.toString().trim() || null;
 
-  let client;
-  if (existingClient) {
-    const incomingCode = record.client.codigo?.toString().trim() || null;
+  const actualizarCliente = (existente: { id: string; codigo: string | null }) => {
     const canUpdateCode =
       !!incomingCode &&
-      (!existingClient.codigo || existingClient.codigo.trim() === '' || existingClient.codigo === incomingCode);
+      (!existente.codigo || existente.codigo.trim() === '' || existente.codigo === incomingCode);
 
-    // Update existing client
-    client = await prisma.cliente.update({
-      where: { id: existingClient.id },
+    return prisma.cliente.update({
+      where: { id: existente.id },
       data: {
-        nombre: record.client.nombre,
+        nombre: nombreCliente,
         zona: record.client.zona,
         sucursalId,
-        codigo: canUpdateCode ? incomingCode : existingClient.codigo,
+        codigo: canUpdateCode ? incomingCode : existente.codigo,
       },
     });
-  } else {
-    const incomingCode = record.client.codigo?.toString().trim() || null;
+  };
 
+  // Get-or-create a prueba de carreras. Cuando un lote trae varios pedidos del mismo
+  // cliente, todos llegan a la vez y todos ven "no existe"; el índice único
+  // (nombre, sucursalId) hace que solo uno lo cree y los demás fallen con P2002.
+  // Ese P2002 NO es un error: significa que otro lo creó primero, así que se relee.
+  // Sin esto el cliente se duplicaba y el pedido salía con folio -1, -2, -3...
+  let client;
+  const existingClient = await prisma.cliente.findFirst({
+    where: { nombre: nombreCliente, sucursalId },
+  });
+
+  if (existingClient) {
+    client = await actualizarCliente(existingClient);
+  } else {
     try {
       client = await prisma.cliente.create({
         data: {
           codigo: incomingCode,
-          nombre: record.client.nombre,
+          nombre: nombreCliente,
           zona: record.client.zona,
           sucursalId,
         },
       });
     } catch (error) {
-      // If codigo is duplicated in source CSVs, keep import working by creating
-      // the client without codigo instead of failing the whole bulk upload.
       if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === 'P2002'
+        !(error instanceof Prisma.PrismaClientKnownRequestError) ||
+        error.code !== 'P2002'
       ) {
+        throw error;
+      }
+
+      // Perdimos la carrera contra otro pedido del mismo lote: el cliente ya existe.
+      const ganador = await prisma.cliente.findFirst({
+        where: { nombre: nombreCliente, sucursalId },
+      });
+
+      if (ganador) {
+        client = await actualizarCliente(ganador);
+      } else {
+        // No fue el nombre: el choque vino del codigo repetido en el CSV de origen
+        // (unico por sucursal+codigo). Se crea sin codigo para no tumbar la importación.
         client = await prisma.cliente.create({
           data: {
-            nombre: record.client.nombre,
+            nombre: nombreCliente,
             zona: record.client.zona,
             sucursalId,
           },
         });
-      } else {
-        throw error;
       }
     }
   }
@@ -699,14 +719,19 @@ async function processOrderRecord(
     if (record.order.pedido_cobrado !== undefined) {
       updateData.pedido_cobrado = record.order.pedido_cobrado;
     }
+
+    // El costo del domicilio se INVALIDA (vuelve a null) cuando cambia algo que lo determina:
+    // que el pedido pase a llevar (o dejar de llevar) domicilio, o que cambien las cantidades
+    // (cambia el peso). El worker lo recotiza solo con los datos nuevos; y si ya no lleva
+    // domicilio, se queda sin costo. Así un pedido re-subido o editado nunca arrastra un
+    // precio viejo que ya no corresponde.
+    let invalidarCosto = false;
+
     if (record.order.requiere_domicilio !== undefined) {
       updateData.requiere_domicilio = record.order.requiere_domicilio;
-    }
-    if (Object.keys(updateData).length > 0) {
-      await prisma.pedido.update({
-        where: { id: existingOrder.id },
-        data: updateData,
-      });
+      if (record.order.requiere_domicilio !== existingOrder.requiere_domicilio) {
+        invalidarCosto = true;
+      }
     }
 
     // Check if item already exists in this order
@@ -719,7 +744,7 @@ async function processOrderRecord(
       const newUnidades = record.item.unidades;
       const newPacks = record.item.packs || 0;
       const existingPacks = existingItem.packs || 0;
-      
+
       if (existingItem.unidades !== newUnidades || existingPacks !== newPacks) {
         // Quantities changed - update with new values
         await prisma.pedidoItem.update({
@@ -730,6 +755,7 @@ async function processOrderRecord(
             descripcion: record.item.descripcion || existingItem.descripcion,
           },
         });
+        invalidarCosto = true; // cambió el peso del pedido -> hay que recotizar
         results.updated++;
       }
       // If quantities are the same, do nothing (skip)
@@ -741,7 +767,20 @@ async function processOrderRecord(
           ...record.item,
         },
       });
+      invalidarCosto = true; // producto nuevo -> cambió el peso del pedido
     }
+
+    if (invalidarCosto) {
+      updateData.costoDomicilio = null;
+    }
+
+    if (Object.keys(updateData).length > 0) {
+      await prisma.pedido.update({
+        where: { id: existingOrder.id },
+        data: updateData,
+      });
+    }
+
     results.updated++;
   } else {
     // Create new order with item

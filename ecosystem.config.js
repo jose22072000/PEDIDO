@@ -11,7 +11,7 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         PORT: 8400,
-        DATABASE_URL: 'file:./prisma/dev.db',
+        DATABASE_URL: 'postgresql://postgres:root@localhost:5432/procovar_pedidos?schema=public',
         JWT_SECRET: 'JFBOASOIDHBAUcioaboscboaishghebrfgiOPHGHFPAOISGHDB',
         CORS_ORIGIN: '*'
       },
@@ -22,6 +22,8 @@ module.exports = {
     {
       name: 'procavar-frontend',
       script: "C:\\nvm4w\\nodejs\\node_modules\\serve\\build\\main.js",
+      // El bundle resuelve la API como http://<host>:8400 (front/src/config/index.ts),
+      // por eso la API debe quedarse en 8400 o hay que rebuildear el front.
       args: ['dist', '--single', '--listen', '5000'],
       cwd: './front',
       instances: 1,

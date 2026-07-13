@@ -124,5 +124,9 @@ model Cliente {
     pedidos   Pedido[]
 
     @@unique([sucursalId, codigo])
+    // El nombre identifica al cliente dentro de su sucursal (asi lo busca la importacion).
+    // Sin este unico, dos pedidos del mismo cliente importados a la vez creaban el cliente
+    // dos veces, y el pedido salia con folio -1, -2... en vez de actualizarse.
+    @@unique([nombre, sucursalId])
     @@map("Client")
 }

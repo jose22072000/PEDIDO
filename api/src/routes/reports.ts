@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import prisma from '../prismaClient';
-import { resolveSucursalScope } from '../lib/sucursalContext';
+import { resolveSucursalFilter } from '../lib/sucursalContext';
 
 const router = Router();
 
@@ -27,11 +27,10 @@ function calculateEstado(order: { estado: string | null; fecha_comprometida: Dat
 // Reporte de pedidos por fecha
 router.get('/pedidos-por-fecha', async (req, res) => {
   try {
-    const { sucursalId, error: sucursalError } = resolveSucursalScope(req, {
-      allowAllForAdmin: true,
-      preferUserSucursal: true,
-      defaultAllForAdmin: false,
-    });
+    // Mismo scope que /orders: el usuario no-Super-Admin queda forzado a SU sucursal
+    // y una peticion sin sucursal resoluble (p. ej. sin token) se rechaza en vez de
+    // devolver los datos de todas las sucursales.
+    const { sucursalId, error: sucursalError } = resolveSucursalFilter(req);
     if (sucursalError) {
       return res.status(403).json({ error: sucursalError });
     }
@@ -89,11 +88,10 @@ router.get('/pedidos-por-fecha', async (req, res) => {
 // Reporte de pedidos por vendedor y fecha
 router.get('/pedidos-por-vendedor', async (req, res) => {
   try {
-    const { sucursalId, error: sucursalError } = resolveSucursalScope(req, {
-      allowAllForAdmin: true,
-      preferUserSucursal: true,
-      defaultAllForAdmin: false,
-    });
+    // Mismo scope que /orders: el usuario no-Super-Admin queda forzado a SU sucursal
+    // y una peticion sin sucursal resoluble (p. ej. sin token) se rechaza en vez de
+    // devolver los datos de todas las sucursales.
+    const { sucursalId, error: sucursalError } = resolveSucursalFilter(req);
     if (sucursalError) {
       return res.status(403).json({ error: sucursalError });
     }
@@ -177,11 +175,10 @@ router.get('/pedidos-por-vendedor', async (req, res) => {
 // Reporte de pedidos por estado, vendedor y fecha
 router.get('/pedidos-por-estado', async (req, res) => {
   try {
-    const { sucursalId, error: sucursalError } = resolveSucursalScope(req, {
-      allowAllForAdmin: true,
-      preferUserSucursal: true,
-      defaultAllForAdmin: false,
-    });
+    // Mismo scope que /orders: el usuario no-Super-Admin queda forzado a SU sucursal
+    // y una peticion sin sucursal resoluble (p. ej. sin token) se rechaza en vez de
+    // devolver los datos de todas las sucursales.
+    const { sucursalId, error: sucursalError } = resolveSucursalFilter(req);
     if (sucursalError) {
       return res.status(403).json({ error: sucursalError });
     }
@@ -258,11 +255,10 @@ router.get('/pedidos-por-estado', async (req, res) => {
 // Reporte de productos por vendedor - Suma totales por tipo de producto
 router.get('/productos-por-vendedor', async (req, res) => {
   try {
-    const { sucursalId, error: sucursalError } = resolveSucursalScope(req, {
-      allowAllForAdmin: true,
-      preferUserSucursal: true,
-      defaultAllForAdmin: false,
-    });
+    // Mismo scope que /orders: el usuario no-Super-Admin queda forzado a SU sucursal
+    // y una peticion sin sucursal resoluble (p. ej. sin token) se rechaza en vez de
+    // devolver los datos de todas las sucursales.
+    const { sucursalId, error: sucursalError } = resolveSucursalFilter(req);
     if (sucursalError) {
       return res.status(403).json({ error: sucursalError });
     }
@@ -412,11 +408,10 @@ router.get('/productos-por-vendedor', async (req, res) => {
 // Obtener lista de vendedores para los filtros
 router.get('/vendedores', async (req, res) => {
   try {
-    const { sucursalId, error: sucursalError } = resolveSucursalScope(req, {
-      allowAllForAdmin: true,
-      preferUserSucursal: true,
-      defaultAllForAdmin: false,
-    });
+    // Mismo scope que /orders: el usuario no-Super-Admin queda forzado a SU sucursal
+    // y una peticion sin sucursal resoluble (p. ej. sin token) se rechaza en vez de
+    // devolver los datos de todas las sucursales.
+    const { sucursalId, error: sucursalError } = resolveSucursalFilter(req);
     if (sucursalError) {
       return res.status(403).json({ error: sucursalError });
     }

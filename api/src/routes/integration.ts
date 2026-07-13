@@ -55,9 +55,12 @@ router.get('/orders', async (req, res) => {
 
   const where = {
     ...sucursalScope,
-    ...(onlyPending
-      ? { costoDomicilio: null, cliente: { latitud: { not: null }, longitud: { not: null } } }
-      : {}),
+    // SIN GEOLOCALIZACIÓN no se manda a delivery: sin lat/lng no hay forma de medir la
+    // distancia ni de rutear el pedido. (Antes solo se exigía para los pendientes.)
+    cliente: { latitud: { not: null }, longitud: { not: null } },
+    // Pendientes de cotizar = los que REQUIEREN domicilio (requiere_domicilio=true) y aún no
+    // tienen costo. Un pedido sin domicilio NO lleva costo: no se encola ni se cotiza.
+    ...(onlyPending ? { requiere_domicilio: true, costoDomicilio: null } : {}),
   };
 
   const pedidos = await prisma.pedido.findMany({
