@@ -275,4 +275,176 @@ router.post('/restore', upload.single('file') as any, async (req, res) => {
   }
 });
 
+// -----------------------------------------------------------------------------
+// Importar una sucursal desde su SQLite VIEJO (dev.db del PEDIDO mono-sucursal).
+// Consolida en la base central SIN pisar las otras sucursales:
+//  - Sucursal: se resuelve por CÓDIGO (identidad de negocio), no por id (evita choques
+//    si varias máquinas se clonaron de la misma plantilla). Todo lo demás se etiqueta
+//    con el id de ESA sucursal.
+//  - Roles: por NOMBRE (set único global); se remapea usuario.rolId.
+//  - Usuarios: el 'admin' semilla se SALTA (= el Super Admin de la nube). Cualquier otro
+//    username que ya exista se importa con sufijo .codigo (ej. ernesto -> ernesto.stg),
+//    así NUNCA da error ni se pierde a la persona.
+//  - Vendedores: SIN gestor asignado (gestorId null) -> los pedidos quedan sin asignar.
+//  - Clientes / Pedidos / Items: por sucursal; costoDomicilio se recalcula luego.
+// Cada fila va en su propio try: una fila mala no aborta la importación completa.
+// -----------------------------------------------------------------------------
+router.post('/import-sqlite', upload.single('file') as any, async (req, res) => {
+  const archivo = (req as any).file as { path: string } | undefined;
+  let db: any;
+  try {
+    if (!archivo) return res.status(400).json({ error: 'Falta el archivo .db (SQLite del PEDIDO viejo).' });
+    const codigo = String(req.body?.codigo || '').trim().toUpperCase();
+    const nombreArg = String(req.body?.nombre || '').trim();
+    const dry = req.query.dry === '1' || req.query.dry === 'true';
+    if (!codigo) return res.status(400).json({ error: 'Falta el código de la sucursal (ej. STG).' });
+
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const Database = require('better-sqlite3');
+    try {
+      db = new Database(archivo.path, { readonly: true, fileMustExist: true });
+    } catch {
+      return res.status(400).json({ error: 'El archivo no es una base SQLite válida.' });
+    }
+    const tabla = (t: string): any[] => {
+      try { return db.prepare(`SELECT * FROM "${t}"`).all(); } catch { return []; }
+    };
+
+    const sucursalesSrc = tabla('Sucursal');
+    const rolesSrc = tabla('Roles').length ? tabla('Roles') : tabla('Role');
+    const usuariosSrc = tabla('User');
+    const vendedoresSrc = tabla('Seller');
+    const clientesSrc = tabla('Client');
+    const pedidosSrc = tabla('Order');
+    const itemsSrc = tabla('OrderItem');
+
+    const cuenta = {
+      usuarios: usuariosSrc.length, vendedores: vendedoresSrc.length,
+      clientes: clientesSrc.length, pedidos: pedidosSrc.length, items: itemsSrc.length,
+    };
+    if (dry) return res.json({ dry: true, codigo, cuenta });
+
+    // 1) Sucursal por CÓDIGO.
+    let suc = await prisma.sucursal.findFirst({ where: { codigo } });
+    if (!suc) {
+      const nombre = nombreArg || sucursalesSrc[0]?.nombre || codigo;
+      suc = await prisma.sucursal.create({ data: { nombre, codigo } });
+    }
+    const sucursalId = suc.id;
+
+    // 2) Roles por nombre -> mapa idOrigen -> idDestino.
+    const roleMap = new Map<string, string>();
+    for (const r of rolesSrc) {
+      const nombre = r.rol ?? r.nombre ?? r.name;
+      if (!nombre) continue;
+      const dest = await prisma.rol.upsert({ where: { nombre }, update: {}, create: { nombre } });
+      roleMap.set(String(r.id), dest.id);
+    }
+
+    // 3) Usuarios: salta 'admin'; los repetidos entran con sufijo .codigo.
+    let usuariosNuevos = 0;
+    const renombrados: string[] = [];
+    for (const u of usuariosSrc) {
+      try {
+        const uname = String(u.username || '').trim();
+        if (!uname || uname.toLowerCase() === 'admin') continue;
+        let finalName = uname;
+        if (await prisma.usuario.findUnique({ where: { username: finalName } })) {
+          finalName = `${uname}.${codigo.toLowerCase()}`;
+          if (await prisma.usuario.findUnique({ where: { username: finalName } })) continue; // ya importado antes
+          renombrados.push(`${uname} → ${finalName}`);
+        }
+        await prisma.usuario.create({
+          data: {
+            username: finalName,
+            password: u.password,
+            rolId: u.roleId ? (roleMap.get(String(u.roleId)) ?? null) : null,
+            sucursalId,
+            createdAt: fecha(u.createdAt) ?? undefined,
+          },
+        });
+        usuariosNuevos++;
+      } catch { /* fila mala: se salta */ }
+    }
+
+    // 4) Vendedores: gestorId null (sin asignar). El código de vendedor es único global:
+    //    si choca con otra persona, se deja null para no romper.
+    let vendOk = 0;
+    for (const v of vendedoresSrc) {
+      try {
+        let codigoV: string | null = v.code ?? null;
+        if (codigoV) {
+          const clash = await prisma.vendedor.findUnique({ where: { codigo: codigoV } });
+          if (clash && clash.id !== v.id) codigoV = null;
+        }
+        const base = { nombre: v.name, codigo: codigoV, sucursalId, gestorId: null, activo: true };
+        await prisma.vendedor.upsert({
+          where: { id: v.id },
+          update: base,
+          create: { id: v.id, ...base, createdAt: fecha(v.createdAt) ?? undefined },
+        });
+        vendOk++;
+      } catch { /* se salta */ }
+    }
+
+    // 5) Clientes (por sucursal).
+    let cliOk = 0;
+    for (const c of clientesSrc) {
+      try {
+        const base = { nombre: c.nombre, codigo: c.parrandaId ?? null, zona: c.zona ?? null, sucursalId };
+        await prisma.cliente.upsert({
+          where: { id: c.id },
+          update: base,
+          create: { id: c.id, ...base, createdAt: fecha(c.createdAt) ?? undefined },
+        });
+        cliOk++;
+      } catch { /* nombre duplicado dentro de la sucursal, etc.: se salta */ }
+    }
+
+    // 6) Pedidos + items.
+    let pedOk = 0;
+    for (const p of pedidosSrc) {
+      try {
+        const base = {
+          folio: p.folio, sucursalId,
+          vendedorId: p.sellerId ?? null, clienteId: p.clientId ?? null,
+          direccion: p.direccion ?? null, encargado: p.encargado ?? null, telefono: p.telefono ?? null,
+          fecha: fecha(p.fecha) ?? new Date(), fecha_comprometida: fecha(p.fecha_comprometida),
+          estado: p.status ?? null, pedido_cobrado: p.paymentStatus ?? null,
+          requiere_domicilio: p.requiresDelivery == null ? null : Boolean(p.requiresDelivery),
+          costoDomicilio: null,
+        };
+        await prisma.pedido.upsert({
+          where: { id: p.id },
+          update: base,
+          create: { id: p.id, ...base, createdAt: fecha(p.createdAt) ?? undefined },
+        });
+        pedOk++;
+      } catch { /* se salta */ }
+    }
+    let itemOk = 0;
+    for (const it of itemsSrc) {
+      try {
+        const base = { pedidoId: it.orderId, codigo: it.code ?? null, producto: it.producto, unidades: it.unidades, packs: it.packs ?? null, descripcion: it.descripcion ?? null };
+        await prisma.pedidoItem.upsert({ where: { id: it.id }, update: base, create: { id: it.id, ...base } });
+        itemOk++;
+      } catch { /* se salta */ }
+    }
+
+    const resultado = {
+      sucursal: { id: sucursalId, codigo, nombre: suc.nombre },
+      importados: { usuarios: usuariosNuevos, vendedores: vendOk, clientes: cliOk, pedidos: pedOk, items: itemOk },
+      renombrados,
+    };
+    auditar(req, 'import-sqlite', { codigo, ...resultado.importados, renombrados: renombrados.length });
+    res.json({ dry: false, ...resultado });
+  } catch (err) {
+    console.error('Error en import-sqlite:', err);
+    res.status(500).json({ error: err instanceof Error ? err.message : 'No se pudo importar la base SQLite.' });
+  } finally {
+    if (db) { try { db.close(); } catch { /* noop */ } }
+    if (archivo?.path) fs.promises.unlink(archivo.path).catch(() => {});
+  }
+});
+
 export default router;

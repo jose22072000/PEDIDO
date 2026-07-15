@@ -33,6 +33,9 @@ export const MantenimientoPanel = () => {
   const [intoId, setIntoId] = useState("");
   const geoInputRef = useRef<HTMLInputElement>(null);
   const restoreInputRef = useRef<HTMLInputElement>(null);
+  const sqliteInputRef = useRef<HTMLInputElement>(null);
+  // Código de la sucursal a la que pertenece el .db que se va a importar.
+  const [sqliteCodigo, setSqliteCodigo] = useState("");
 
   const cargar = async () => {
     try {
@@ -145,6 +148,38 @@ export const MantenimientoPanel = () => {
     } finally {
       setCargando(null);
       if (restoreInputRef.current) restoreInputRef.current.value = "";
+    }
+  };
+
+  // --- Importar una sucursal desde su SQLite viejo (dev.db) ---
+  const importarSqlite = async (file: File) => {
+    const codigo = sqliteCodigo.trim().toUpperCase();
+    if (!codigo) {
+      err("Escribe el código de la sucursal (ej. STG) antes de subir el .db.");
+      if (sqliteInputRef.current) sqliteInputRef.current.value = "";
+      return;
+    }
+    setCargando("sqlite");
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("codigo", codigo);
+      const res = await fetch(`${getApiBaseUrl()}/mantenimiento/import-sqlite`, { method: "POST", body: fd });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Error");
+      const i = j.importados;
+      const ren = (j.renombrados || []).length;
+      ok(
+        `Sucursal ${j.sucursal?.codigo} importada`,
+        `${i.pedidos} pedidos, ${i.clientes} clientes, ${i.vendedores} vendedores, ${i.usuarios} usuarios${ren ? ` · ${ren} usuario(s) renombrados por repetirse` : ""}`,
+      );
+      setSqliteCodigo("");
+      cargar();
+    } catch (e) {
+      err(e instanceof Error ? e.message : "No se pudo importar el .db");
+    } finally {
+      setCargando(null);
+      if (sqliteInputRef.current) sqliteInputRef.current.value = "";
     }
   };
 
@@ -323,6 +358,51 @@ export const MantenimientoPanel = () => {
             >
               Importar backup (.json)
             </Button>
+          </div>
+
+          {/* Importar sucursal desde SQLite viejo (.db) */}
+          <div className="p-4 border rounded-lg">
+            <p className="mb-1 font-semibold">Importar sucursal desde base vieja (.db)</p>
+            <p className="mb-3 text-sm text-default-500">
+              Sube el <b>dev.db</b> (SQLite del PEDIDO viejo de una sucursal) para
+              consolidarlo aquí. Escribe primero el <b>código</b> de esa sucursal. Los
+              pedidos entran <b>sin gestor asignado</b>; el usuario <b>admin</b> se ignora
+              (es el Super Admin) y cualquier otro usuario repetido entra con sufijo
+              <code className="px-1">.codigo</code> para no chocar.
+            </p>
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="w-40">
+                <label className="block mb-1 text-xs font-medium text-default-600">
+                  Código de sucursal
+                </label>
+                <input
+                  className="w-full px-3 py-2 text-sm uppercase border rounded-lg bg-default-50 focus:outline-none focus:ring-2 focus:ring-primary"
+                  placeholder="STG"
+                  value={sqliteCodigo}
+                  onChange={(e) => setSqliteCodigo(e.target.value.toUpperCase())}
+                />
+              </div>
+              <input
+                ref={sqliteInputRef}
+                accept=".db,.sqlite,application/x-sqlite3,application/octet-stream"
+                className="hidden"
+                type="file"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) importarSqlite(f);
+                }}
+              />
+              <Button
+                color="primary"
+                isDisabled={!sqliteCodigo.trim()}
+                isLoading={cargando === "sqlite"}
+                startContent={<Icons.import className="size-4" />}
+                variant="flat"
+                onPress={() => sqliteInputRef.current?.click()}
+              >
+                Subir .db e importar
+              </Button>
+            </div>
           </div>
         </div>
       </CardBody>

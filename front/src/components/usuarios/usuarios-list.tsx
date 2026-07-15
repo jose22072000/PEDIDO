@@ -18,6 +18,8 @@ import {
   ModalHeader,
   ModalBody,
   ModalFooter,
+  Select,
+  SelectItem,
   useDisclosure,
 } from "@heroui/react";
 import { useEffect, useMemo, useState } from "react";
@@ -31,6 +33,8 @@ import { useAuthStore } from "@/stores/authStore";
 interface Usuario {
   id: string;
   username: string;
+  rolId?: string | null;
+  sucursalId?: string | null;
   rol?: {
     nombre: string;
   } | null;
@@ -40,9 +44,21 @@ interface Usuario {
   createdAt: string;
 }
 
+interface Rol {
+  id: string;
+  nombre: string;
+}
+
+interface Sucursal {
+  id: string;
+  nombre: string;
+}
+
 export const UsuariosList = () => {
   const { user, session } = useAuthStore();
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
+  const [roles, setRoles] = useState<Rol[]>([]);
+  const [sucursales, setSucursales] = useState<Sucursal[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -53,8 +69,39 @@ export const UsuariosList = () => {
   const rowsPerPage = 10;
   const { isOpen, onOpen, onClose } = useDisclosure();
 
+  // Edición de usuario (modal aparte del de borrar).
+  const {
+    isOpen: isEditOpen,
+    onOpen: onEditOpen,
+    onClose: onEditClose,
+  } = useDisclosure();
+  const [editForm, setEditForm] = useState({
+    id: "",
+    username: "",
+    rolId: "",
+    sucursalId: "",
+    password: "",
+  });
+  const [isSaving, setIsSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
+  const isGlobalAdmin = Boolean(session?.isGlobalAdmin);
+
+  // Solo un Super Admin puede asignar el rol Super Admin (igual que al crear).
+  const rolesDisponibles = useMemo(
+    () =>
+      isGlobalAdmin
+        ? roles
+        : roles.filter(
+            (r) => String(r.nombre).toUpperCase() !== "SUPER ADMIN",
+          ),
+    [roles, isGlobalAdmin],
+  );
+
   useEffect(() => {
     fetchUsuarios();
+    fetchRoles();
+    fetchSucursales();
   }, []);
 
   // Filtro por texto (usuario, rol o sucursal) en cliente: /users devuelve la lista completa.
@@ -89,7 +136,6 @@ export const UsuariosList = () => {
     setError(null);
 
     try {
-      const isGlobalAdmin = Boolean(session?.isGlobalAdmin);
       const response = await fetch(
         `${getApiBaseUrl()}/users${isGlobalAdmin ? "?sucursalId=all" : ""}`,
       );
@@ -108,6 +154,26 @@ export const UsuariosList = () => {
     }
   };
 
+  const fetchRoles = async () => {
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/roles`);
+
+      if (response.ok) setRoles(await response.json());
+    } catch {
+      // Error fetching roles
+    }
+  };
+
+  const fetchSucursales = async () => {
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/sucursales`);
+
+      if (response.ok) setSucursales(await response.json());
+    } catch {
+      // Error fetching sucursales
+    }
+  };
+
   const handleDelete = async (id: string) => {
     setIsDeleting(true);
     setError(null);
@@ -116,7 +182,6 @@ export const UsuariosList = () => {
       const response = await fetch(`${getApiBaseUrl()}/users/${id}`, {
         method: "DELETE",
       });
-
 
       if (!response.ok) {
         throw new Error("Error al eliminar usuario");
@@ -136,6 +201,66 @@ export const UsuariosList = () => {
   const openDeleteModal = (usuario: Usuario) => {
     setSelectedUsuario(usuario);
     onOpen();
+  };
+
+  // Abre el modal de edición. El rol/sucursal viene por nombre en la lista, así que se
+  // resuelve el id contra las listas cargadas (o el id que ya traiga el usuario).
+  const openEditModal = (usuario: Usuario) => {
+    const rolId =
+      usuario.rolId ??
+      roles.find((r) => r.nombre === usuario.rol?.nombre)?.id ??
+      "";
+    const sucursalId =
+      usuario.sucursalId ??
+      sucursales.find((s) => s.nombre === usuario.sucursal?.nombre)?.id ??
+      "";
+
+    setEditForm({
+      id: usuario.id,
+      username: usuario.username,
+      rolId,
+      sucursalId,
+      password: "",
+    });
+    setEditError(null);
+    onEditOpen();
+  };
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    setEditError(null);
+
+    try {
+      // Solo se manda la contraseña si se escribió una nueva.
+      const body: Record<string, unknown> = {
+        username: editForm.username.trim(),
+        rolId: editForm.rolId || null,
+        sucursalId: editForm.sucursalId || null,
+      };
+
+      if (editForm.password.trim()) body.password = editForm.password.trim();
+
+      const response = await fetch(`${getApiBaseUrl()}/users/${editForm.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+
+        throw new Error(data.error || "Error al actualizar usuario");
+      }
+
+      setSuccess("Usuario actualizado correctamente");
+      setTimeout(() => setSuccess(null), 3000);
+      fetchUsuarios();
+      onEditClose();
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : "Error desconocido");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   if (isLoading) {
@@ -179,6 +304,8 @@ export const UsuariosList = () => {
         <CardBody>
           <Input
             isClearable
+            autoComplete="off"
+            name="buscar-usuarios"
             placeholder="Buscar por usuario, rol o sucursal..."
             size="lg"
             startContent={<Icons.search className="size-5 text-default-400" />}
@@ -253,21 +380,126 @@ export const UsuariosList = () => {
                 {new Date(usuario.createdAt).toLocaleDateString()}
               </TableCell>
               <TableCell>
-                <Button
-                  color="danger"
-                  isDisabled={user?.username === usuario.username}
-                  isIconOnly={true}
-                  variant="flat"
-                  onPress={() => openDeleteModal(usuario)}
-                >
-                  <Icons.trash className="size-6" />
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    aria-label="Editar usuario"
+                    color="primary"
+                    isIconOnly={true}
+                    variant="flat"
+                    onPress={() => openEditModal(usuario)}
+                  >
+                    <Icons.edit className="size-6" />
+                  </Button>
+                  <Button
+                    aria-label="Eliminar usuario"
+                    color="danger"
+                    isDisabled={user?.username === usuario.username}
+                    isIconOnly={true}
+                    variant="flat"
+                    onPress={() => openDeleteModal(usuario)}
+                  >
+                    <Icons.trash className="size-6" />
+                  </Button>
+                </div>
               </TableCell>
             </TableRow>
           ))}
         </TableBody>
       </Table>
 
+      {/* Modal EDITAR usuario */}
+      <Modal
+        isOpen={isEditOpen}
+        placement="center"
+        scrollBehavior="outside"
+        onClose={onEditClose}
+      >
+        <ModalContent>
+          {(onCloseInner) => (
+            <>
+              <ModalHeader className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <Icons.edit className="size-6 text-primary" />
+                  <span>Editar usuario</span>
+                </div>
+              </ModalHeader>
+              <ModalBody className="gap-4">
+                {editError && (
+                  <div className="bg-danger-50 border-l-4 border-danger p-3 rounded text-sm text-danger-700">
+                    {editError}
+                  </div>
+                )}
+                <Input
+                  autoComplete="off"
+                  label="Nombre de usuario"
+                  name="edit-username"
+                  value={editForm.username}
+                  variant="bordered"
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, username: e.target.value })
+                  }
+                />
+                <Select
+                  label="Rol"
+                  selectedKeys={editForm.rolId ? [editForm.rolId] : []}
+                  variant="bordered"
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, rolId: e.target.value })
+                  }
+                >
+                  {rolesDisponibles.map((rol) => (
+                    <SelectItem key={rol.id}>{rol.nombre}</SelectItem>
+                  ))}
+                </Select>
+                <Select
+                  label="Sucursal"
+                  selectedKeys={editForm.sucursalId ? [editForm.sucursalId] : []}
+                  variant="bordered"
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, sucursalId: e.target.value })
+                  }
+                >
+                  {sucursales.map((sucursal) => (
+                    <SelectItem key={sucursal.id}>{sucursal.nombre}</SelectItem>
+                  ))}
+                </Select>
+                <Input
+                  autoComplete="new-password"
+                  label="Nueva contraseña"
+                  name="edit-password"
+                  placeholder="Dejar vacío para no cambiarla"
+                  type="password"
+                  value={editForm.password}
+                  variant="bordered"
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, password: e.target.value })
+                  }
+                />
+              </ModalBody>
+              <ModalFooter>
+                <Button
+                  color="default"
+                  isDisabled={isSaving}
+                  variant="light"
+                  onPress={onCloseInner}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  color="primary"
+                  isDisabled={!editForm.username.trim()}
+                  isLoading={isSaving}
+                  onPress={handleSave}
+                >
+                  Guardar cambios
+                </Button>
+              </ModalFooter>
+            </>
+          )}
+        </ModalContent>
+      </Modal>
+
+      {/* Modal ELIMINAR usuario */}
       <Modal
         isOpen={isOpen}
         placement="center"
@@ -275,7 +507,7 @@ export const UsuariosList = () => {
         onClose={onClose}
       >
         <ModalContent>
-          {(onClose) => (
+          {(onCloseInner) => (
             <>
               <ModalHeader className="flex flex-col gap-1">
                 <div className="flex items-center gap-2">
@@ -297,7 +529,7 @@ export const UsuariosList = () => {
                   color="default"
                   isDisabled={isDeleting}
                   variant="light"
-                  onPress={onClose}
+                  onPress={onCloseInner}
                 >
                   Cancelar
                 </Button>
