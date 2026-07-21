@@ -84,10 +84,14 @@ model Pedido {
     requiere_domicilio Boolean?     @map("requiresDelivery")
     costoDomicilio     Float?       @map("deliveryCost")  // lo escribe delivery vía /integration
     createdAt          DateTime     @default(now())
+    // Archivado (soft-delete): completados y expirados-viejos se ocultan de la lista pero
+    // se conservan para reportes. null = activo (en proceso).
+    archivedAt         DateTime?
     items              PedidoItem[]
 
     @@unique([sucursalId, folio, vendedorId])
     @@index([fecha])
+    @@index([archivedAt])
     @@map("Order")
 }
 

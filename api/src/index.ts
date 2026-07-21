@@ -16,6 +16,7 @@ import integrationRouter from './routes/integration';
 import geolocalizacionRouter from './routes/geolocalizacion';
 import mantenimientoRouter from './routes/mantenimiento';
 import prisma from './prismaClient';
+import { iniciarArchivadoAutomatico } from './lib/archivador';
 
 const app = express();
 const port = process.env.PORT ? Number(process.env.PORT) : 4000;
@@ -66,6 +67,8 @@ app.listen(port, '0.0.0.0', async () => {
   } catch (err) {
     console.error('Prisma connect error', err);
   }
+  // Archiva completados y expirados-viejos (soft-delete) al inicio y cada hora.
+  iniciarArchivadoAutomatico();
 });
 
 process.on('SIGINT', async () => {

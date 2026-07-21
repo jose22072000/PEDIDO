@@ -28,12 +28,22 @@ router.get('/', async (req, res) => {
     const fechaDesde = req.query.fechaDesde as string | undefined;
     const fechaHasta = req.query.fechaHasta as string | undefined;
     const domicilio = req.query.domicilio as string | undefined;
+    const vendedorId = req.query.vendedorId as string | undefined;
+    const incluirArchivados = req.query.incluirArchivados === '1' || req.query.incluirArchivados === 'true';
     const searchTerm = search ? search.toUpperCase() : undefined;
     const skip = (page - 1) * limit;
 
     // Build where clause
     const where: any = { sucursalId };
     const conditions: any[] = [];
+
+    // Archivados (completados + expirados-viejos): OCULTOS por defecto para que la lista
+    // solo acumule los "en proceso". Se muestran si el usuario filtra por Completado o
+    // Expirado (busca su histórico), o pide incluirArchivados=1.
+    const verArchivados = incluirArchivados || estado === 'completada' || estado === 'expirada';
+    if (!verArchivados) {
+      where.archivedAt = null;
+    }
 
     // General search filter (vendedor, cliente, folio)
     if (searchTerm) {
@@ -133,6 +143,11 @@ router.get('/', async (req, res) => {
         dateFilter.lte = to;
       }
       conditions.push({ fecha: dateFilter });
+    }
+
+    // Filter by vendedor (desde el desplegable, sin teclear el nombre)
+    if (vendedorId) {
+      conditions.push({ vendedorId });
     }
 
     // Filter by domicilio (para ver los pedidos con envío a domicilio y su costo)
@@ -333,9 +348,11 @@ router.patch('/:id/completar', async (req, res) => {
       return res.status(404).json({ error: 'Pedido no encontrado' });
     }
 
+    // Al completar se archiva (soft-delete): sale de la lista activa pero queda para
+    // reportes. La lista solo muestra los "en proceso".
     const order = await prisma.pedido.update({
       where: { id },
-      data: { estado: 'completada' },
+      data: { estado: 'completada', archivedAt: new Date() },
       include: { items: true, cliente: true, vendedor: true },
     });
 

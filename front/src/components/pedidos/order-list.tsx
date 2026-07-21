@@ -112,10 +112,18 @@ const domicilioOptions = [
   { value: "sin", label: "Sin domicilio" },
 ];
 
+interface VendedorOpt {
+  id: string;
+  nombre: string;
+  codigo?: string | null;
+}
+
 export const OrdersList = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [estadoFilter, setEstadoFilter] = useState<string>("todos");
   const [domicilioFilter, setDomicilioFilter] = useState<string>("todos");
+  const [vendedorFilter, setVendedorFilter] = useState<string>("todos");
+  const [vendedores, setVendedores] = useState<VendedorOpt[]>([]);
   const [fechaDesde, setFechaDesde] = useState<string>("");
   const [fechaHasta, setFechaHasta] = useState<string>("");
   const [pagination, setPagination] = useState<PaginationData>({
@@ -193,6 +201,10 @@ export const OrdersList = () => {
           params.append("domicilio", domicilioFilter);
         }
 
+        if (vendedorFilter !== "todos") {
+          params.append("vendedorId", vendedorFilter);
+        }
+
         const response = await fetch(`${getApiBaseUrl()}/orders?${params}`, {
           signal: abortControllerRef.current.signal,
         });
@@ -215,7 +227,7 @@ export const OrdersList = () => {
         setIsLoading(false);
       }
     },
-    [pagination.limit, estadoFilter, domicilioFilter, debouncedSearch, fechaDesde, fechaHasta],
+    [pagination.limit, estadoFilter, domicilioFilter, vendedorFilter, debouncedSearch, fechaDesde, fechaHasta],
   );
 
   const handleCompletarOrder = useCallback(
@@ -341,10 +353,18 @@ export const OrdersList = () => {
     return () => clearTimeout(timeoutId);
   }, [searchValue]);
 
+  // Lista de vendedores para el filtro (desplegable) — scopeada a la sucursal.
+  useEffect(() => {
+    fetch(`${getApiBaseUrl()}/vendedores`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((v: VendedorOpt[]) => setVendedores(Array.isArray(v) ? v : []))
+      .catch(() => setVendedores([]));
+  }, []);
+
   // Fetch orders when dependencies change
   useEffect(() => {
     fetchOrders(1);
-  }, [debouncedSearch, estadoFilter, domicilioFilter, fechaDesde, fechaHasta, fetchOrders]);
+  }, [debouncedSearch, estadoFilter, domicilioFilter, vendedorFilter, fechaDesde, fechaHasta, fetchOrders]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -389,6 +409,7 @@ export const OrdersList = () => {
         !debouncedSearch &&
         estadoFilter === "todos" &&
         domicilioFilter === "todos" &&
+        vendedorFilter === "todos" &&
         !fechaDesde &&
         !fechaHasta;
       if (sinFiltros) {
@@ -400,7 +421,7 @@ export const OrdersList = () => {
       }
     });
     return () => es.close();
-  }, [pagination.page, debouncedSearch, estadoFilter, domicilioFilter, fechaDesde, fechaHasta]);
+  }, [pagination.page, debouncedSearch, estadoFilter, domicilioFilter, vendedorFilter, fechaDesde, fechaHasta]);
 
   return (
     <div className="flex flex-col w-full gap-4">
@@ -448,6 +469,26 @@ export const OrdersList = () => {
               {domicilioOptions.map((option) => (
                 <SelectItem key={option.value}>{option.label}</SelectItem>
               ))}
+            </Select>
+            <Select
+              className="w-full sm:w-56"
+              label="Vendedor"
+              selectedKeys={[vendedorFilter]}
+              size="lg"
+              startContent={
+                <Icons.workers className="size-5 text-default-400" />
+              }
+              variant="bordered"
+              onChange={(e) => setVendedorFilter(e.target.value || "todos")}
+            >
+              {[
+                <SelectItem key="todos">Todos los vendedores</SelectItem>,
+                ...vendedores.map((v) => (
+                  <SelectItem key={v.id}>
+                    {v.nombre}{v.codigo ? ` (${v.codigo})` : ""}
+                  </SelectItem>
+                )),
+              ]}
             </Select>
           </div>
           <div className="flex flex-col gap-4 sm:flex-row">
