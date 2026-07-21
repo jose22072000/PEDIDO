@@ -87,6 +87,7 @@ model Pedido {
     // Archivado (soft-delete): completados y expirados-viejos se ocultan de la lista pero
     // se conservan para reportes. null = activo (en proceso).
     archivedAt         DateTime?
+    completedAt        DateTime?    // cuándo se completó (para archivar unos días después)
     items              PedidoItem[]
 
     @@unique([sucursalId, folio, vendedorId])

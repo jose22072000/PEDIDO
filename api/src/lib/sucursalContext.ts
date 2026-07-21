@@ -52,6 +52,11 @@ function parseBearerToken(req: Request): TokenPayload | null {
       token = authHeader.split(' ')[1];
     } else if (req.cookies && req.cookies.token) {
       token = req.cookies.token;
+    } else if (typeof req.query?.token === 'string' && req.query.token) {
+      // EventSource (SSE) no puede mandar headers: el token viaja como ?token=.
+      // Sin esto, el stream del Super Admin (sin sucursal) no reconocía el token y
+      // devolvía 400 -> el indicador se quedaba en "Conectando…" para siempre.
+      token = req.query.token as string;
     }
 
     if (!token) return null;

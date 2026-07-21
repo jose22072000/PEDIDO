@@ -30,6 +30,35 @@ router.get('/', async (req, res) => {
   }
 });
 
+// GET /vendedores/usuarios
+// Lista para el desplegable "Vendedor" de la lista de pedidos: devuelve al USUARIO
+// vinculado (el gestor), NO al vendedor crudo. Es el usuario quien tiene la sucursal,
+// así el operador filtra por la persona de SU sucursal. Un usuario que gestiona varios
+// vendedores sale UNA sola vez, y no salen duplicados por vendedores con encoding
+// distinto (p. ej. dos "Alexander") ni vendedores sin usuario asignado. El filtro de
+// pedidos (GET /orders?usuarioId=) usa este id (vendedor.gestorId = usuario.id).
+router.get('/usuarios', async (req, res) => {
+  try {
+    const { sucursalId, error: sucursalError } = resolveSucursalFilter(req);
+    if (sucursalError) {
+      return res.status(400).json({ error: sucursalError });
+    }
+
+    const usuarios = await prisma.usuario.findMany({
+      where: {
+        ...(sucursalId ? { sucursalId } : {}),
+        vendedores: { some: {} }, // solo usuarios que gestionan al menos un vendedor
+      },
+      orderBy: { username: 'asc' },
+      select: { id: true, username: true },
+    });
+    res.json(usuarios.map((u) => ({ id: u.id, nombre: u.username })));
+  } catch (error) {
+    console.error('Error fetching vendedores/usuarios:', error);
+    res.status(500).json({ error: 'Error al obtener usuarios vendedores' });
+  }
+});
+
 // GET /vendedores/gestores
 // Datos para enlazar vendedor <-> gestor desde la vista de Vendedores.
 // Scopeado: el Super Admin ve todos; el resto ve los de SU sucursal MÁS los que aún

@@ -1,28 +1,39 @@
 import prisma from '../prismaClient';
 
-// Días que un pedido EXPIRADO espera antes de archivarse (se guarda el histórico).
-const DIAS_GRACIA_EXPIRADOS = 7;
+// Una semana de gracia: los completados se archivan 7 días DESPUÉS de completarse, y los
+// expirados 7 días después de su fecha comprometida. Así la lista no acumula lo viejo pero
+// lo reciente sigue visible.
+const DIAS_GRACIA = 7;
 
 /**
  * Archiva (soft-delete) los pedidos que ya no deben ocupar la lista activa:
- *  - COMPLETADOS: se archivan de una vez (la lista solo muestra "en proceso").
+ *  - COMPLETADOS: los completados hace más de una semana (por `completedAt`). Si no tiene
+ *    `completedAt` (datos viejos), se usa su fecha comprometida como referencia.
  *  - EXPIRADOS: los NO completados cuya fecha comprometida pasó hace más de una semana.
  * No se borran: quedan con `archivedAt` para reportes/histórico.
  * Idempotente: solo toca los que aún tienen `archivedAt = null`.
  */
 export async function archivarPedidos(): Promise<{ completados: number; expirados: number }> {
   const ahora = new Date();
-  const corteExpirados = new Date(ahora.getTime() - DIAS_GRACIA_EXPIRADOS * 24 * 60 * 60 * 1000);
+  const corte = new Date(ahora.getTime() - DIAS_GRACIA * 24 * 60 * 60 * 1000);
 
   const completados = await prisma.pedido.updateMany({
-    where: { archivedAt: null, estado: 'completada' },
+    where: {
+      archivedAt: null,
+      estado: 'completada',
+      OR: [
+        { completedAt: { not: null, lt: corte } },
+        // Compatibilidad: completados sin completedAt -> por fecha comprometida.
+        { completedAt: null, fecha_comprometida: { not: null, lt: corte } },
+      ],
+    },
     data: { archivedAt: ahora },
   });
 
   const expirados = await prisma.pedido.updateMany({
     where: {
       archivedAt: null,
-      fecha_comprometida: { not: null, lt: corteExpirados },
+      fecha_comprometida: { not: null, lt: corte },
       OR: [{ estado: null }, { estado: { not: 'completada' } }],
     },
     data: { archivedAt: ahora },

@@ -28,7 +28,9 @@ router.get('/', async (req, res) => {
     const fechaDesde = req.query.fechaDesde as string | undefined;
     const fechaHasta = req.query.fechaHasta as string | undefined;
     const domicilio = req.query.domicilio as string | undefined;
-    const vendedorId = req.query.vendedorId as string | undefined;
+    // Filtro por "vendedor" = el USUARIO/gestor vinculado (ver GET /vendedores). Se
+    // filtra por los pedidos de los vendedores que ese usuario gestiona.
+    const usuarioId = (req.query.usuarioId || req.query.vendedorId) as string | undefined;
     const incluirArchivados = req.query.incluirArchivados === '1' || req.query.incluirArchivados === 'true';
     const searchTerm = search ? search.toUpperCase() : undefined;
     const skip = (page - 1) * limit;
@@ -37,11 +39,14 @@ router.get('/', async (req, res) => {
     const where: any = { sucursalId };
     const conditions: any[] = [];
 
-    // Archivados (completados + expirados-viejos): OCULTOS por defecto para que la lista
-    // solo acumule los "en proceso". Se muestran si el usuario filtra por Completado o
-    // Expirado (busca su histórico), o pide incluirArchivados=1.
-    const verArchivados = incluirArchivados || estado === 'completada' || estado === 'expirada';
-    if (!verArchivados) {
+    // Archivados (completados + expirados con +1 semana): OCULTOS por defecto para que la
+    // lista solo acumule los "en proceso".
+    //  - estado='archivados' -> muestra SOLO los archivados (vista/histórico dedicado).
+    //  - incluirArchivados=1  -> incluye archivados en la búsqueda actual (toggle).
+    //  - por defecto -> se ocultan.
+    if (estado === 'archivados') {
+      where.archivedAt = { not: null };
+    } else if (!incluirArchivados) {
       where.archivedAt = null;
     }
 
@@ -145,9 +150,10 @@ router.get('/', async (req, res) => {
       conditions.push({ fecha: dateFilter });
     }
 
-    // Filter by vendedor (desde el desplegable, sin teclear el nombre)
-    if (vendedorId) {
-      conditions.push({ vendedorId });
+    // Filter por "vendedor" = usuario/gestor vinculado (desde el desplegable, sin teclear
+    // el nombre). Filtra los pedidos cuyos vendedores gestiona ese usuario.
+    if (usuarioId) {
+      conditions.push({ vendedor: { gestorId: usuarioId } });
     }
 
     // Filter by domicilio (para ver los pedidos con envío a domicilio y su costo)
@@ -348,11 +354,11 @@ router.patch('/:id/completar', async (req, res) => {
       return res.status(404).json({ error: 'Pedido no encontrado' });
     }
 
-    // Al completar se archiva (soft-delete): sale de la lista activa pero queda para
-    // reportes. La lista solo muestra los "en proceso".
+    // Al completar se marca la fecha de completado; NO se archiva de inmediato. El
+    // archivado (soft-delete) ocurre una semana DESPUÉS, en el job de archivado.
     const order = await prisma.pedido.update({
       where: { id },
-      data: { estado: 'completada', archivedAt: new Date() },
+      data: { estado: 'completada', completedAt: new Date() },
       include: { items: true, cliente: true, vendedor: true },
     });
 

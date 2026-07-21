@@ -17,6 +17,7 @@ import {
   SelectItem,
   addToast,
   Tooltip,
+  Switch,
 } from "@heroui/react";
 import { useEffect, useState, useRef, useCallback } from "react";
 
@@ -65,6 +66,7 @@ interface Order {
   requiere_domicilio?: boolean | null;
   costoDomicilio?: number | null;
   createdAt: string;
+  archivedAt?: string | null; // si tiene valor, el pedido está archivado (histórico)
   items: OrderItem[];
 }
 
@@ -124,6 +126,9 @@ export const OrdersList = () => {
   const [domicilioFilter, setDomicilioFilter] = useState<string>("todos");
   const [vendedorFilter, setVendedorFilter] = useState<string>("todos");
   const [vendedores, setVendedores] = useState<VendedorOpt[]>([]);
+  // Incluir archivados en la búsqueda actual (el usuario elige). No aplica cuando el
+  // estado ya es "archivados" (ahí se ven solo archivados).
+  const [incluirArchivados, setIncluirArchivados] = useState(false);
   const [fechaDesde, setFechaDesde] = useState<string>("");
   const [fechaHasta, setFechaHasta] = useState<string>("");
   const [pagination, setPagination] = useState<PaginationData>({
@@ -205,6 +210,12 @@ export const OrdersList = () => {
           params.append("vendedorId", vendedorFilter);
         }
 
+        // Switch: si está activo, la búsqueda incluye también los archivados (se
+        // distinguen en la tarjeta con el chip "Archivado"). Si no, solo activos.
+        if (incluirArchivados) {
+          params.append("incluirArchivados", "1");
+        }
+
         const response = await fetch(`${getApiBaseUrl()}/orders?${params}`, {
           signal: abortControllerRef.current.signal,
         });
@@ -227,7 +238,7 @@ export const OrdersList = () => {
         setIsLoading(false);
       }
     },
-    [pagination.limit, estadoFilter, domicilioFilter, vendedorFilter, debouncedSearch, fechaDesde, fechaHasta],
+    [pagination.limit, estadoFilter, domicilioFilter, vendedorFilter, incluirArchivados, debouncedSearch, fechaDesde, fechaHasta],
   );
 
   const handleCompletarOrder = useCallback(
@@ -353,9 +364,10 @@ export const OrdersList = () => {
     return () => clearTimeout(timeoutId);
   }, [searchValue]);
 
-  // Lista de vendedores para el filtro (desplegable) — scopeada a la sucursal.
+  // Lista para el filtro (desplegable) — el USUARIO/gestor vinculado, uno por persona,
+  // scopeado a la sucursal (así no salen dos "Alexander" por encoding distinto).
   useEffect(() => {
-    fetch(`${getApiBaseUrl()}/vendedores`)
+    fetch(`${getApiBaseUrl()}/vendedores/usuarios`)
       .then((r) => (r.ok ? r.json() : []))
       .then((v: VendedorOpt[]) => setVendedores(Array.isArray(v) ? v : []))
       .catch(() => setVendedores([]));
@@ -515,6 +527,15 @@ export const OrdersList = () => {
               onClear={() => setFechaHasta("")}
             />
           </div>
+          <Switch
+            isSelected={incluirArchivados}
+            size="sm"
+            onValueChange={setIncluirArchivados}
+          >
+            <span className="text-sm text-default-600">
+              Incluir archivados en la búsqueda
+            </span>
+          </Switch>
         </CardBody>
       </Card>
 
@@ -588,7 +609,7 @@ export const OrdersList = () => {
                 )}
               >
                 <CardBody className="relative gap-4 overflow-visible">
-                  <div className="absolute top-0 left-0 z-10">
+                  <div className="absolute top-0 left-0 z-10 flex items-center gap-1">
                     <Chip
                       className={`-translate-y-7 chip-${estadoColors[order.estado]}`}
                       color={estadoColors[order.estado]}
@@ -597,6 +618,16 @@ export const OrdersList = () => {
                     >
                       {estadoLabels[order.estado]}
                     </Chip>
+                    {order.archivedAt && (
+                      <Chip
+                        className="-translate-y-7"
+                        color="default"
+                        size="sm"
+                        variant="flat"
+                      >
+                        Archivado
+                      </Chip>
+                    )}
                   </div>
                   {(order.costoDomicilio != null ||
                     order.requiere_domicilio) && (
