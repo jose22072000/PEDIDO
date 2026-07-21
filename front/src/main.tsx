@@ -11,11 +11,29 @@ import "@/styles/components/typo.css";
 if (import.meta.env.PROD && "serviceWorker" in navigator) {
   // En dev Vite puede devolver index.html con tipo text/html para rutas desconocidas
   // por eso registramos sólo en producción para evitar el error MIME.
+  // updateViaCache "none": el navegador SIEMPRE re-descarga sw.js (no lo cachea), así
+  // no se queda pegado en una versión vieja de la app durante días.
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch((error) => {
-      // eslint-disable-next-line no-console
-      console.error("Service Worker registration failed:", error);
-    });
+    navigator.serviceWorker
+      .register("/sw.js", { updateViaCache: "none" })
+      .then((reg) => {
+        reg.update(); // busca versión nueva al abrir
+        // y revisa cada hora por si la pestaña queda abierta mucho tiempo
+        setInterval(() => reg.update(), 60 * 60 * 1000);
+      })
+      .catch((error) => {
+        // eslint-disable-next-line no-console
+        console.error("Service Worker registration failed:", error);
+      });
+  });
+
+  // Cuando un SW nuevo toma el control (autoUpdate), recargar UNA vez para servir ya la
+  // versión nueva sin que el usuario tenga que limpiar caché a mano.
+  let recargado = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (recargado) return;
+    recargado = true;
+    window.location.reload();
   });
 }
 
