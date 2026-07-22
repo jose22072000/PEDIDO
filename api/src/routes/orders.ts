@@ -7,9 +7,17 @@ import {
   resolveSucursalFilter,
   resolveSucursalScope,
 } from '../lib/sucursalContext';
+import { redisEnabled, publishJSON, getSubscriber, CH_ORDERS_NEW } from '../lib/redis';
 
 
 const router = Router();
+
+// Estado derivado de un pedido (compartido por el SSE y el publish de Redis).
+function computeEstado(o: { estado: string | null; fecha_comprometida: Date | null }): string {
+  if (o.estado === 'completada') return 'completada';
+  if (o.fecha_comprometida && new Date(o.fecha_comprometida) < new Date()) return 'expirada';
+  return 'en_proceso';
+}
 
 // List orders with pagination and filters.
 // Lectura: el Super Admin sin sucursal elegida ve TODAS; si elige una (x-sucursal-id)
@@ -255,44 +263,58 @@ router.get('/stream', async (req, res) => {
   (res as any).flushHeaders?.();
 
   let closed = false;
-  let since = new Date(); // solo pedidos creados DESPUÉS de conectarse
-
   const send = (event: string, data: unknown) => {
     if (!closed) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
-  const computeEstado = (o: { estado: string | null; fecha_comprometida: Date | null }) => {
-    if (o.estado === 'completada') return 'completada';
-    if (o.fecha_comprometida && new Date(o.fecha_comprometida) < new Date()) return 'expirada';
-    return 'en_proceso';
-  };
+  send('ready', { since: new Date().toISOString() });
 
-  send('ready', { since: since.toISOString() });
-
-  const tick = async () => {
-    if (closed) return;
-    try {
-      const nuevos = await prisma.pedido.findMany({
-        where: { sucursalId, createdAt: { gt: since } },
-        include: { items: true, cliente: true, vendedor: true },
-        orderBy: { createdAt: 'asc' },
-        take: 50,
-      });
-      if (nuevos.length) {
-        since = nuevos[nuevos.length - 1].createdAt;
-        for (const o of nuevos) send('order', { ...o, estado: computeEstado(o) });
-      }
-    } catch {
-      /* transitorio; el próximo tick reintenta */
-    }
-  };
-
-  const interval = setInterval(tick, 3000);
   const keepAlive = setInterval(() => { if (!closed) res.write(': keep-alive\n\n'); }, 20000);
-  req.on('close', () => {
-    closed = true;
-    clearInterval(interval);
-    clearInterval(keepAlive);
-  });
+
+  if (redisEnabled()) {
+    // Camino Redis pub/sub: los pedidos nuevos llegan por EVENTO (cero polling a Postgres).
+    const sub = getSubscriber()!;
+    await sub.subscribe(CH_ORDERS_NEW);
+    const onMessage = (channel: string, message: string) => {
+      if (closed || channel !== CH_ORDERS_NEW) return;
+      try {
+        const { sucursalId: sid, order } = JSON.parse(message);
+        if (sid !== sucursalId) return; // aislamiento por sucursal
+        send('order', order);
+      } catch { /* mensaje inválido: ignora */ }
+    };
+    sub.on('message', onMessage);
+    req.on('close', () => {
+      closed = true;
+      clearInterval(keepAlive);
+      sub.off('message', onMessage); // NO unsubscribe: otros clientes pueden seguir escuchando
+    });
+  } else {
+    // Fallback SIN Redis: polling a Postgres cada 3s (comportamiento original).
+    let since = new Date(); // solo pedidos creados DESPUÉS de conectarse
+    const tick = async () => {
+      if (closed) return;
+      try {
+        const nuevos = await prisma.pedido.findMany({
+          where: { sucursalId, createdAt: { gt: since } },
+          include: { items: true, cliente: true, vendedor: true },
+          orderBy: { createdAt: 'asc' },
+          take: 50,
+        });
+        if (nuevos.length) {
+          since = nuevos[nuevos.length - 1].createdAt;
+          for (const o of nuevos) send('order', { ...o, estado: computeEstado(o) });
+        }
+      } catch {
+        /* transitorio; el próximo tick reintenta */
+      }
+    };
+    const interval = setInterval(tick, 3000);
+    req.on('close', () => {
+      closed = true;
+      clearInterval(interval);
+      clearInterval(keepAlive);
+    });
+  }
 });
 
 // Create a new order (basic)
