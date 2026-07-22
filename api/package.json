@@ -7,6 +7,8 @@
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
+    "worker": "node dist/worker.js",
+    "worker:dev": "ts-node-dev --respawn --transpile-only src/worker.ts",
     "reset": "npx prisma migrate reset --force && npx prisma db seed",
     "studio": "npx prisma studio"
   },

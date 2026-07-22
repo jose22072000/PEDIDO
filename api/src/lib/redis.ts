@@ -66,3 +66,8 @@ export async function publishJSON(channel: string, payload: unknown): Promise<vo
 export function getSubscriber(): Redis | null {
   return subscriber;
 }
+
+/** Conexión general (para publicar y para las colas Bull). null si deshabilitado. */
+export function getConnection(): Redis | null {
+  return connection;
+}

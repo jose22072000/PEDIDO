@@ -8,6 +8,7 @@ import {
   resolveSucursalScope,
 } from '../lib/sucursalContext';
 import { redisEnabled, publishJSON, getSubscriber, CH_ORDERS_NEW } from '../lib/redis';
+import { importQueue } from '../lib/queues';
 
 
 const router = Router();
@@ -545,63 +546,78 @@ router.post('/bulk', async (req, res) => {
     });
     if (scopeError) return res.status(403).json({ error: scopeError });
 
-    // Map CSV records to DTO
-    const mappedRecords = mapCsvRecords(records);
-
-    // El CSV es de UN vendedor (a veces más). Resolvemos TODOS los vendedores antes
-    // de importar nada: si alguno colisiona, se rechaza el archivo completo.
-    const sellersByCode = new Map<string, SellerResolution>();
-    try {
-      for (const r of mappedRecords) {
-        const key = r.seller.code || r.seller.name.toUpperCase().trim();
-        if (!sellersByCode.has(key)) {
-          sellersByCode.set(
-            key,
-            await resolveSeller(r.seller.name, r.seller.code, uploaderSucursalId ?? null),
-          );
-        }
-      }
-    } catch (error) {
-      if (error instanceof VendedorColisionError || error instanceof VendedorInactivoError) {
-        return res.status(409).json({ error: error.message, imported: 0 });
-      }
-      throw error;
+    // Con Redis: ENCOLAR y responder al toque (202). El worker procesa fuera del
+    // request, con concurrencia acotada, sin bloquear la API cuando varias sucursales
+    // suben CSV a la vez. Sin Redis: procesar INLINE (idéntico al comportamiento actual).
+    const queue = importQueue();
+    if (queue) {
+      const job = await queue.add({ records, uploaderSucursalId: uploaderSucursalId ?? null });
+      return res.status(202).json({ enqueued: true, jobId: String(job.id) });
     }
 
-    const results = {
-      created: 0,
-      updated: 0,
-      failed: 0,
-      sinAsignar: 0,
-      errors: [] as any[],
-    };
-
-    // Process mapped records
-    for (const record of mappedRecords) {
-      const key = record.seller.code || record.seller.name.toUpperCase().trim();
-      const resolved = sellersByCode.get(key)!;
-      try {
-        await processOrderRecord(record, results, resolved.seller.id, resolved.sucursalId);
-        if (resolved.sucursalId === null) results.sinAsignar++;
-      } catch (error) {
-        results.failed++;
-        results.errors.push({
-          record: record.order.folio,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        });
-        console.error('Error processing record:', error);
-      }
-    }
-
-    res.json({
-      success: true,
-      results,
-    });
+    const outcome = await processBulkImport(records, uploaderSucursalId ?? null);
+    if (!outcome.ok) return res.status(409).json({ error: outcome.error, imported: 0 });
+    return res.json({ success: true, results: outcome.results });
   } catch (err) {
     console.error('Bulk create error:', err);
     res.status(500).json({ error: 'Failed to create orders' });
   }
 });
+
+export type BulkImportResults = {
+  created: number; updated: number; failed: number; sinAsignar: number; errors: any[];
+};
+export type BulkImportOutcome = {
+  ok: boolean;
+  results?: BulkImportResults;
+  error?: string; // presente solo si ok === false (colisión de vendedor)
+};
+
+// Núcleo de la importación masiva, compartido por el endpoint (fallback inline) y el
+// WORKER (cola Redis). Resuelve los vendedores (rechaza el archivo entero si hay
+// colisión) y procesa cada registro. No usa `res`, para poder correr fuera del request.
+export async function processBulkImport(
+  records: any[],
+  uploaderSucursalId: string | null,
+): Promise<BulkImportOutcome> {
+  const mappedRecords = mapCsvRecords(records);
+
+  // Resolvemos TODOS los vendedores antes de importar: si alguno colisiona, se rechaza
+  // el archivo completo (misma regla que siempre).
+  const sellersByCode = new Map<string, SellerResolution>();
+  try {
+    for (const r of mappedRecords) {
+      const key = r.seller.code || r.seller.name.toUpperCase().trim();
+      if (!sellersByCode.has(key)) {
+        sellersByCode.set(key, await resolveSeller(r.seller.name, r.seller.code, uploaderSucursalId));
+      }
+    }
+  } catch (error) {
+    if (error instanceof VendedorColisionError || error instanceof VendedorInactivoError) {
+      return { ok: false, error: error.message };
+    }
+    throw error;
+  }
+
+  const results: BulkImportResults = { created: 0, updated: 0, failed: 0, sinAsignar: 0, errors: [] };
+  for (const record of mappedRecords) {
+    const key = record.seller.code || record.seller.name.toUpperCase().trim();
+    const resolved = sellersByCode.get(key)!;
+    try {
+      await processOrderRecord(record, results, resolved.seller.id, resolved.sucursalId);
+      if (resolved.sucursalId === null) results.sinAsignar++;
+    } catch (error) {
+      results.failed++;
+      results.errors.push({
+        record: record.order.folio,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+      console.error('Error processing record:', error);
+    }
+  }
+
+  return { ok: true, results };
+}
 
 // `sellerId` viene ya resuelto (global por código) y `sucursalId` sale de su gestor.
 // sucursalId = null  =>  "Sin asignar": el pedido entra pero queda oculto en la
