@@ -546,10 +546,12 @@ router.post('/bulk', async (req, res) => {
     });
     if (scopeError) return res.status(403).json({ error: scopeError });
 
-    // Con Redis: ENCOLAR y responder al toque (202). El worker procesa fuera del
-    // request, con concurrencia acotada, sin bloquear la API cuando varias sucursales
-    // suben CSV a la vez. Sin Redis: procesar INLINE (idéntico al comportamiento actual).
-    const queue = importQueue();
+    // ENCOLAR y responder al toque (202) SOLO si se optó explícitamente con
+    // IMPORT_USE_QUEUE=true (y hay Redis). Requiere que el worker (node dist/worker.js)
+    // esté corriendo, si no los jobs no se procesarían. Sin el flag se procesa INLINE
+    // (idéntico al comportamiento actual), aunque Redis esté activo para el SSE. Así
+    // activar Redis para el pub/sub NO cambia el import por accidente.
+    const queue = process.env.IMPORT_USE_QUEUE === 'true' ? importQueue() : null;
     if (queue) {
       const job = await queue.add({ records, uploaderSucursalId: uploaderSucursalId ?? null });
       return res.status(202).json({ enqueued: true, jobId: String(job.id) });
