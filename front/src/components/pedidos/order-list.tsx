@@ -389,50 +389,62 @@ export const OrdersList = () => {
 
   // Pedidos NUEVOS en tiempo real (SSE): aparecen sin refrescar la página.
   useEffect(() => {
-    const token =
-      typeof window !== "undefined" ? localStorage.getItem("auth_token") || "" : "";
-    // Igual que el wrapper de fetch: la sucursal elegida por el Super Admin manda;
-    // si no hay ninguna, la del usuario (y si tampoco, el stream trae todas).
-    let sucursalId =
-      (typeof window !== "undefined"
-        ? localStorage.getItem("sucursal_activa")
-        : "") || "";
-    try {
-      if (!sucursalId) {
-        const raw = typeof window !== "undefined" ? localStorage.getItem("auth-storage") : null;
-        if (raw) sucursalId = JSON.parse(raw)?.state?.session?.sucursalId || "";
-      }
-    } catch {
-      /* ignore */
-    }
-    const url = `${getApiBaseUrl()}/orders/stream?sucursalId=${encodeURIComponent(sucursalId)}&token=${encodeURIComponent(token)}`;
-    const es = new EventSource(url);
-    es.addEventListener("open", () => setLive(true));
-    es.addEventListener("error", () => setLive(false));
-    es.addEventListener("order", (e) => {
-      let order: Order;
+    let es: EventSource | null = null;
+    let cancelled = false;
+
+    (async () => {
       try {
-        order = JSON.parse((e as MessageEvent).data);
-      } catch {
-        return;
-      }
-      const sinFiltros =
-        pagination.page === 1 &&
-        !debouncedSearch &&
-        estadoFilter === "todos" &&
-        domicilioFilter === "todos" &&
-        vendedorFilter === "todos" &&
-        !fechaDesde &&
-        !fechaHasta;
-      if (sinFiltros) {
-        setOrders((prev) =>
-          prev.some((o) => o.id === order.id) ? prev : [order, ...prev],
+        // Auth por TICKET efímero (no token en la URL). Se pide con el Bearer normal:
+        // el wrapper de fetch (main.tsx) añade Authorization + x-sucursal-id, así el
+        // backend resuelve el scope y devuelve un ticket de un solo uso.
+        const ticketRes = await fetch(`${getApiBaseUrl()}/orders/sse-ticket`, {
+          method: "POST",
+        });
+
+        if (!ticketRes.ok || cancelled) return;
+        const { ticket } = await ticketRes.json();
+
+        if (cancelled) return;
+
+        es = new EventSource(
+          `${getApiBaseUrl()}/orders/stream?ticket=${encodeURIComponent(ticket)}`,
         );
-      } else {
-        setNuevosPend((n) => n + 1);
+        es.addEventListener("open", () => setLive(true));
+        es.addEventListener("error", () => setLive(false));
+        es.addEventListener("order", (e) => {
+          let order: Order;
+
+          try {
+            order = JSON.parse((e as MessageEvent).data);
+          } catch {
+            return;
+          }
+          const sinFiltros =
+            pagination.page === 1 &&
+            !debouncedSearch &&
+            estadoFilter === "todos" &&
+            domicilioFilter === "todos" &&
+            vendedorFilter === "todos" &&
+            !fechaDesde &&
+            !fechaHasta;
+
+          if (sinFiltros) {
+            setOrders((prev) =>
+              prev.some((o) => o.id === order.id) ? prev : [order, ...prev],
+            );
+          } else {
+            setNuevosPend((n) => n + 1);
+          }
+        });
+      } catch {
+        /* sin stream en vivo si falla el ticket */
       }
-    });
-    return () => es.close();
+    })();
+
+    return () => {
+      cancelled = true;
+      es?.close();
+    };
   }, [pagination.page, debouncedSearch, estadoFilter, domicilioFilter, vendedorFilter, fechaDesde, fechaHasta]);
 
   return (

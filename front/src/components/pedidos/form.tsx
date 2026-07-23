@@ -22,28 +22,20 @@ const fileTypes: string[] = ["CSV"];
 // (push del worker vía Redis) — NADA de polling. Abrimos UN stream y esperamos el
 // evento done/failed de cada jobId. `buffered` cubre la carrera de que el evento
 // llegue antes de que empecemos a esperarlo.
-function openImportStream() {
-  // EventSource no manda headers: la sucursal/token van por query (igual que order-list),
-  // para que el backend AISLE los eventos por sucursal (no ver los de otras).
-  const token =
-    typeof window !== "undefined" ? localStorage.getItem("auth_token") || "" : "";
-  let sucursalId =
-    (typeof window !== "undefined"
-      ? localStorage.getItem("sucursal_activa")
-      : "") || "";
+async function openImportStream() {
+  // Auth por TICKET efímero (no token en la URL): pedimos el ticket con el Bearer normal
+  // (el wrapper de fetch en main.tsx añade Authorization + x-sucursal-id) y abrimos el
+  // SSE con ?ticket=. El backend valida/quema el ticket y aísla los eventos por sucursal.
+  const ticketRes = await fetch(`${getApiBaseUrl()}/orders/sse-ticket`, {
+    method: "POST",
+  });
 
-  try {
-    if (!sucursalId) {
-      const raw =
-        typeof window !== "undefined" ? localStorage.getItem("auth-storage") : null;
+  if (!ticketRes.ok) throw new Error("No se pudo abrir el canal de importación");
+  const { ticket } = await ticketRes.json();
 
-      if (raw) sucursalId = JSON.parse(raw)?.state?.session?.sucursalId || "";
-    }
-  } catch {
-    /* ignore */
-  }
-  const url = `${getApiBaseUrl()}/orders/import-stream?sucursalId=${encodeURIComponent(sucursalId)}&token=${encodeURIComponent(token)}`;
-  const es = new EventSource(url);
+  const es = new EventSource(
+    `${getApiBaseUrl()}/orders/import-stream?ticket=${encodeURIComponent(ticket)}`,
+  );
   const waiters = new Map<string, { resolve: () => void; reject: (e: Error) => void }>();
   const buffered = new Map<string, { ok: boolean; error?: string }>();
 
@@ -179,7 +171,7 @@ export default function CrearPedidoForm() {
     setProgress(0);
 
     // Stream SSE de la cola de importación (se abre solo si el backend encola: 202).
-    let importStream: ReturnType<typeof openImportStream> | null = null;
+    let importStream: Awaited<ReturnType<typeof openImportStream>> | null = null;
 
     try {
       const totalFiles = files.length;
@@ -221,7 +213,7 @@ export default function CrearPedidoForm() {
           if (response.status === 202) {
             const { jobId } = await response.json();
 
-            if (!importStream) importStream = openImportStream();
+            if (!importStream) importStream = await openImportStream();
             await importStream.wait(String(jobId), file.name);
           } else if (i < batches.length - 1) {
             // Modo inline (sin cola): esperar 50ms entre requests como antes.

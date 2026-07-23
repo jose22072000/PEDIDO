@@ -9,6 +9,7 @@ import {
 } from '../lib/sucursalContext';
 import { redisEnabled, publishJSON, getSubscriber, CH_ORDERS_NEW, CH_IMPORT_DONE, CH_IMPORT_FAILED } from '../lib/redis';
 import { importQueue } from '../lib/queues';
+import { mintSseTicket, consumeSseTicket } from '../lib/sseTickets';
 
 
 const router = Router();
@@ -251,11 +252,22 @@ router.get('/', async (req, res) => {
 // SSE: transmite los pedidos NUEVOS en tiempo real (aparecen en la lista sin
 // refrescar). Mismo scoping que GET / (requireSucursalId lee ?sucursalId= o token).
 // EventSource no manda headers, por eso el front pasa ?sucursalId= y ?token=.
-router.get('/stream', async (req, res) => {
+// Emite un TICKET efímero de un solo uso para abrir un SSE. EventSource no manda
+// headers, así que en vez de poner el token en la URL, el front pide este ticket con su
+// Bearer normal (header) y abre el stream con ?ticket=. El ticket dura ~30s y lleva el
+// scope ya resuelto; se quema al usarse.
+router.post('/sse-ticket', async (req, res) => {
   const { sucursalId, error } = resolveSucursalFilter(req);
-  if (error) {
-    return res.status(400).json({ error });
-  }
+  if (error) return res.status(400).json({ error });
+  const ticket = await mintSseTicket({ sucursalId: sucursalId ?? null });
+  return res.json({ ticket });
+});
+
+router.get('/stream', async (req, res) => {
+  // Auth por TICKET efímero (no token en la URL). Ver POST /orders/sse-ticket.
+  const ticket = await consumeSseTicket(req.query.ticket as string | undefined);
+  if (!ticket) return res.status(401).json({ error: 'Ticket inválido o expirado' });
+  const sucursalId = ticket.sucursalId ?? undefined;
 
   res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -571,11 +583,12 @@ router.post('/bulk', async (req, res) => {
 // (IMPORT_USE_QUEUE=true) y espera el evento de SU jobId. Sin Redis no hay 202, así que
 // no se usa. (Nada de polling: es push por pub/sub, igual que /orders/stream.)
 router.get('/import-stream', async (req, res) => {
-  // Aislamiento por sucursal (igual que /orders/stream): sin esto, cualquier cliente
-  // recibiría los eventos (jobId, conteos, errores) de TODAS las sucursales -> fuga
-  // cross-tenant. EventSource no manda headers, así que la sucursal viaja por ?sucursalId=.
-  const { sucursalId, error } = resolveSucursalFilter(req);
-  if (error) return res.status(400).json({ error });
+  // Auth por TICKET efímero (no token en la URL). El ticket lleva el scope de sucursal
+  // ya resuelto, y abajo se filtran los eventos por esa sucursal: sin esto, cualquier
+  // cliente recibiría los eventos (jobId, conteos, errores) de TODAS -> fuga cross-tenant.
+  const ticket = await consumeSseTicket(req.query.ticket as string | undefined);
+  if (!ticket) return res.status(401).json({ error: 'Ticket inválido o expirado' });
+  const sucursalId = ticket.sucursalId ?? undefined;
 
   res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
