@@ -23,7 +23,27 @@ const fileTypes: string[] = ["CSV"];
 // evento done/failed de cada jobId. `buffered` cubre la carrera de que el evento
 // llegue antes de que empecemos a esperarlo.
 function openImportStream() {
-  const es = new EventSource(`${getApiBaseUrl()}/orders/import-stream`);
+  // EventSource no manda headers: la sucursal/token van por query (igual que order-list),
+  // para que el backend AISLE los eventos por sucursal (no ver los de otras).
+  const token =
+    typeof window !== "undefined" ? localStorage.getItem("auth_token") || "" : "";
+  let sucursalId =
+    (typeof window !== "undefined"
+      ? localStorage.getItem("sucursal_activa")
+      : "") || "";
+
+  try {
+    if (!sucursalId) {
+      const raw =
+        typeof window !== "undefined" ? localStorage.getItem("auth-storage") : null;
+
+      if (raw) sucursalId = JSON.parse(raw)?.state?.session?.sucursalId || "";
+    }
+  } catch {
+    /* ignore */
+  }
+  const url = `${getApiBaseUrl()}/orders/import-stream?sucursalId=${encodeURIComponent(sucursalId)}&token=${encodeURIComponent(token)}`;
+  const es = new EventSource(url);
   const waiters = new Map<string, { resolve: () => void; reject: (e: Error) => void }>();
   const buffered = new Map<string, { ok: boolean; error?: string }>();
 

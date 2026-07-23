@@ -571,6 +571,12 @@ router.post('/bulk', async (req, res) => {
 // (IMPORT_USE_QUEUE=true) y espera el evento de SU jobId. Sin Redis no hay 202, así que
 // no se usa. (Nada de polling: es push por pub/sub, igual que /orders/stream.)
 router.get('/import-stream', async (req, res) => {
+  // Aislamiento por sucursal (igual que /orders/stream): sin esto, cualquier cliente
+  // recibiría los eventos (jobId, conteos, errores) de TODAS las sucursales -> fuga
+  // cross-tenant. EventSource no manda headers, así que la sucursal viaja por ?sucursalId=.
+  const { sucursalId, error } = resolveSucursalFilter(req);
+  if (error) return res.status(400).json({ error });
+
   res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
@@ -596,6 +602,9 @@ router.get('/import-stream', async (req, res) => {
     if (closed) return;
     try {
       const data = JSON.parse(message);
+      // Solo los eventos de la sucursal del que escucha (el Super Admin sin sucursal
+      // ve todos). Cada quién solo se entera de SUS importaciones.
+      if (sucursalId && data?.uploaderSucursalId !== sucursalId) return;
       if (channel === CH_IMPORT_DONE) send('done', data);
       else if (channel === CH_IMPORT_FAILED) send('failed', data);
     } catch { /* mensaje inválido: ignora */ }
