@@ -12,6 +12,9 @@ import { Redis, type RedisOptions } from 'ioredis';
 
 export const PREFIX = 'procovar-pedido';
 export const CH_ORDERS_NEW = `${PREFIX}:orders:new`;
+// Eventos de la cola de importación de CSV (el worker publica; el SSE los reenvía al front).
+export const CH_IMPORT_DONE = `${PREFIX}:import:done`;
+export const CH_IMPORT_FAILED = `${PREFIX}:import:failed`;
 
 const COMMON: RedisOptions = {
   maxRetriesPerRequest: null,               // requerido por BullMQ (Rebanada 2)

@@ -7,7 +7,7 @@ import {
   resolveSucursalFilter,
   resolveSucursalScope,
 } from '../lib/sucursalContext';
-import { redisEnabled, publishJSON, getSubscriber, CH_ORDERS_NEW } from '../lib/redis';
+import { redisEnabled, publishJSON, getSubscriber, CH_ORDERS_NEW, CH_IMPORT_DONE, CH_IMPORT_FAILED } from '../lib/redis';
 import { importQueue } from '../lib/queues';
 
 
@@ -564,6 +564,48 @@ router.post('/bulk', async (req, res) => {
     console.error('Bulk create error:', err);
     res.status(500).json({ error: 'Failed to create orders' });
   }
+});
+
+// SSE de la cola de importación: reenvía al front los eventos 'done'/'failed' que el
+// worker publica en Redis por cada job. El front abre esto cuando /bulk devolvió 202
+// (IMPORT_USE_QUEUE=true) y espera el evento de SU jobId. Sin Redis no hay 202, así que
+// no se usa. (Nada de polling: es push por pub/sub, igual que /orders/stream.)
+router.get('/import-stream', async (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  (res as any).flushHeaders?.();
+
+  let closed = false;
+  const send = (event: string, data: unknown) => {
+    if (!closed) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+  send('ready', {});
+  const keepAlive = setInterval(() => { if (!closed) res.write(': keep-alive\n\n'); }, 20000);
+
+  if (!redisEnabled()) {
+    // Sin Redis no hay cola ni eventos (el front no debería abrir esto).
+    req.on('close', () => { closed = true; clearInterval(keepAlive); });
+    return;
+  }
+
+  const sub = getSubscriber()!;
+  await sub.subscribe(CH_IMPORT_DONE, CH_IMPORT_FAILED);
+  const onMessage = (channel: string, message: string) => {
+    if (closed) return;
+    try {
+      const data = JSON.parse(message);
+      if (channel === CH_IMPORT_DONE) send('done', data);
+      else if (channel === CH_IMPORT_FAILED) send('failed', data);
+    } catch { /* mensaje inválido: ignora */ }
+  };
+  sub.on('message', onMessage);
+  req.on('close', () => {
+    closed = true;
+    clearInterval(keepAlive);
+    sub.off('message', onMessage); // NO unsubscribe: otros clientes siguen escuchando
+  });
 });
 
 export type BulkImportResults = {

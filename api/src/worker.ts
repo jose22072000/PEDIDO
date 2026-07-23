@@ -4,7 +4,7 @@
 // del request, con concurrencia acotada (IMPORT_CONCURRENCY). Requiere REDIS_URL; sin
 // él no hay colas que consumir (la API entonces importa inline y este worker sobra).
 import 'dotenv/config';
-import { redisEnabled, publishJSON, PREFIX } from './lib/redis';
+import { redisEnabled, publishJSON, CH_IMPORT_DONE, CH_IMPORT_FAILED } from './lib/redis';
 import { importQueue, QUEUE_IMPORT } from './lib/queues';
 import { processBulkImport } from './routes/orders';
 
@@ -27,11 +27,12 @@ async function main() {
     };
     const outcome = await processBulkImport(records, uploaderSucursalId);
     if (!outcome.ok) {
-      // Colisión de vendedor: el job falla con el mensaje (queda registrado como error).
+      // Colisión de vendedor: publica el fallo (el SSE lo reenvía al front) y falla el job.
+      await publishJSON(CH_IMPORT_FAILED, { jobId: String(job.id), uploaderSucursalId, error: outcome.error });
       throw new Error(outcome.error);
     }
-    await publishJSON(`${PREFIX}:import:done`, {
-      jobId: job.id,
+    await publishJSON(CH_IMPORT_DONE, {
+      jobId: String(job.id),
       uploaderSucursalId,
       results: outcome.results,
     });

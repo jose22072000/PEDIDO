@@ -17,6 +17,65 @@ import { getApiBaseUrl } from "@/config";
 
 const fileTypes: string[] = ["CSV"];
 
+// Cuando la cola de importación está activa (IMPORT_USE_QUEUE=true), POST /orders/bulk
+// responde 202 { jobId } y el worker procesa aparte. Seguimos el resultado por SSE
+// (push del worker vía Redis) — NADA de polling. Abrimos UN stream y esperamos el
+// evento done/failed de cada jobId. `buffered` cubre la carrera de que el evento
+// llegue antes de que empecemos a esperarlo.
+function openImportStream() {
+  const es = new EventSource(`${getApiBaseUrl()}/orders/import-stream`);
+  const waiters = new Map<string, { resolve: () => void; reject: (e: Error) => void }>();
+  const buffered = new Map<string, { ok: boolean; error?: string }>();
+
+  const settle = (jobId: string, ok: boolean, error?: string) => {
+    const w = waiters.get(jobId);
+
+    if (w) {
+      waiters.delete(jobId);
+      if (ok) w.resolve();
+      else w.reject(new Error(error || "Falló la importación"));
+    } else {
+      buffered.set(jobId, { ok, error });
+    }
+  };
+
+  es.addEventListener("done", (e) => {
+    try {
+      const d = JSON.parse((e as MessageEvent).data);
+
+      settle(String(d.jobId), true);
+    } catch {
+      /* ignore */
+    }
+  });
+  es.addEventListener("failed", (e) => {
+    try {
+      const d = JSON.parse((e as MessageEvent).data);
+
+      settle(String(d.jobId), false, d.error);
+    } catch {
+      /* ignore */
+    }
+  });
+
+  return {
+    wait: (jobId: string, fileName: string) =>
+      new Promise<void>((resolve, reject) => {
+        const b = buffered.get(jobId);
+
+        if (b) {
+          buffered.delete(jobId);
+          if (b.ok) resolve();
+          else reject(new Error(b.error || `Falló la importación de ${fileName}`));
+
+          return;
+        }
+        waiters.set(jobId, { resolve, reject });
+      }),
+    close: () => es.close(),
+  };
+}
+
 export default function CrearPedidoForm() {
   const [isSending, setIsSending] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
@@ -99,6 +158,9 @@ export default function CrearPedidoForm() {
     setIsSending(true);
     setProgress(0);
 
+    // Stream SSE de la cola de importación (se abre solo si el backend encola: 202).
+    let importStream: ReturnType<typeof openImportStream> | null = null;
+
     try {
       const totalFiles = files.length;
       let processedFiles = 0;
@@ -133,8 +195,16 @@ export default function CrearPedidoForm() {
             throw new Error(`Error al procesar ${file.name}`);
           }
 
-          // Esperar 50ms entre requests
-          if (i < batches.length - 1) {
+          // Cola activa: el backend encoló (202 { jobId }). Esperamos por SSE a que el
+          // worker termine este lote antes de seguir, para que "éxito" signifique
+          // realmente procesado (y que una colisión de vendedor se muestre como error).
+          if (response.status === 202) {
+            const { jobId } = await response.json();
+
+            if (!importStream) importStream = openImportStream();
+            await importStream.wait(String(jobId), file.name);
+          } else if (i < batches.length - 1) {
+            // Modo inline (sin cola): esperar 50ms entre requests como antes.
             await new Promise((resolve) => setTimeout(resolve, 50));
           }
 
@@ -174,6 +244,7 @@ export default function CrearPedidoForm() {
         color: "danger",
       });
     } finally {
+      importStream?.close();
       setIsSending(false);
     }
   };
