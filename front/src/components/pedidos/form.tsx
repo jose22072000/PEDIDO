@@ -82,7 +82,26 @@ async function openImportStream() {
 
           return;
         }
-        waiters.set(jobId, { resolve, reject });
+        // Red de seguridad: si el evento nunca llega (SSE caído/perdido), no colgar
+        // la subida para siempre.
+        const timer = setTimeout(
+          () => {
+            waiters.delete(jobId);
+            reject(new Error(`Tiempo de espera agotado importando ${fileName}`));
+          },
+          5 * 60 * 1000,
+        );
+
+        waiters.set(jobId, {
+          resolve: () => {
+            clearTimeout(timer);
+            resolve();
+          },
+          reject: (e: Error) => {
+            clearTimeout(timer);
+            reject(e);
+          },
+        });
       }),
     close: () => es.close(),
   };
