@@ -115,6 +115,59 @@ router.get('/orders', async (req, res) => {
 });
 
 /**
+ * GET /integration/clients?sucursalCodigo=XXX   (x-api-key)
+ * Clientes GEOLOCALIZADOS (con lat/lng) de la sucursal local. Delivery los espeja
+ * localmente para armar órdenes personalizadas SELECCIONANDO el cliente (no recrearlo),
+ * ya con su geo → sale el costo. SOLO con geo: sin coordenadas no se puede cotizar el
+ * domicilio, así que no tiene sentido traerlos. Mismo scope de sucursal que /orders.
+ */
+router.get('/clients', async (req, res) => {
+  const askedCodigo = typeof req.query.sucursalCodigo === 'string' ? req.query.sucursalCodigo.trim() : '';
+
+  const localSucursalId = readConfiguredSucursalId();
+  let sucursalScope: Record<string, unknown> = {};
+  if (localSucursalId) {
+    sucursalScope = { sucursalId: localSucursalId };
+    if (askedCodigo) {
+      const local = await prisma.sucursal.findUnique({ where: { id: localSucursalId } });
+      if (local?.codigo && local.codigo !== askedCodigo) {
+        return res.status(403).json({
+          error: `Esta instalación es de la sucursal '${local.codigo}', no '${askedCodigo}'.`,
+        });
+      }
+    }
+  } else if (askedCodigo) {
+    sucursalScope = { sucursal: { codigo: askedCodigo } };
+  }
+
+  const clientes = await prisma.cliente.findMany({
+    where: {
+      ...sucursalScope,
+      latitud: { not: null },
+      longitud: { not: null },
+    },
+    include: { sucursal: { select: { codigo: true, nombre: true } } },
+    orderBy: { nombre: 'asc' },
+  });
+
+  const clients = clientes.map((c) => ({
+    id: c.id,
+    codigo: c.codigo,
+    nombre: c.nombre,
+    zona: c.zona,
+    direccion: c.direccion,
+    municipio: c.municipio,
+    latitud: c.latitud,
+    longitud: c.longitud,
+    sucursalId: c.sucursalId,
+    sucursalCodigo: c.sucursal?.codigo || null,
+    sucursalNombre: c.sucursal?.nombre || null,
+  }));
+
+  res.json({ count: clients.length, clients });
+});
+
+/**
  * POST /integration/orders/domicilio
  * Body: { updates: [{ id, costo, distanceKm? }] }
  * Delivery escribe el costo de domicilio calculado en cada pedido.
