@@ -7,4 +7,6 @@ services:
     container_name: procovar-front
     restart: unless-stopped
     ports:
-      - "5000:5000"
+      # Host 5001 -> container 5000: el nginx del host proxya pedidos a :5001, y :5000
+      # ya lo usa otra app en el VPS. (Cambiar aquí si el entorno usa otro puerto.)
+      - "5001:5000"
