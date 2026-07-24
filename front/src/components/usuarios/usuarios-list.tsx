@@ -28,6 +28,7 @@ import Icons from "../icons/iconify";
 
 import { cards } from "@/components/primitives";
 import { getApiBaseUrl } from "@/config";
+import { getSucursalActiva } from "@/components/sucursal-selector";
 import { useAuthStore } from "@/stores/authStore";
 
 interface Usuario {
@@ -86,6 +87,7 @@ export const UsuariosList = () => {
   const [editError, setEditError] = useState<string | null>(null);
 
   const isGlobalAdmin = Boolean(session?.isGlobalAdmin);
+  const activeSucursalId = isGlobalAdmin ? getSucursalActiva() : session?.sucursalId;
 
   // Solo un Super Admin puede asignar el rol Super Admin (igual que al crear).
   const rolesDisponibles = useMemo(
@@ -136,9 +138,7 @@ export const UsuariosList = () => {
     setError(null);
 
     try {
-      const response = await fetch(
-        `${getApiBaseUrl()}/users${isGlobalAdmin ? "?sucursalId=all" : ""}`,
-      );
+      const response = await fetch(`${getApiBaseUrl()}/users`);
 
       if (!response.ok) {
         throw new Error("Error al cargar los usuarios");
@@ -348,62 +348,74 @@ export const UsuariosList = () => {
           <TableColumn>ACCIONES</TableColumn>
         </TableHeader>
         <TableBody emptyContent="No hay usuarios registrados">
-          {paginatedUsuarios.map((usuario) => (
-            <TableRow key={usuario.id}>
-              <TableCell className="font-bold text-medium text-primary">
-                {usuario.username}
-              </TableCell>
-              <TableCell>
-                {usuario.rol ? (
-                  <Chip
-                    className="border-primary [&>span]:text-primary [&>span]:font-bold [&>span]:uppercase"
-                    color="primary"
-                    size="sm"
-                    variant="dot"
-                  >
-                    {usuario.rol.nombre}
-                  </Chip>
-                ) : (
-                  <span className="text-primary font-bold uppercase">
-                    Sin rol
-                  </span>
-                )}
-              </TableCell>
-              <TableCell className="text-primary font-bold uppercase">
-                {usuario.sucursal?.nombre || (
-                  <span className="text-primary font-bold uppercase">
-                    Sin sucursal
-                  </span>
-                )}
-              </TableCell>
-              <TableCell>
-                {new Date(usuario.createdAt).toLocaleDateString()}
-              </TableCell>
-              <TableCell>
-                <div className="flex items-center gap-2">
-                  <Button
-                    aria-label="Editar usuario"
-                    color="primary"
-                    isIconOnly={true}
-                    variant="flat"
-                    onPress={() => openEditModal(usuario)}
-                  >
-                    <Icons.edit className="size-6" />
-                  </Button>
-                  <Button
-                    aria-label="Eliminar usuario"
-                    color="danger"
-                    isDisabled={user?.username === usuario.username}
-                    isIconOnly={true}
-                    variant="flat"
-                    onPress={() => openDeleteModal(usuario)}
-                  >
-                    <Icons.trash className="size-6" />
-                  </Button>
-                </div>
-              </TableCell>
-            </TableRow>
-          ))}
+          {paginatedUsuarios.map((usuario) => {
+            const isSameBranch = activeSucursalId && usuario.sucursalId === activeSucursalId;
+
+            return (
+              <TableRow
+                key={usuario.id}
+                className={isSameBranch ? "bg-success-50" : ""}
+              >
+                <TableCell className="font-bold text-medium text-primary">
+                  <div className="flex items-center gap-2">
+                    {isSameBranch && (
+                      <span className="inline-block size-2 rounded-full bg-success" />
+                    )}
+                    {usuario.username}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  {usuario.rol ? (
+                    <Chip
+                      className="border-primary [&>span]:text-primary [&>span]:font-bold [&>span]:uppercase"
+                      color="primary"
+                      size="sm"
+                      variant="dot"
+                    >
+                      {usuario.rol.nombre}
+                    </Chip>
+                  ) : (
+                    <span className="text-primary font-bold uppercase">
+                      Sin rol
+                    </span>
+                  )}
+                </TableCell>
+                <TableCell className="text-primary font-bold uppercase">
+                  {usuario.sucursal?.nombre || (
+                    <span className="text-primary font-bold uppercase">
+                      Sin sucursal
+                    </span>
+                  )}
+                </TableCell>
+                <TableCell>
+                  {new Date(usuario.createdAt).toLocaleDateString()}
+                </TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      aria-label="Editar usuario"
+                      color="primary"
+                      isIconOnly={true}
+                      variant="flat"
+                      onPress={() => openEditModal(usuario)}
+                    >
+                      <Icons.edit className="size-6" />
+                    </Button>
+                    <Button
+                      aria-label="Eliminar usuario"
+                      color="danger"
+                      isDisabled={user?.username === usuario.username}
+                      isIconOnly={true}
+                      variant="flat"
+                      onPress={() => openDeleteModal(usuario)}
+                    >
+                      <Icons.trash className="size-6" />
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            );
+          })}
         </TableBody>
       </Table>
 

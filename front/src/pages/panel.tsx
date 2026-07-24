@@ -8,12 +8,10 @@ import { LineChartCard } from "@/components/dashboard/LineChartCard";
 import { useAuthStore } from "@/stores/authStore";
 
 export default function PanelPage() {
-  const { user } = useAuthStore();
+  const { user, session } = useAuthStore();
   const { stats, isLoading, refetch } = useDashboard();
   const sucursalNombre = user?.sucursal || "";
-  // Configuración (crear sucursales, borrar la base) es SOLO del Super Admin: un
-  // Administrador pertenece a UNA sucursal y no debe tocar nada de eso.
-  const isSuperAdmin = String(user?.role || "").toLowerCase() === "super admin";
+  const isSuperAdmin = Boolean(session?.isGlobalAdmin);
 
   useEffect(() => {
     // Refetch stats cada vez que se entre a la página

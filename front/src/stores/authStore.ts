@@ -138,20 +138,20 @@ export const useAuthStore = create<AuthState>()(
 
           const data = await response.json();
 
-          set({
-            user: data.user,
-            token: data.token || null,
-            session: {
-              rol: data.user?.role
-                ? String(data.user.role).toUpperCase()
-                : undefined,
-              sucursalId: data.user?.sucursalId || undefined,
-              usuarioId: data.user?.id || undefined,
-              isGlobalAdmin:
-                String(data.user?.username || "").toLowerCase() === "admin" ||
-                String(data.user?.role || "").toUpperCase() ===
-                  "ADMINISTRADOR",
-            },
+            set({
+              user: data.user,
+              token: data.token || null,
+              session: {
+                rol: data.user?.role
+                  ? String(data.user.role).toUpperCase()
+                  : undefined,
+                sucursalId: data.user?.sucursalId || undefined,
+                usuarioId: data.user?.id || undefined,
+                isGlobalAdmin:
+                  String(data.user?.username || "").toLowerCase() === "admin" ||
+                  String(data.user?.role || "").toUpperCase() ===
+                    "SUPER ADMIN",
+              },
             isAuthenticated: true,
             error: null,
           });
