@@ -8,6 +8,11 @@ import {
 
 const router = express.Router();
 
+// Roles que pueden "llevar" vendedores (ser su gestor). Un vendedor SIN enlace queda
+// "sin asignar" y sus pedidos NO aparecen en la vista (que scopea por la sucursal del
+// gestor). El Supervisor también sube pedidos, así que también tiene que poder llevarlos.
+const ROLES_ENLAZABLES = ['Gestor', 'Supervisor'];
+
 // GET /vendedores - List all vendedores
 router.get('/', async (req, res) => {
   try {
@@ -92,7 +97,10 @@ router.get('/gestores', async (req, res) => {
         orderBy: [{ nombre: 'asc' }],
       }),
       prisma.usuario.findMany({
-        where: { rol: { nombre: 'Gestor' }, ...scopeGestores },
+        // El Supervisor TAMBIÉN sube pedidos, así que también debe poder enlazarse a un
+        // vendedor: si no, esos vendedores quedan "sin asignar" y sus pedidos NO salen
+        // en la vista (que scopea por sucursal del gestor).
+        where: { rol: { nombre: { in: ROLES_ENLAZABLES } }, ...scopeGestores },
         select: {
           id: true,
           username: true,
@@ -185,8 +193,10 @@ router.patch('/:id/gestor', async (req, res) => {
         include: { rol: true },
       });
       if (!gestor) return res.status(404).json({ error: 'Gestor no encontrado' });
-      if (gestor.rol?.nombre !== 'Gestor') {
-        return res.status(400).json({ error: 'Ese usuario no tiene rol Gestor' });
+      if (!ROLES_ENLAZABLES.includes(gestor.rol?.nombre ?? '')) {
+        return res.status(400).json({
+          error: `Ese usuario no puede llevar vendedores: se requiere rol ${ROLES_ENLAZABLES.join(' o ')}.`,
+        });
       }
       if (!gestor.sucursalId) {
         return res.status(400).json({ error: 'El gestor no tiene sucursal asignada' });
