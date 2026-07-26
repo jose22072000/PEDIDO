@@ -568,7 +568,13 @@ router.post('/bulk', async (req, res) => {
     // esté corriendo, si no los jobs no se procesarían. Sin el flag se procesa INLINE
     // (idéntico al comportamiento actual), aunque Redis esté activo para el SSE. Así
     // activar Redis para el pub/sub NO cambia el import por accidente.
-    const queue = process.env.IMPORT_USE_QUEUE === 'true' ? importQueue() : null;
+    // El ingester (n8n) pide ?sync=1 para procesar INLINE y recibir el resultado real
+    // (200 con {created,updated,failed,sinAsignar} o 409 de colisión) en la MISMA
+    // respuesta: así mueve el archivo a Procesados/Errores según corrió de verdad, y el
+    // log de n8n muestra qué entró y qué falló. La UI (super admin, archivos grandes)
+    // sigue con cola+SSE (sin el flag): 202 + progreso por evento.
+    const forceInline = req.query.sync === '1' || req.query.sync === 'true';
+    const queue = (!forceInline && process.env.IMPORT_USE_QUEUE === 'true') ? importQueue() : null;
     if (queue) {
       const job = await queue.add({ records, uploaderSucursalId: uploaderSucursalId ?? null });
       return res.status(202).json({ enqueued: true, jobId: String(job.id) });
