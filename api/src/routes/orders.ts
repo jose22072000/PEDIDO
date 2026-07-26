@@ -8,7 +8,7 @@ import {
   resolveSucursalScope,
 } from '../lib/sucursalContext';
 import { redisEnabled, publishJSON, getSubscriber, CH_ORDERS_NEW, CH_IMPORT_DONE, CH_IMPORT_FAILED } from '../lib/redis';
-import { importQueue } from '../lib/queues';
+import { importQueue, enqueueDeliveryOrders } from '../lib/queues';
 import { mintSseTicket, consumeSseTicket } from '../lib/sseTickets';
 
 
@@ -364,6 +364,11 @@ router.post('/', async (req, res) => {
       include: { items: true }
     });
 
+    // Event-driven: avisa a delivery que hay un pedido nuevo para (re)procesar. Durable
+    // (cola Redis); no-op sin Redis. Reemplaza el poll de 15s de delivery. Delivery filtra
+    // luego los que tienen geo + requieren domicilio.
+    void enqueueDeliveryOrders({ reason: 'order-created', externalId: order.id });
+
     res.status(201).json(order);
   } catch (err) {
     console.error(err);
@@ -682,6 +687,10 @@ export async function processBulkImport(
     }
   }
 
+  // Se importaron pedidos -> avisa a delivery para (re)procesar domicilios (event-driven).
+  if (results.created > 0 || results.updated > 0) {
+    void enqueueDeliveryOrders({ reason: 'bulk-import' });
+  }
   return { ok: true, results };
 }
 

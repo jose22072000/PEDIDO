@@ -5,6 +5,7 @@ import xlsx from 'xlsx';
 
 import prisma from '../prismaClient';
 import { getRequesterContext, resolveSucursalScope } from '../lib/sucursalContext';
+import { enqueueDeliveryOrders } from '../lib/queues';
 
 /**
  * Subida del "Consolidado de Geolocalización" que entrega Parranda.
@@ -179,6 +180,11 @@ router.post('/', upload.single('file') as any, async (req, res) => {
     });
     const totalClientes = await prisma.cliente.count({ where: sucursalId ? { sucursalId } : {} });
 
+    // Se añadió geo a clientes -> sus pedidos con domicilio ahora son cotizables. Avisa a
+    // delivery (event-driven, cola durable). Solo si NO es simulación y hubo cambios reales.
+    if (!dry && total.actualizados > 0) {
+      void enqueueDeliveryOrders({ reason: 'geo-updated' });
+    }
     res.json({ dry, total, detalle, clientesConGeo: conGeoAhora, clientesTotal: totalClientes });
   } catch (err) {
     console.error('Error importando geolocalización:', err);
