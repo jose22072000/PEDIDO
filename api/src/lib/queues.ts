@@ -45,6 +45,12 @@ export function importQueue(): Queue.Queue | null {
   return makeQueue(QUEUE_IMPORT);
 }
 
+/** Cola del sync de clientes desde Parranda (Retool). null si Redis está deshabilitado. */
+export const QUEUE_PARRANDA = `${PREFIX}:sync-clientes-parranda`;
+export function parrandaQueue(): Queue.Queue | null {
+  return makeQueue(QUEUE_PARRANDA);
+}
+
 /** Cola de ingesta de pedidos hacia delivery. null si Redis está deshabilitado. */
 export function deliveryOrdersQueue(): Queue.Queue | null {
   return makeQueue(QUEUE_DELIVERY_IN_ORDERS);
