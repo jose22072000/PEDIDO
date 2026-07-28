@@ -1,0 +1,344 @@
+{
+  "name": "Ingesta Pedidos (multi-sucursal) — cuenta padre 1",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "4d779b1f-5a94-4ada-9440-3f5ada9629cd",
+      "name": "Cada minuto",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -380,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// === CONFIG: 1 cuenta padre = hasta 4 sucursales ===\n// Edita SOLO esta lista. Pega los IDs de carpeta de Google Drive de cada sucursal.\n//   inbox = carpeta donde caen los CSV de pedidos\n//   proc  = carpeta \"Procesados\"   |   err = carpeta \"Errores\"\n// Las filas que queden con 'PEGAR_...' se ignoran (no se procesan) hasta que las llenes.\nconst SUCURSALES = [\n  { sucursal: 'Guantanamo',          inbox: '18t3Gvo9V2zbw5gJBdJBorWbNvIZwhlxH', proc: '1bv6-ZrYHEEKKx89_3w88FXNv5KwKWu_p', err: '1TQjuKJZW1vgmfc8rIBvVwyoJ-5zkR8G5' },\n  { sucursal: 'Sucursal 2 (EDITAR)', inbox: 'PEGAR_INBOX_ID', proc: 'PEGAR_PROCESADOS_ID', err: 'PEGAR_ERRORES_ID' },\n  { sucursal: 'Sucursal 3 (EDITAR)', inbox: 'PEGAR_INBOX_ID', proc: 'PEGAR_PROCESADOS_ID', err: 'PEGAR_ERRORES_ID' },\n  { sucursal: 'Sucursal 4 (EDITAR)', inbox: 'PEGAR_INBOX_ID', proc: 'PEGAR_PROCESADOS_ID', err: 'PEGAR_ERRORES_ID' },\n];\nreturn SUCURSALES\n  .filter(s => s.inbox && !String(s.inbox).startsWith('PEGAR_'))\n  .map(s => ({ json: s }));\n"
+      },
+      "id": "c55be59c-006f-4020-9515-678c6a77ecda",
+      "name": "Config sucursales",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -160,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "fileFolder",
+        "searchMethod": "query",
+        "queryString": "={{ \"'\" + $json.inbox + \"' in parents and trashed = false and mimeType != 'application/vnd.google-apps.folder'\" }}",
+        "returnAll": true,
+        "filter": {},
+        "options": {
+          "fields": [
+            "id",
+            "name",
+            "parents"
+          ]
+        }
+      },
+      "id": "2a9e5b69-e01e-49fe-bcf3-99e49ace8f1a",
+      "name": "Buscar CSVs",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        60,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Empareja cada archivo con su carpeta destino segun su carpeta padre (parents[0]).\n// Determinista: no depende del orden ni del pairing de n8n.\nconst cfg = $('Config sucursales').all().map(i => i.json);\nconst byInbox = {};\nfor (const c of cfg) byInbox[c.inbox] = c;\nconst out = [];\nfor (const it of $input.all()) {\n  const f = it.json || {};\n  const parent = Array.isArray(f.parents) ? f.parents[0] : undefined;\n  const c = byInbox[parent];\n  if (!f.id || !c) continue; // archivo fuera de las carpetas configuradas: se ignora\n  out.push({ json: { id: f.id, name: f.name, _proc: c.proc, _err: c.err, _sucursal: c.sucursal } });\n}\nreturn out;\n"
+      },
+      "id": "781955c7-f217-47c6-85b7-8763bf147945",
+      "name": "Mapear carpeta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "0731a9db-416d-4a33-ba47-aedf87ead59b",
+      "name": "Por archivo",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        500,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $json.id }}",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "91782b86-1e26-4643-8ff3-598efca1deb1",
+      "name": "Descargar",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        720,
+        120
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "fileFormat": "csv",
+        "options": {
+          "headerRow": true
+        }
+      },
+      "id": "eeb931dd-a650-4d6f-a429-987d2afed60c",
+      "name": "Leer CSV",
+      "type": "n8n-nodes-base.spreadsheetFile",
+      "typeVersion": 2,
+      "position": [
+        940,
+        120
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8400/orders/bulk?sync=1",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "records",
+              "value": "={{ $input.all().map(i => i.json) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "3bcb459e-bc6a-43d3-9123-74d9193f6a1a",
+      "name": "Enviar a PEDIDO",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1160,
+        120
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "move",
+        "fileId": "={{ $('Por archivo').item.json.id }}",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive",
+          "cachedResultName": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "={{ $('Por archivo').item.json._proc }}",
+          "mode": "id"
+        }
+      },
+      "id": "bfd215db-36ac-4d5e-8945-966ba5b50028",
+      "name": "Mover a Procesados",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1380,
+        40
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "operation": "move",
+        "fileId": "={{ $('Por archivo').item.json.id }}",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive",
+          "cachedResultName": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "={{ $('Por archivo').item.json._err }}",
+          "mode": "id"
+        }
+      },
+      "id": "adb4756f-1e44-4c77-8ba9-a4d0a1c3b985",
+      "name": "Mover a Errores",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1380,
+        220
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    }
+  ],
+  "connections": {
+    "Cada minuto": {
+      "main": [
+        [
+          {
+            "node": "Config sucursales",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config sucursales": {
+      "main": [
+        [
+          {
+            "node": "Buscar CSVs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar CSVs": {
+      "main": [
+        [
+          {
+            "node": "Mapear carpeta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mapear carpeta": {
+      "main": [
+        [
+          {
+            "node": "Por archivo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Por archivo": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Descargar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Descargar": {
+      "main": [
+        [
+          {
+            "node": "Leer CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer CSV": {
+      "main": [
+        [
+          {
+            "node": "Enviar a PEDIDO",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mover a Errores",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar a PEDIDO": {
+      "main": [
+        [
+          {
+            "node": "Mover a Procesados",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mover a Errores",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mover a Procesados": {
+      "main": [
+        [
+          {
+            "node": "Por archivo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mover a Errores": {
+      "main": [
+        [
+          {
+            "node": "Por archivo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
