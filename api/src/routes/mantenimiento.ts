@@ -313,27 +313,47 @@ router.post('/restore', upload.single('file') as any, async (req, res) => {
         vendOk++;
       } catch { /* se salta */ }
     }
+    // CLIENTES: se resuelven por (nombre, sucursalId) — NO por id — para NO chocar con los
+    // que ya existen (ej. los de Parranda). Si existe, se reusa; si no, se crea. Mapa
+    // backupClienteId -> idLocal para remapear los pedidos (esto es lo que hacía perder
+    // casi todos los pedidos: el cliente se saltaba y el pedido quedaba con FK rota).
+    const cliMap = new Map<string, string>();
     let cliOk = 0;
     for (const c of clientes) {
       try {
-        const base = { nombre: c.nombre, codigo: c.codigo ?? null, zona: c.zona ?? null, sucursalId: mapSuc(c.sucursalId), direccion: c.direccion ?? null, municipio: c.municipio ?? null, tipoCliente: c.tipoCliente ?? null, estadoCompra: c.estadoCompra ?? null, latitud: c.latitud ?? null, longitud: c.longitud ?? null, geolocalizacion: c.geolocalizacion ?? null };
-        await prisma.cliente.upsert({ where: { id: c.id }, update: base, create: { id: c.id, ...base, createdAt: fecha(c.createdAt) ?? undefined } });
-        cliOk++;
-      } catch { /* nombre/codigo duplicado en la sucursal: se salta */ }
+        const sucId = mapSuc(c.sucursalId);
+        const existente = await prisma.cliente.findFirst({ where: { nombre: c.nombre, sucursalId: sucId } });
+        if (existente) { cliMap.set(c.id, existente.id); continue; }
+        const cData: any = { nombre: c.nombre, sucursalId: sucId, codigo: c.codigo ?? null, zona: c.zona ?? null, direccion: c.direccion ?? null, municipio: c.municipio ?? null, tipoCliente: c.tipoCliente ?? null, estadoCompra: c.estadoCompra ?? null, latitud: c.latitud ?? null, longitud: c.longitud ?? null, geolocalizacion: c.geolocalizacion ?? null, createdAt: fecha(c.createdAt) ?? undefined };
+        let creado;
+        try { creado = await prisma.cliente.create({ data: cData }); }
+        catch { creado = await prisma.cliente.create({ data: { ...cData, codigo: null } }); } // codigo duplicado
+        cliMap.set(c.id, creado.id); cliOk++;
+      } catch { /* se salta */ }
     }
+    // PEDIDOS: se matchean por su clave de negocio (sucursalId, folio, vendedorId) para NO
+    // chocar con el único; clienteId/vendedorId remapeados a los ids locales. pedMap -> items.
+    const vendIds = new Set((await prisma.vendedor.findMany({ select: { id: true } })).map((v) => v.id));
+    const pedMap = new Map<string, { id: string; nuevo: boolean }>();
     let pedOk = 0;
     for (const p of pedidos) {
       try {
-        const base = { folio: p.folio, sucursalId: mapSuc(p.sucursalId), vendedorId: p.vendedorId ?? null, clienteId: p.clienteId ?? null, direccion: p.direccion ?? null, encargado: p.encargado ?? null, telefono: p.telefono ?? null, fecha: fecha(p.fecha) ?? new Date(), fecha_comprometida: fecha(p.fecha_comprometida), estado: p.estado ?? null, pedido_cobrado: p.pedido_cobrado ?? null, requiere_domicilio: p.requiere_domicilio ?? null, costoDomicilio: p.costoDomicilio ?? null };
-        await prisma.pedido.upsert({ where: { id: p.id }, update: base, create: { id: p.id, ...base, createdAt: fecha(p.createdAt) ?? undefined } });
-        pedOk++;
-      } catch { /* FK rota (cliente/vendedor saltado) u otro: se salta */ }
+        const sucId = mapSuc(p.sucursalId);
+        const clienteId = p.clienteId ? (cliMap.get(p.clienteId) ?? null) : null;
+        const vendedorId = p.vendedorId && vendIds.has(p.vendedorId) ? p.vendedorId : null;
+        const base = { sucursalId: sucId, vendedorId, clienteId, direccion: p.direccion ?? null, encargado: p.encargado ?? null, telefono: p.telefono ?? null, fecha: fecha(p.fecha) ?? new Date(), fecha_comprometida: fecha(p.fecha_comprometida), estado: p.estado ?? null, pedido_cobrado: p.pedido_cobrado ?? null, requiere_domicilio: p.requiere_domicilio ?? null, costoDomicilio: p.costoDomicilio ?? null };
+        const existente = await prisma.pedido.findFirst({ where: { sucursalId: sucId, folio: p.folio, vendedorId } });
+        if (existente) { await prisma.pedido.update({ where: { id: existente.id }, data: base }); pedMap.set(p.id, { id: existente.id, nuevo: false }); }
+        else { const creado = await prisma.pedido.create({ data: { folio: p.folio, ...base, createdAt: fecha(p.createdAt) ?? undefined } }); pedMap.set(p.id, { id: creado.id, nuevo: true }); pedOk++; }
+      } catch { /* se salta */ }
     }
+    // ITEMS: solo de pedidos NUEVOS (los existentes ya tienen los suyos). pedidoId remapeado.
     let itemOk = 0;
     for (const it of items) {
       try {
-        const base = { pedidoId: it.pedidoId, codigo: it.codigo ?? null, producto: it.producto, unidades: it.unidades, packs: it.packs ?? null, descripcion: it.descripcion ?? null };
-        await prisma.pedidoItem.upsert({ where: { id: it.id }, update: base, create: { id: it.id, ...base } });
+        const ped = pedMap.get(it.pedidoId);
+        if (!ped || !ped.nuevo) continue;
+        await prisma.pedidoItem.create({ data: { pedidoId: ped.id, codigo: it.codigo ?? null, producto: it.producto, unidades: it.unidades, packs: it.packs ?? null, descripcion: it.descripcion ?? null } });
         itemOk++;
       } catch { /* se salta */ }
     }
@@ -475,45 +495,49 @@ router.post('/import-sqlite', upload.single('file') as any, async (req, res) => 
     }
 
     // 5) Clientes (por sucursal).
+    // CLIENTES por (nombre, sucursalId) -> mapa (NO chocar con Parranda/existentes; esto
+    // evitaba que casi todos los pedidos entraran).
+    const cliMap = new Map<string, string>();
     let cliOk = 0;
     for (const c of clientesSrc) {
       try {
-        const base = { nombre: c.nombre, codigo: c.parrandaId ?? null, zona: c.zona ?? null, sucursalId };
-        await prisma.cliente.upsert({
-          where: { id: c.id },
-          update: base,
-          create: { id: c.id, ...base, createdAt: fecha(c.createdAt) ?? undefined },
-        });
-        cliOk++;
-      } catch { /* nombre duplicado dentro de la sucursal, etc.: se salta */ }
+        const existente = await prisma.cliente.findFirst({ where: { nombre: c.nombre, sucursalId } });
+        if (existente) { cliMap.set(c.id, existente.id); continue; }
+        const cData: any = { nombre: c.nombre, sucursalId, codigo: c.parrandaId ?? null, zona: c.zona ?? null, createdAt: fecha(c.createdAt) ?? undefined };
+        let creado;
+        try { creado = await prisma.cliente.create({ data: cData }); }
+        catch { creado = await prisma.cliente.create({ data: { ...cData, codigo: null } }); }
+        cliMap.set(c.id, creado.id); cliOk++;
+      } catch { /* se salta */ }
     }
 
-    // 6) Pedidos + items.
+    // 6) PEDIDOS por (sucursalId, folio, vendedorId); clienteId/vendedorId remapeados. + items.
+    const vendIds = new Set((await prisma.vendedor.findMany({ select: { id: true } })).map((v) => v.id));
+    const pedMap = new Map<string, { id: string; nuevo: boolean }>();
     let pedOk = 0;
     for (const p of pedidosSrc) {
       try {
+        const clienteId = p.clientId ? (cliMap.get(p.clientId) ?? null) : null;
+        const vendedorId = p.sellerId && vendIds.has(p.sellerId) ? p.sellerId : null;
         const base = {
-          folio: p.folio, sucursalId,
-          vendedorId: p.sellerId ?? null, clienteId: p.clientId ?? null,
+          sucursalId, vendedorId, clienteId,
           direccion: p.direccion ?? null, encargado: p.encargado ?? null, telefono: p.telefono ?? null,
           fecha: fecha(p.fecha) ?? new Date(), fecha_comprometida: fecha(p.fecha_comprometida),
           estado: p.status ?? null, pedido_cobrado: p.paymentStatus ?? null,
           requiere_domicilio: p.requiresDelivery == null ? null : Boolean(p.requiresDelivery),
           costoDomicilio: null,
         };
-        await prisma.pedido.upsert({
-          where: { id: p.id },
-          update: base,
-          create: { id: p.id, ...base, createdAt: fecha(p.createdAt) ?? undefined },
-        });
-        pedOk++;
+        const existente = await prisma.pedido.findFirst({ where: { sucursalId, folio: p.folio, vendedorId } });
+        if (existente) { await prisma.pedido.update({ where: { id: existente.id }, data: base }); pedMap.set(p.id, { id: existente.id, nuevo: false }); }
+        else { const creado = await prisma.pedido.create({ data: { folio: p.folio, ...base, createdAt: fecha(p.createdAt) ?? undefined } }); pedMap.set(p.id, { id: creado.id, nuevo: true }); pedOk++; }
       } catch { /* se salta */ }
     }
     let itemOk = 0;
     for (const it of itemsSrc) {
       try {
-        const base = { pedidoId: it.orderId, codigo: it.code ?? null, producto: it.producto, unidades: it.unidades, packs: it.packs ?? null, descripcion: it.descripcion ?? null };
-        await prisma.pedidoItem.upsert({ where: { id: it.id }, update: base, create: { id: it.id, ...base } });
+        const ped = pedMap.get(it.orderId);
+        if (!ped || !ped.nuevo) continue;
+        await prisma.pedidoItem.create({ data: { pedidoId: ped.id, codigo: it.code ?? null, producto: it.producto, unidades: it.unidades, packs: it.packs ?? null, descripcion: it.descripcion ?? null } });
         itemOk++;
       } catch { /* se salta */ }
     }
