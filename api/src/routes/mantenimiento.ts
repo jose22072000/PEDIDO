@@ -227,46 +227,82 @@ router.post('/restore', upload.single('file') as any, async (req, res) => {
     };
     if (dry) return res.json({ dry: true, ...resumen });
 
-    // Orden respetando las claves foráneas. Todo por upsert (id preservado).
+    // Sucursales: se resuelven por CÓDIGO (identidad de negocio), NO por id — en cada
+    // servidor los ids son distintos. Se arma un mapa idBackup -> idLocal para remapear
+    // TODOS los hijos (usuarios, vendedores, clientes, pedidos). Cada fila en su propio
+    // try: una fila mala no aborta el import completo.
+    const sucMap = new Map<string, string>();
     for (const s of sucursales) {
-      await prisma.sucursal.upsert({ where: { id: s.id }, update: { nombre: s.nombre, codigo: s.codigo ?? undefined }, create: { id: s.id, nombre: s.nombre, codigo: s.codigo ?? null, createdAt: fecha(s.createdAt) ?? undefined } });
+      try {
+        const codigo = (s.codigo ? String(s.codigo).trim().toUpperCase() : '') || null;
+        let local = codigo ? await prisma.sucursal.findFirst({ where: { codigo } }) : null;
+        if (!local) local = await prisma.sucursal.findUnique({ where: { id: s.id } });
+        if (!local) local = await prisma.sucursal.create({ data: { nombre: s.nombre, codigo } });
+        else if (codigo && !local.codigo) await prisma.sucursal.update({ where: { id: local.id }, data: { codigo } });
+        sucMap.set(s.id, local.id);
+      } catch { /* sucursal mala: se salta */ }
     }
-    // Roles: se identifican por NOMBRE (son estándar y cada servidor los siembra con
-    // ids distintos). Se arma un mapa idOrigen -> idDestino para remapear los usuarios.
+    const mapSuc = (id: string | null | undefined) => (id && sucMap.get(id)) || id || null;
+
+    // Roles por NOMBRE (estándar; cada servidor los siembra con ids distintos).
     const roleMap = new Map<string, string>();
     for (const r of roles) {
-      const dest = await prisma.rol.upsert({ where: { nombre: r.nombre }, update: {}, create: { nombre: r.nombre } });
-      roleMap.set(r.id, dest.id);
+      try {
+        const dest = await prisma.rol.upsert({ where: { nombre: r.nombre }, update: {}, create: { nombre: r.nombre } });
+        roleMap.set(r.id, dest.id);
+      } catch { /* rol malo: se salta */ }
     }
-    // Usuarios: solo crear si no existen (no pisar los del destino); rolId remapeado.
+    // Usuarios: solo crear si no existen (no pisar los del destino); sucursalId remapeado.
     let usuariosNuevos = 0;
     for (const u of usuarios) {
-      const existe = await prisma.usuario.findFirst({ where: { OR: [{ id: u.id }, { username: u.username }] } });
-      if (existe) continue;
-      await prisma.usuario.create({ data: { id: u.id, username: u.username, password: u.password, rolId: u.rolId ? (roleMap.get(u.rolId) ?? null) : null, sucursalId: u.sucursalId, createdAt: fecha(u.createdAt) ?? undefined } });
-      usuariosNuevos++;
+      try {
+        const existe = await prisma.usuario.findFirst({ where: { OR: [{ id: u.id }, { username: u.username }] } });
+        if (existe) continue;
+        await prisma.usuario.create({ data: { id: u.id, username: u.username, password: u.password, rolId: u.rolId ? (roleMap.get(u.rolId) ?? null) : null, sucursalId: mapSuc(u.sucursalId), createdAt: fecha(u.createdAt) ?? undefined } });
+        usuariosNuevos++;
+      } catch { /* se salta */ }
     }
+    let vendOk = 0;
     for (const v of vendedores) {
-      // gestorId solo si ese usuario existe ya en el destino (evita romper la FK).
-      let gestorId = v.gestorId ?? null;
-      if (gestorId && !(await prisma.usuario.findUnique({ where: { id: gestorId } }))) gestorId = null;
-      await prisma.vendedor.upsert({ where: { id: v.id }, update: { nombre: v.nombre, codigo: v.codigo ?? undefined, sucursalId: v.sucursalId, gestorId, activo: v.activo ?? true }, create: { id: v.id, nombre: v.nombre, codigo: v.codigo ?? null, sucursalId: v.sucursalId, gestorId, activo: v.activo ?? true, createdAt: fecha(v.createdAt) ?? undefined } });
+      try {
+        let gestorId = v.gestorId ?? null;
+        if (gestorId && !(await prisma.usuario.findUnique({ where: { id: gestorId } }))) gestorId = null;
+        // codigo de vendedor es único global: si choca con OTRO, se deja null.
+        let codigoV: string | null = v.codigo ?? null;
+        if (codigoV) { const clash = await prisma.vendedor.findUnique({ where: { codigo: codigoV } }); if (clash && clash.id !== v.id) codigoV = null; }
+        const base = { nombre: v.nombre, codigo: codigoV, sucursalId: mapSuc(v.sucursalId), gestorId, activo: v.activo ?? true };
+        await prisma.vendedor.upsert({ where: { id: v.id }, update: base, create: { id: v.id, ...base, createdAt: fecha(v.createdAt) ?? undefined } });
+        vendOk++;
+      } catch { /* se salta */ }
     }
+    let cliOk = 0;
     for (const c of clientes) {
-      const base = { nombre: c.nombre, codigo: c.codigo ?? null, zona: c.zona ?? null, sucursalId: c.sucursalId, direccion: c.direccion ?? null, municipio: c.municipio ?? null, tipoCliente: c.tipoCliente ?? null, estadoCompra: c.estadoCompra ?? null, latitud: c.latitud ?? null, longitud: c.longitud ?? null, geolocalizacion: c.geolocalizacion ?? null };
-      await prisma.cliente.upsert({ where: { id: c.id }, update: base, create: { id: c.id, ...base, createdAt: fecha(c.createdAt) ?? undefined } });
+      try {
+        const base = { nombre: c.nombre, codigo: c.codigo ?? null, zona: c.zona ?? null, sucursalId: mapSuc(c.sucursalId), direccion: c.direccion ?? null, municipio: c.municipio ?? null, tipoCliente: c.tipoCliente ?? null, estadoCompra: c.estadoCompra ?? null, latitud: c.latitud ?? null, longitud: c.longitud ?? null, geolocalizacion: c.geolocalizacion ?? null };
+        await prisma.cliente.upsert({ where: { id: c.id }, update: base, create: { id: c.id, ...base, createdAt: fecha(c.createdAt) ?? undefined } });
+        cliOk++;
+      } catch { /* nombre/codigo duplicado en la sucursal: se salta */ }
     }
+    let pedOk = 0;
     for (const p of pedidos) {
-      const base = { folio: p.folio, sucursalId: p.sucursalId, vendedorId: p.vendedorId ?? null, clienteId: p.clienteId ?? null, direccion: p.direccion ?? null, encargado: p.encargado ?? null, telefono: p.telefono ?? null, fecha: fecha(p.fecha) ?? new Date(), fecha_comprometida: fecha(p.fecha_comprometida), estado: p.estado ?? null, pedido_cobrado: p.pedido_cobrado ?? null, requiere_domicilio: p.requiere_domicilio ?? null, costoDomicilio: p.costoDomicilio ?? null };
-      await prisma.pedido.upsert({ where: { id: p.id }, update: base, create: { id: p.id, ...base, createdAt: fecha(p.createdAt) ?? undefined } });
+      try {
+        const base = { folio: p.folio, sucursalId: mapSuc(p.sucursalId), vendedorId: p.vendedorId ?? null, clienteId: p.clienteId ?? null, direccion: p.direccion ?? null, encargado: p.encargado ?? null, telefono: p.telefono ?? null, fecha: fecha(p.fecha) ?? new Date(), fecha_comprometida: fecha(p.fecha_comprometida), estado: p.estado ?? null, pedido_cobrado: p.pedido_cobrado ?? null, requiere_domicilio: p.requiere_domicilio ?? null, costoDomicilio: p.costoDomicilio ?? null };
+        await prisma.pedido.upsert({ where: { id: p.id }, update: base, create: { id: p.id, ...base, createdAt: fecha(p.createdAt) ?? undefined } });
+        pedOk++;
+      } catch { /* FK rota (cliente/vendedor saltado) u otro: se salta */ }
     }
+    let itemOk = 0;
     for (const it of items) {
-      const base = { pedidoId: it.pedidoId, codigo: it.codigo ?? null, producto: it.producto, unidades: it.unidades, packs: it.packs ?? null, descripcion: it.descripcion ?? null };
-      await prisma.pedidoItem.upsert({ where: { id: it.id }, update: base, create: { id: it.id, ...base } });
+      try {
+        const base = { pedidoId: it.pedidoId, codigo: it.codigo ?? null, producto: it.producto, unidades: it.unidades, packs: it.packs ?? null, descripcion: it.descripcion ?? null };
+        await prisma.pedidoItem.upsert({ where: { id: it.id }, update: base, create: { id: it.id, ...base } });
+        itemOk++;
+      } catch { /* se salta */ }
     }
 
-    auditar(req, 'restore', { ...resumen.cuenta, usuariosNuevos });
-    res.json({ dry: false, ...resumen, usuariosNuevos });
+    const importados = { usuariosNuevos, vendedores: vendOk, clientes: cliOk, pedidos: pedOk, items: itemOk };
+    auditar(req, 'restore', { ...resumen.cuenta, ...importados });
+    res.json({ dry: false, ...resumen, importados });
   } catch (err) {
     console.error('Error en restore:', err);
     res.status(500).json({ error: 'No se pudo importar el backup.' });
