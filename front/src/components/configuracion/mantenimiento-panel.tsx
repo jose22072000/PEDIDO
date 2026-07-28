@@ -123,8 +123,31 @@ export const MantenimientoPanel = () => {
   };
 
   // --- Backup ---
-  const backup = () => {
-    window.open(`${getApiBaseUrl()}/mantenimiento/backup`, "_blank");
+  // Descarga por FETCH (no window.open): así pasa por el wrapper global que añade el
+  // Authorization Bearer. window.open abría una pestaña SIN el token -> 403.
+  const backup = async () => {
+    setCargando("backup");
+    try {
+      const res = await fetch(`${getApiBaseUrl()}/mantenimiento/backup`);
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || `Error ${res.status}`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `backup-pedido-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      ok("Backup descargado");
+    } catch (e) {
+      err(e instanceof Error ? e.message : "No se pudo descargar el backup");
+    } finally {
+      setCargando(null);
+    }
   };
 
   // --- Restaurar / importar backup de otro servidor local (fusiona, no borra) ---
