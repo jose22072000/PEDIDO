@@ -4,6 +4,7 @@ import fs from 'fs';
 import multer from 'multer';
 import prisma from '../prismaClient';
 import { getRequesterContext } from '../lib/sucursalContext';
+import { invalidarWebhookCache } from '../lib/webhook';
 
 const upload = multer({ dest: 'uploads/temp' });
 const fecha = (v: unknown) => (v == null ? null : new Date(v as string));
@@ -57,6 +58,38 @@ router.get('/job/:jobId', (req, res) => {
   const j = _jobs.get(req.params.jobId);
   if (!j) return res.json({ jobId: req.params.jobId, estado: 'desconocido' });
   res.json({ jobId: req.params.jobId, ...j });
+});
+
+// -------- Webhook saliente (Parranda): config editable por el SUPER ADMIN desde la UI --------
+// GET: devuelve la config (el secret NUNCA se devuelve, solo si existe).
+router.get('/webhook', async (_req, res) => {
+  try {
+    const row = await prisma.webhookConfig.findUnique({ where: { id: 'parranda' } });
+    res.json({ url: row?.url || '', key: row?.apiKey || '', activo: row?.activo ?? true, tieneSecret: !!row?.secret });
+  } catch (err) {
+    console.error('webhook get error:', err);
+    res.status(500).json({ error: 'No se pudo leer la config del webhook.' });
+  }
+});
+
+// PUT: guarda la config. El secret solo se actualiza si mandan uno nuevo (vacío = no tocar).
+router.put('/webhook', async (req, res) => {
+  try {
+    const { url, key, secret, activo } = (req.body || {}) as { url?: string; key?: string; secret?: string; activo?: boolean };
+    const data: Record<string, unknown> = {
+      url: (url ?? '').trim() || null,
+      apiKey: (key ?? '').trim() || null,
+      activo: activo !== false,
+    };
+    if (typeof secret === 'string' && secret.trim()) data.secret = secret.trim();
+    await prisma.webhookConfig.upsert({ where: { id: 'parranda' }, update: data, create: { id: 'parranda', ...data } });
+    invalidarWebhookCache();
+    auditar(req, 'webhook-config', { url: data.url, activo: data.activo });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('webhook put error:', err);
+    res.status(500).json({ error: 'No se pudo guardar la config del webhook.' });
+  }
 });
 
 // Mismo criterio de código que el import del CSV (nombre.primer_apellido, sin tildes

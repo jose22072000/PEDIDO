@@ -138,3 +138,14 @@ model Cliente {
     @@unique([nombre, sucursalId])
     @@map("Client")
 }
+
+// Config del webhook saliente (ej. Parranda). Fila única (id fijo). La edita el Super
+// Admin desde la UI de Mantenimiento (NO por .env). `secret` firma el envío (HMAC).
+model WebhookConfig {
+    id        String   @id @default("parranda")
+    url       String?
+    apiKey    String?  @map("key")
+    secret    String?
+    activo    Boolean  @default(true)
+    updatedAt DateTime @updatedAt @default(now())
+}

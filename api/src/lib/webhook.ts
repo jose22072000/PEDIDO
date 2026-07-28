@@ -1,22 +1,37 @@
 // Webhook PUSH configurable (ej. Parranda): notifica cuando un pedido se COMPLETA.
-// - URL, KEY y SECRET vienen por ENV (configurables sin tocar código; cambiás la URL y
-//   listo). Sin URL => no-op.
-// - KEY viaja en el header X-Webhook-Key (identifica el origen).
-// - SECRET firma el body (HMAC-SHA256) en X-Webhook-Signature: el receptor recalcula el
-//   HMAC y confirma que los datos vinieron de nosotros y no se alteraron.
-// - Best-effort: NUNCA rompe el request que lo dispara (todo en try/catch, fire-and-forget).
+// La config (URL / KEY / SECRET / activo) vive en la DB (tabla WebhookConfig, fila
+// "parranda") y la edita el SUPER ADMIN desde la UI de Mantenimiento — NO por .env.
+//  - KEY  -> header X-Webhook-Key (identifica el origen).
+//  - SECRET -> firma HMAC-SHA256 del body en X-Webhook-Signature (el receptor la verifica).
+//  - Best-effort: NUNCA rompe el request que lo dispara (fire-and-forget + try/catch).
 import crypto from 'crypto';
+import prisma from '../prismaClient';
 
-const cfg = () => ({
-  url: process.env.PARRANDA_WEBHOOK_URL || '',
-  key: process.env.PARRANDA_WEBHOOK_KEY || '',
-  secret: process.env.PARRANDA_WEBHOOK_SECRET || '',
-});
+// Cache corto para no pegarle a la DB en cada envío (la config cambia poco).
+let _cache: { at: number; cfg: { url: string; key: string; secret: string; activo: boolean } } | null = null;
 
-/** POST del payload al webhook configurado. No-op si no hay URL. */
+async function getConfig() {
+  if (_cache && Date.now() - _cache.at < 15000) return _cache.cfg;
+  let cfg = { url: '', key: '', secret: '', activo: true };
+  try {
+    const row = await prisma.webhookConfig.findUnique({ where: { id: 'parranda' } });
+    if (row) cfg = { url: row.url || '', key: row.apiKey || '', secret: row.secret || '', activo: row.activo };
+  } catch {
+    /* sin tabla/DB todavía: no-op */
+  }
+  _cache = { at: Date.now(), cfg };
+  return cfg;
+}
+
+/** Invalida el cache (llamar al guardar la config desde la UI). */
+export function invalidarWebhookCache(): void {
+  _cache = null;
+}
+
+/** POST del payload al webhook configurado. No-op si no hay URL o está desactivado. */
 export async function enviarWebhook(payload: unknown): Promise<void> {
-  const { url, key, secret } = cfg();
-  if (!url) return; // sin URL configurada: no se envía nada
+  const { url, key, secret, activo } = await getConfig();
+  if (!url || !activo) return;
   try {
     const body = JSON.stringify(payload);
     const headers: Record<string, string> = { 'content-type': 'application/json' };

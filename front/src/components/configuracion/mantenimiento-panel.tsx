@@ -3,8 +3,10 @@ import {
   Card,
   CardBody,
   Chip,
+  Input,
   Select,
   SelectItem,
+  Switch,
   addToast,
 } from "@heroui/react";
 import { useEffect, useRef, useState } from "react";
@@ -36,6 +38,8 @@ export const MantenimientoPanel = () => {
   const sqliteInputRef = useRef<HTMLInputElement>(null);
   // Código de la sucursal a la que pertenece el .db que se va a importar.
   const [sqliteCodigo, setSqliteCodigo] = useState("");
+  // Webhook saliente (Parranda) — lo edita el super admin desde este panel.
+  const [wh, setWh] = useState({ url: "", key: "", secret: "", activo: true, tieneSecret: false });
 
   const cargar = async () => {
     try {
@@ -56,6 +60,32 @@ export const MantenimientoPanel = () => {
 
   const ok = (t: string, d?: string) => addToast({ title: t, description: d, color: "success" });
   const err = (d: string) => addToast({ title: "Error", description: d, color: "danger" });
+
+  // --- Webhook (Parranda): cargar y guardar la config (solo super admin) ---
+  useEffect(() => {
+    fetch(`${getApiBaseUrl()}/mantenimiento/webhook`)
+      .then((r) => r.json())
+      .then((c) => { if (!c.error) setWh({ url: c.url || "", key: c.key || "", secret: "", activo: c.activo ?? true, tieneSecret: !!c.tieneSecret }); })
+      .catch(() => {});
+  }, []);
+  const guardarWebhook = async () => {
+    setCargando("webhook");
+    try {
+      const res = await fetch(`${getApiBaseUrl()}/mantenimiento/webhook`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url: wh.url, key: wh.key, secret: wh.secret, activo: wh.activo }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Error");
+      setWh((w) => ({ ...w, secret: "", tieneSecret: w.tieneSecret || !!wh.secret }));
+      ok("Webhook guardado");
+    } catch (e) {
+      err(e instanceof Error ? e.message : "No se pudo guardar");
+    } finally {
+      setCargando(null);
+    }
+  };
 
   // --- Subir geolocalización (xlsx) ---
   const subirGeo = async (file: File) => {
@@ -438,6 +468,25 @@ export const MantenimientoPanel = () => {
               >
                 Subir .db e importar
               </Button>
+            </div>
+          </div>
+
+          {/* Webhook a Parranda: avisa cuando un pedido se completa (config solo super admin) */}
+          <div className="rounded-xl border border-default-200 p-4">
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <p className="font-semibold">Webhook Parranda (pedido completado)</p>
+              <Switch size="sm" isSelected={wh.activo} onValueChange={(v) => setWh((w) => ({ ...w, activo: v }))}>
+                Activo
+              </Switch>
+            </div>
+            <p className="mb-3 text-sm text-default-500">
+              Al completar un pedido, avisa a Parranda con folio + cliente + fecha de completado. Se firma con el secret (HMAC-SHA256).
+            </p>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+              <Input label="URL" size="sm" className="flex-1" placeholder="https://…" value={wh.url} onValueChange={(v) => setWh((w) => ({ ...w, url: v }))} />
+              <Input label="Key" size="sm" className="w-40" value={wh.key} onValueChange={(v) => setWh((w) => ({ ...w, key: v }))} />
+              <Input label="Secret" size="sm" type="password" className="w-40" placeholder={wh.tieneSecret ? "•••• (sin cambios)" : "secret"} value={wh.secret} onValueChange={(v) => setWh((w) => ({ ...w, secret: v }))} />
+              <Button color="primary" size="sm" isLoading={cargando === "webhook"} onPress={guardarWebhook}>Guardar</Button>
             </div>
           </div>
         </div>
