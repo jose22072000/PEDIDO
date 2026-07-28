@@ -126,6 +126,9 @@ model Cliente {
     longitud        Float?
     geolocalizacion String?  @map("geoRaw")          // "lat,lng" crudo del consolidado
     createdAt DateTime @default(now())
+    // Fecha de la última sincronización (Parranda) del cliente. La setea Prisma en cada
+    // update/create -> refleja "cuándo se sincronizó por última vez".
+    updatedAt DateTime @updatedAt @default(now())
     pedidos   Pedido[]
 
     @@unique([sucursalId, codigo])

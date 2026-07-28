@@ -25,6 +25,7 @@ import Icons from "../icons/iconify";
 
 import { cards } from "@/components/primitives";
 import { MantenimientoPanel } from "./mantenimiento-panel";
+import { ClientesParrandaPanel } from "./clientes-parranda-panel";
 import { getApiBaseUrl } from "@/config";
 
 export const ConfiguracionForm = () => {
@@ -421,6 +422,10 @@ export const ConfiguracionForm = () => {
           </div>
         </CardBody>
       </Card>
+
+      {/* Panel de Clientes (Parranda): resumen por sucursal, historial de syncs y tabla
+          paginada con filtros. Se sincroniza solo (cron 6pm) y a mano. */}
+      <ClientesParrandaPanel />
 
       {/* Panel de Mantenimiento (correr los scripts desde la UI) */}
       <MantenimientoPanel />
