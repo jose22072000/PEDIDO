@@ -158,6 +158,12 @@ router.get('/', async (req, res) => {
     const skip = (page - 1) * limit;
 
     const where: any = { sucursalId };
+    // Filtros extra: municipio y estado de compra (Compra / No Compra). El scope de
+    // sucursal ya lo aplicó resolveSucursalFilter según el rol y si eligió "Todas".
+    const municipio = (req.query.municipio as string)?.trim();
+    const estadoCompra = (req.query.estadoCompra as string)?.trim();
+    if (municipio) where.municipio = municipio;
+    if (estadoCompra) where.estadoCompra = estadoCompra;
     const searchTerm = search?.trim().toUpperCase();
 
     if (searchTerm) {
@@ -184,14 +190,16 @@ router.get('/', async (req, res) => {
 
     const totalPages = Math.ceil(total / limit);
 
+    // Municipios distintos del scope actual (para poblar el dropdown del filtro).
+    const municipiosRaw = await prisma.cliente.findMany({
+      where: { sucursalId, municipio: { not: null } },
+      select: { municipio: true }, distinct: ['municipio'], orderBy: { municipio: 'asc' },
+    });
+
     res.json({
       data: clientes,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages
-      }
+      pagination: { page, limit, total, totalPages },
+      municipios: municipiosRaw.map((m) => m.municipio).filter(Boolean),
     });
   } catch (error) {
     console.error('Error fetching clientes:', error);

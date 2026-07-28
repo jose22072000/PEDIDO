@@ -7,6 +7,7 @@ import {
   resolveSucursalFilter,
   resolveSucursalScope,
 } from '../lib/sucursalContext';
+import { notifyPedidoCompletado } from '../lib/webhook';
 import { redisEnabled, publishJSON, getSubscriber, CH_ORDERS_NEW, CH_IMPORT_DONE, CH_IMPORT_FAILED } from '../lib/redis';
 import { importQueue, enqueueDeliveryOrders } from '../lib/queues';
 import { mintSseTicket, consumeSseTicket } from '../lib/sseTickets';
@@ -399,8 +400,11 @@ router.patch('/:id/completar', async (req, res) => {
     const order = await prisma.pedido.update({
       where: { id },
       data: { estado: 'completada', completedAt: new Date() },
-      include: { items: true, cliente: true, vendedor: true },
+      include: { items: true, cliente: true, vendedor: true, sucursal: { select: { codigo: true } } },
     });
+
+    // Webhook PUSH (configurable): avisa a Parranda que el pedido se completó + la fecha.
+    notifyPedidoCompletado(order);
 
     res.json(order);
   } catch (err) {

@@ -115,6 +115,40 @@ router.get('/orders', async (req, res) => {
 });
 
 /**
+ * GET /integration/orders/completados?since=<ISO>&limit=1000   (x-api-key)
+ * PARA PARRANDA (pull): pedidos COMPLETADOS con la FECHA en que se completaron. Parranda
+ * consulta cuándo se hicieron efectivos los pedidos. `since` (opcional) trae solo los
+ * completados desde esa fecha (incremental). No necesita webhook/push: ellos consultan.
+ */
+router.get('/orders/completados', async (req, res) => {
+  const sinceRaw = typeof req.query.since === 'string' ? new Date(req.query.since) : null;
+  const since = sinceRaw && !isNaN(sinceRaw.getTime()) ? sinceRaw : null;
+  const limit = req.query.limit ? Math.min(5000, Math.max(1, Number(req.query.limit))) : 1000;
+
+  const pedidos = await prisma.pedido.findMany({
+    where: { completedAt: since ? { gte: since } : { not: null } },
+    orderBy: { completedAt: 'desc' },
+    take: limit,
+    include: {
+      cliente: { select: { codigo: true, nombre: true } },
+      sucursal: { select: { codigo: true } },
+    },
+  });
+
+  const orders = pedidos.map((p) => ({
+    folio: p.folio,
+    sucursalCodigo: p.sucursal?.codigo || null,
+    clienteCodigo: p.cliente?.codigo || null,
+    clienteNombre: p.cliente?.nombre || null,
+    estado: p.estado,
+    completadoEn: p.completedAt,     // fecha en que el pedido se completó/efectivizó
+    fecha: p.fecha,
+  }));
+
+  res.json({ count: orders.length, orders });
+});
+
+/**
  * GET /integration/clients?sucursalCodigo=XXX   (x-api-key)
  * Clientes GEOLOCALIZADOS (con lat/lng) de la sucursal local. Delivery los espeja
  * localmente para armar órdenes personalizadas SELECCIONANDO el cliente (no recrearlo),
