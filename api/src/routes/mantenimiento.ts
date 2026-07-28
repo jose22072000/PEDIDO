@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { randomUUID } from 'crypto';
 import fs from 'fs';
 import multer from 'multer';
 import prisma from '../prismaClient';
@@ -27,6 +28,36 @@ function auditar(req: any, accion: string, extra: Record<string, unknown> = {}) 
   const quien = getRequesterContext(req).username || '?';
   console.log(`[MANTENIMIENTO] ${new Date().toISOString()} · ${quien} · ${accion} · ${JSON.stringify(extra)}`);
 }
+
+// Jobs en memoria para operaciones LARGAS (restore / import-sqlite): procesan miles de
+// filas y tardan MÁS que el timeout del proxy (60s) -> se responde 202 + jobId y se
+// procesa en 2do plano; el front consulta GET /mantenimiento/job/:jobId. (El api es una
+// sola instancia, así que un Map en memoria alcanza.)
+type JobEstado = 'pendiente' | 'completado' | 'error';
+const _jobs = new Map<string, { estado: JobEstado; tipo: string; resultado?: unknown; error?: string; cuando: number }>();
+function jobsSet(id: string, patch: Partial<{ estado: JobEstado; tipo: string; resultado: unknown; error: string }>) {
+  const prev = _jobs.get(id);
+  _jobs.set(id, { estado: 'pendiente', tipo: '', ...prev, ...patch, cuando: Date.now() });
+  if (_jobs.size > 50) {
+    const viejo = [..._jobs.entries()].sort((a, b) => a[1].cuando - b[1].cuando)[0];
+    if (viejo) _jobs.delete(viejo[0]);
+  }
+}
+async function runBg(id: string, fn: () => Promise<unknown>): Promise<void> {
+  try {
+    jobsSet(id, { resultado: await fn(), estado: 'completado' });
+  } catch (e) {
+    console.error('[MANTENIMIENTO] job', id, 'falló:', e);
+    jobsSet(id, { estado: 'error', error: e instanceof Error ? e.message : 'Error' });
+  }
+}
+
+// GET /mantenimiento/job/:jobId -> estado de una operación larga (pendiente/completado/error).
+router.get('/job/:jobId', (req, res) => {
+  const j = _jobs.get(req.params.jobId);
+  if (!j) return res.json({ jobId: req.params.jobId, estado: 'desconocido' });
+  res.json({ jobId: req.params.jobId, ...j });
+});
 
 // Mismo criterio de código que el import del CSV (nombre.primer_apellido, sin tildes
 // ni caracteres de control). Si cambia allí, cambia aquí.
@@ -227,6 +258,13 @@ router.post('/restore', upload.single('file') as any, async (req, res) => {
     };
     if (dry) return res.json({ dry: true, ...resumen });
 
+    // Miles de upserts tardan más que el timeout del proxy (60s): se procesa en SEGUNDO
+    // PLANO. Respondemos 202 + jobId; el front consulta /mantenimiento/job/:jobId.
+    const jobId = randomUUID();
+    jobsSet(jobId, { estado: 'pendiente', tipo: 'restore' });
+    res.status(202).json({ enqueued: true, jobId, dry: false, ...resumen });
+    void runBg(jobId, async () => {
+
     // Sucursales: se resuelven por CÓDIGO (identidad de negocio), NO por id — en cada
     // servidor los ids son distintos. Se arma un mapa idBackup -> idLocal para remapear
     // TODOS los hijos (usuarios, vendedores, clientes, pedidos). Cada fila en su propio
@@ -302,10 +340,11 @@ router.post('/restore', upload.single('file') as any, async (req, res) => {
 
     const importados = { usuariosNuevos, vendedores: vendOk, clientes: cliOk, pedidos: pedOk, items: itemOk };
     auditar(req, 'restore', { ...resumen.cuenta, ...importados });
-    res.json({ dry: false, ...resumen, importados });
+    return importados;
+    });
   } catch (err) {
     console.error('Error en restore:', err);
-    res.status(500).json({ error: 'No se pudo importar el backup.' });
+    if (!res.headersSent) res.status(500).json({ error: 'No se pudo importar el backup.' });
   } finally {
     if (archivo?.path) fs.promises.unlink(archivo.path).catch(() => {});
   }
@@ -358,7 +397,19 @@ router.post('/import-sqlite', upload.single('file') as any, async (req, res) => 
       usuarios: usuariosSrc.length, vendedores: vendedoresSrc.length,
       clientes: clientesSrc.length, pedidos: pedidosSrc.length, items: itemsSrc.length,
     };
+    // Ya leímos todo a arrays: cerramos el .db y borramos el archivo (el proceso ya no
+    // los necesita), así el trabajo en 2do plano no depende de ellos.
+    try { db.close(); } catch { /* noop */ }
+    db = null;
+    if (archivo?.path) fs.promises.unlink(archivo.path).catch(() => {});
     if (dry) return res.json({ dry: true, codigo, cuenta });
+
+    // Miles de filas -> SEGUNDO PLANO (evita el timeout del proxy). 202 + jobId; el front
+    // consulta /mantenimiento/job/:jobId.
+    const jobId = randomUUID();
+    jobsSet(jobId, { estado: 'pendiente', tipo: 'import-sqlite' });
+    res.status(202).json({ enqueued: true, jobId, codigo, cuenta });
+    void runBg(jobId, async () => {
 
     // 1) Sucursal por CÓDIGO.
     let suc = await prisma.sucursal.findFirst({ where: { codigo } });
@@ -473,10 +524,11 @@ router.post('/import-sqlite', upload.single('file') as any, async (req, res) => 
       renombrados,
     };
     auditar(req, 'import-sqlite', { codigo, ...resultado.importados, renombrados: renombrados.length });
-    res.json({ dry: false, ...resultado });
+    return resultado;
+    });
   } catch (err) {
     console.error('Error en import-sqlite:', err);
-    res.status(500).json({ error: err instanceof Error ? err.message : 'No se pudo importar la base SQLite.' });
+    if (!res.headersSent) res.status(500).json({ error: err instanceof Error ? err.message : 'No se pudo importar la base SQLite.' });
   } finally {
     if (db) { try { db.close(); } catch { /* noop */ } }
     if (archivo?.path) fs.promises.unlink(archivo.path).catch(() => {});

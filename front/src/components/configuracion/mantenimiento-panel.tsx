@@ -150,6 +150,19 @@ export const MantenimientoPanel = () => {
     }
   };
 
+  // Espera a que termine una operación LARGA en 2do plano (restore / import-sqlite).
+  // El backend responde 202 + jobId y procesa en background; acá consultamos el estado.
+  const pollJob = async (jobId: string): Promise<any> => {
+    for (let i = 0; i < 150; i++) { // hasta ~10 min
+      await new Promise((r) => setTimeout(r, 4000));
+      const s = await fetch(`${getApiBaseUrl()}/mantenimiento/job/${jobId}`).then((x) => x.json()).catch(() => null);
+      if (!s) continue;
+      if (s.estado === "completado") return s.resultado || {};
+      if (s.estado === "error") throw new Error(s.error || "Falló el proceso");
+    }
+    throw new Error("Está tardando demasiado; revisá de nuevo en un rato.");
+  };
+
   // --- Restaurar / importar backup de otro servidor local (fusiona, no borra) ---
   const restore = async (file: File) => {
     setCargando("restore");
@@ -159,12 +172,10 @@ export const MantenimientoPanel = () => {
       const res = await fetch(`${getApiBaseUrl()}/mantenimiento/restore`, { method: "POST", body: fd });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Error");
-      const c = j.cuenta;
       const suc = (j.sucursales || []).map((s: any) => s.codigo || s.nombre).join(", ");
-      ok(
-        "Backup importado",
-        `De: ${suc || "?"} · ${c.pedidos} pedidos, ${c.clientes} clientes, ${c.vendedores} vendedores (usuarios nuevos: ${j.usuariosNuevos ?? 0})`,
-      );
+      ok("Importando backup…", `De: ${suc || "?"} · ${j.cuenta?.pedidos ?? 0} pedidos. Procesando en segundo plano…`);
+      const r = await pollJob(j.jobId);
+      ok("Backup importado", `${r.pedidos ?? 0} pedidos, ${r.clientes ?? 0} clientes, ${r.vendedores ?? 0} vendedores · ${r.usuariosNuevos ?? 0} usuarios nuevos`);
       cargar();
     } catch (e) {
       err(e instanceof Error ? e.message : "No se pudo importar");
@@ -190,11 +201,13 @@ export const MantenimientoPanel = () => {
       const res = await fetch(`${getApiBaseUrl()}/mantenimiento/import-sqlite`, { method: "POST", body: fd });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Error");
-      const i = j.importados;
-      const ren = (j.renombrados || []).length;
+      ok("Importando .db…", `Sucursal ${j.codigo} · procesando en segundo plano…`);
+      const r = await pollJob(j.jobId);
+      const i = r.importados || {};
+      const ren = (r.renombrados || []).length;
       ok(
-        `Sucursal ${j.sucursal?.codigo} importada`,
-        `${i.pedidos} pedidos, ${i.clientes} clientes, ${i.vendedores} vendedores, ${i.usuarios} usuarios${ren ? ` · ${ren} usuario(s) renombrados por repetirse` : ""}`,
+        `Sucursal ${r.sucursal?.codigo || codigo} importada`,
+        `${i.pedidos ?? 0} pedidos, ${i.clientes ?? 0} clientes, ${i.vendedores ?? 0} vendedores, ${i.usuarios ?? 0} usuarios${ren ? ` · ${ren} renombrados por repetirse` : ""}`,
       );
       setSqliteCodigo("");
       cargar();
