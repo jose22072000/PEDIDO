@@ -5,6 +5,8 @@ import {
   Pagination,
   Button,
   Input,
+  Select,
+  SelectItem,
   Spinner,
   Modal,
   ModalContent,
@@ -48,6 +50,7 @@ interface PaginationData {
 interface ClientesResponse {
   data: Cliente[];
   pagination: PaginationData;
+  municipios?: string[];
 }
 
 export const ClientesList = () => {
@@ -62,6 +65,9 @@ export const ClientesList = () => {
   const [error, setError] = useState<string | null>(null);
   const [debouncedSearch, setDebouncedSearch] = useState<string>("");
   const [searchValue, setSearchValue] = useState<string>("");
+  const [municipio, setMunicipio] = useState<string>("");
+  const [estadoCompra, setEstadoCompra] = useState<string>("");
+  const [municipios, setMunicipios] = useState<string[]>([]);
   const [selectedCliente, setSelectedCliente] = useState<Cliente | null>(null);
   const [copiedClienteId, setCopiedClienteId] = useState<string | null>(null);
   const { isOpen, onOpen, onClose } = useDisclosure();
@@ -86,9 +92,9 @@ export const ClientesList = () => {
           limit: String(pagination.limit),
         });
 
-        if (debouncedSearch.length > 0) {
-          params.append("search", debouncedSearch);
-        }
+        if (debouncedSearch.length > 0) params.append("search", debouncedSearch);
+        if (municipio) params.append("municipio", municipio);
+        if (estadoCompra) params.append("estadoCompra", estadoCompra);
 
         const response = await fetch(`${getApiBaseUrl()}/clientes?${params}`, {
           signal: abortControllerRef.current.signal,
@@ -102,6 +108,7 @@ export const ClientesList = () => {
 
         setClientes(data.data);
         setPagination(data.pagination);
+        if (data.municipios) setMunicipios(data.municipios);
       } catch (err) {
         // Ignore abort errors
         if (err instanceof Error && err.name === "AbortError") {
@@ -112,7 +119,7 @@ export const ClientesList = () => {
         setIsLoading(false);
       }
     },
-    [pagination.limit, debouncedSearch],
+    [pagination.limit, debouncedSearch, municipio, estadoCompra],
   );
 
   const handleOpenDetails = useCallback(
@@ -145,7 +152,7 @@ export const ClientesList = () => {
   // Fetch clientes when dependencies change
   useEffect(() => {
     fetchClientes(1);
-  }, [debouncedSearch]);
+  }, [debouncedSearch, municipio, estadoCompra]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -174,6 +181,31 @@ export const ClientesList = () => {
             onChange={(e) => setSearchValue(e.target.value)}
             onClear={() => setSearchValue("")}
           />
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <Select
+              label="Municipio"
+              size="sm"
+              variant="bordered"
+              selectedKeys={municipio ? [municipio] : []}
+              onChange={(e) => setMunicipio(e.target.value)}
+            >
+              {[
+                <SelectItem key="">Todos</SelectItem>,
+                ...municipios.map((m) => <SelectItem key={m}>{m}</SelectItem>),
+              ]}
+            </Select>
+            <Select
+              label="Compra"
+              size="sm"
+              variant="bordered"
+              selectedKeys={estadoCompra ? [estadoCompra] : []}
+              onChange={(e) => setEstadoCompra(e.target.value)}
+            >
+              <SelectItem key="">Todos</SelectItem>
+              <SelectItem key="Compra">Compra</SelectItem>
+              <SelectItem key="No Compra">No Compra</SelectItem>
+            </Select>
+          </div>
         </CardBody>
       </Card>
 
