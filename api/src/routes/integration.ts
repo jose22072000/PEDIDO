@@ -11,6 +11,8 @@ import { serviceAuth } from '../middleware/serviceAuth';
 // SEGURIDAD DE SUCURSAL: cada instalación de PEDIDO es local a UNA sucursal
 // (config.json.sucursalId). La integración se scopea a esa sucursal para que un
 // delivery de una sucursal nunca vea ni escriba pedidos de otra.
+import { clasificarParranda } from '../lib/webhook';
+
 const router = Router();
 router.use(serviceAuth);
 
@@ -132,6 +134,7 @@ router.get('/orders/completados', async (req, res) => {
     include: {
       cliente: { select: { codigo: true, nombre: true } },
       sucursal: { select: { codigo: true } },
+      items: { select: { producto: true, unidades: true, packs: true } },
     },
   });
 
@@ -143,6 +146,13 @@ router.get('/orders/completados', async (req, res) => {
     estado: p.estado,
     completadoEn: p.completedAt,     // fecha en que el pedido se completó/efectivizó
     fecha: p.fecha,
+    // SOLO productos Parranda: cerveza (330/500/1500) + Malta Guajira (330/1500).
+    productos: p.items
+      .map((it) => {
+        const c = clasificarParranda(it.producto);
+        return c ? { producto: c.producto, formatoMl: c.formatoMl, unidades: it.unidades, packs: it.packs } : null;
+      })
+      .filter(Boolean),
   }));
 
   res.json({ count: orders.length, orders });
