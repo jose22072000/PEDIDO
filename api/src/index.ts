@@ -18,8 +18,13 @@ import mantenimientoRouter from './routes/mantenimiento';
 import eventsRouter from './routes/events';
 import prisma from './prismaClient';
 import { iniciarArchivadoAutomatico } from './lib/archivador';
+import { apiLimiter, loginLimiter } from './middleware/rateLimit';
 
 const app = express();
+// Detrás de nginx: confiar en el primer proxy para que req.ip sea la IP real del
+// cliente (X-Forwarded-For), no la de nginx — si no, el rate-limit por IP agruparía
+// a TODOS bajo una sola clave.
+app.set('trust proxy', 1);
 const port = process.env.PORT ? Number(process.env.PORT) : 4000;
 
 // Configure CORS from environment variable
@@ -39,6 +44,11 @@ app.use(express.json({ limit: '50mb' }));
 // body-parser to keep compatibility with multipart/form-data uploads handled
 // via multer on specific routes.
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// Rate limiting: frena bucles/floods de un cliente sin tumbar el server. Generoso por
+// el CGNAT (muchos usuarios por IP). Login más estricto. Ver middleware/rateLimit.
+app.use('/auth/login', loginLimiter);
+app.use(apiLimiter);
 
 // Multer setup for file uploads. Use per-route middleware like
 // `upload.single('file')` or `upload.array('files')` in route handlers.

@@ -574,14 +574,19 @@ router.post('/bulk', async (req, res) => {
     // respuesta: así mueve el archivo a Procesados/Errores según corrió de verdad, y el
     // log de n8n muestra qué entró y qué falló. La UI (super admin, archivos grandes)
     // sigue con cola+SSE (sin el flag): 202 + progreso por evento.
+    // El GESTOR solo importa pedidos de SUS vendedores. Admin/Supervisor/Super Admin
+    // importan sin esa restricción (scopeados por sucursal como siempre).
+    const gestorCtx = getRequesterContext(req);
+    const restrictToGestorId = gestorCtx.isGestor ? (gestorCtx.userId ?? null) : null;
+
     const forceInline = req.query.sync === '1' || req.query.sync === 'true';
     const queue = (!forceInline && process.env.IMPORT_USE_QUEUE === 'true') ? importQueue() : null;
     if (queue) {
-      const job = await queue.add({ records, uploaderSucursalId: uploaderSucursalId ?? null });
+      const job = await queue.add({ records, uploaderSucursalId: uploaderSucursalId ?? null, restrictToGestorId });
       return res.status(202).json({ enqueued: true, jobId: String(job.id) });
     }
 
-    const outcome = await processBulkImport(records, uploaderSucursalId ?? null);
+    const outcome = await processBulkImport(records, uploaderSucursalId ?? null, restrictToGestorId);
     if (!outcome.ok) return res.status(409).json({ error: outcome.error, imported: 0 });
     return res.json({ success: true, results: outcome.results });
   } catch (err) {
@@ -657,6 +662,9 @@ export type BulkImportOutcome = {
 export async function processBulkImport(
   records: any[],
   uploaderSucursalId: string | null,
+  // Cuando lo sube un GESTOR: su usuario.id. Solo podrá importar pedidos de SUS
+  // vendedores (vendedor.gestorId === este id). null = sin restricción (admin/superv).
+  restrictToGestorId: string | null = null,
 ): Promise<BulkImportOutcome> {
   const mappedRecords = mapCsvRecords(records);
 
@@ -675,6 +683,26 @@ export async function processBulkImport(
       return { ok: false, error: error.message };
     }
     throw error;
+  }
+
+  // Scoping del GESTOR: solo puede importar pedidos de SUS vendedores. Si el archivo
+  // trae vendedores que no gestiona (o desconocidos), se rechaza COMPLETO — no puede
+  // subir los pedidos de otro.
+  if (restrictToGestorId) {
+    const sellerIds = [...new Set([...sellersByCode.values()].map((s) => s.seller.id))];
+    const vendedores = await prisma.vendedor.findMany({
+      where: { id: { in: sellerIds } },
+      select: { id: true, code: true, name: true, gestorId: true },
+    });
+    const ajenos = vendedores.filter((v) => v.gestorId !== restrictToGestorId);
+    if (ajenos.length) {
+      const cods = [...new Set(ajenos.map((v) => v.code || v.name))].slice(0, 15).join(', ');
+
+      return {
+        ok: false,
+        error: `Solo puedes importar pedidos de TUS vendedores. El archivo trae vendedores que no gestionas: ${cods}.`,
+      };
+    }
   }
 
   const results: BulkImportResults = { created: 0, updated: 0, failed: 0, sinAsignar: 0, errors: [] };
@@ -965,6 +993,14 @@ router.get('/stats', async (req, res) => {
       return res.status(400).json({ error: sucursalError });
     }
 
+    // El GESTOR ve SOLO sus números (pedidos de SUS vendedores), no los de toda la
+    // sucursal. Para admin/supervisor/super admin queda igual (filtro vacío).
+    const statsCtx = getRequesterContext(req);
+    const gestorFilter =
+      statsCtx.isGestor && statsCtx.userId
+        ? { vendedor: { gestorId: statsCtx.userId } }
+        : {};
+
     const now = new Date();
     const year = req.query.year ? parseInt(req.query.year as string) : null;
 
@@ -980,6 +1016,7 @@ router.get('/stats', async (req, res) => {
     const totalPedidos = await prisma.pedido.count({
       where: {
         sucursalId,
+        ...gestorFilter,
         ...yearCondition,
       }
     });
@@ -988,6 +1025,7 @@ router.get('/stats', async (req, res) => {
     const pedidosCompletados = await prisma.pedido.count({
       where: {
         sucursalId,
+        ...gestorFilter,
         estado: 'completada',
         ...yearCondition
       }
@@ -997,6 +1035,7 @@ router.get('/stats', async (req, res) => {
     const pedidosEnProceso = await prisma.pedido.count({
       where: {
         sucursalId,
+        ...gestorFilter,
         OR: [
           { estado: null },
           { estado: { not: 'completada' } }
@@ -1017,6 +1056,7 @@ router.get('/stats', async (req, res) => {
     const pedidosExpirados = await prisma.pedido.count({
       where: {
         sucursalId,
+        ...gestorFilter,
         OR: [
           { estado: null },
           { estado: { not: 'completada' } }
@@ -1032,7 +1072,7 @@ router.get('/stats', async (req, res) => {
 
     // Estadísticas mensuales
     const allOrders = await prisma.pedido.findMany({
-      where: { sucursalId },
+      where: { sucursalId, ...gestorFilter },
       select: {
         fecha_comprometida: true,
         estado: true

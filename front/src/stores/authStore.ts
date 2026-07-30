@@ -37,7 +37,7 @@ interface AuthState {
 
 export const useAuthStore = create<AuthState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       user: null,
       token: null,
       isAuthenticated: false,
@@ -46,21 +46,25 @@ export const useAuthStore = create<AuthState>()(
       session: null,
 
       loadSession: async () => {
+        // Try to get token from localStorage first
+        const localToken = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
         try {
           set({ isLoading: true });
-
-          // Verificar si hay sesión válida consultando /auth/me
-          // Try to get token from localStorage first
-          const localToken = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
 
           const headers: Record<string,string> = {};
           if (localToken) {
             headers.Authorization = `Bearer ${localToken}`;
           }
 
+          // Timeout corto: en enlaces flaky (Starlink) /auth/me puede quedar colgado
+          // sin respuesta y el fetch NO tiene timeout propio → la app quedaría en
+          // spinner infinito. A los 8s abortamos y caemos al fallback del catch.
+          const ctrl = new AbortController();
+          const to = setTimeout(() => ctrl.abort(), 8000);
           const response = await fetch(`${getApiBaseUrl()}/auth/me`, {
             headers,
-          });
+            signal: ctrl.signal,
+          }).finally(() => clearTimeout(to));
 
           if (response.ok) {
             const data = await response.json();
@@ -99,14 +103,24 @@ export const useAuthStore = create<AuthState>()(
             });
           }
         } catch (error) {
-          set({
-            user: null,
-            session: null,
-            isAuthenticated: false,
-            error:
-              error instanceof Error ? error.message : "Error loading session",
-            isLoading: false,
-          });
+          // Red caída / timeout (Starlink): NO cerrar sesión si hay token + usuario
+          // persistido. Dejamos entrar con la sesión guardada; si el token ya no
+          // sirve, las siguientes llamadas darán 401 y ahí sí se cierra. Evita el
+          // logout por un corte transitorio.
+          const persisted = get().user;
+
+          if (localToken && persisted) {
+            set({ isAuthenticated: true, isLoading: false, error: null });
+          } else {
+            set({
+              user: null,
+              session: null,
+              isAuthenticated: false,
+              error:
+                error instanceof Error ? error.message : "Error loading session",
+              isLoading: false,
+            });
+          }
         }
       },
 

@@ -82,7 +82,31 @@ window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
     // ignore
   }
 
-  return _origFetch(input, init);
+  // Timeout de seguridad para TODA petición: en enlaces flaky (Starlink) un fetch
+  // puede quedar colgado sin respuesta (el TCP no muere en minutos) y fetch NO trae
+  // timeout propio → spinner infinito en carga y al guardar. Abortamos a los 25s. Se
+  // exceptúan streams SSE e imports/subidas, largos por diseño, y quien ya trae signal.
+  const reqUrl =
+    typeof input === "string"
+      ? input
+      : input instanceof URL
+        ? input.href
+        : (input as Request)?.url || "";
+  const sinTimeout =
+    /\/events\/stream|\/import-stream|\/orders\/bulk|\/import|\/upload/.test(reqUrl);
+  const yaTieneSignal = !!(init && (init as RequestInit).signal);
+
+  if (sinTimeout || yaTieneSignal) {
+    return _origFetch(input, init);
+  }
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 25000);
+
+  init = init || {};
+  init.signal = ctrl.signal;
+
+  return _origFetch(input, init).finally(() => clearTimeout(timer));
 }) as typeof window.fetch;
 
 ReactDOM.createRoot(document.getElementById("root")!).render(

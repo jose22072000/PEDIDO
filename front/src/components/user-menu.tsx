@@ -1,6 +1,5 @@
 import { useState } from "react";
 import {
-  Avatar,
   Dropdown,
   DropdownTrigger,
   DropdownMenu,
@@ -15,6 +14,7 @@ import {
 } from "@heroui/react";
 import { useNavigate } from "react-router-dom";
 
+import Icons from "@/components/icons/iconify";
 import { useAuthStore } from "@/stores/authStore";
 import { getApiBaseUrl } from "@/config";
 
@@ -36,7 +36,6 @@ export const UserMenu = () => {
 
   const username = user?.username || "usuario";
   const rol = user?.role || session?.rol || "";
-  const inicial = username.slice(0, 1).toUpperCase();
 
   const cerrarSesion = async () => {
     await logout();
@@ -89,14 +88,19 @@ export const UserMenu = () => {
     <>
       <Dropdown placement="bottom-end">
         <DropdownTrigger>
-          <Avatar
-            isBordered
-            as="button"
-            className="cursor-pointer"
-            color="primary"
-            name={inicial}
-            size="sm"
-          />
+          <Button
+            className="gap-2"
+            radius="md"
+            startContent={<Icons.user className="size-5 text-primary" />}
+            variant="bordered"
+          >
+            <span className="flex flex-col items-start leading-tight">
+              <span className="text-sm font-semibold">{username}</span>
+              {rol ? (
+                <span className="text-[10px] text-default-500">{rol}</span>
+              ) : null}
+            </span>
+          </Button>
         </DropdownTrigger>
         <DropdownMenu aria-label="Perfil">
           <DropdownItem key="quien" textValue="quien">
@@ -107,19 +111,28 @@ export const UserMenu = () => {
             </div>
           </DropdownItem>
           <DropdownItem
+            key="perfil"
+            startContent={<Icons.user className="size-4" />}
+            onPress={() => navigate("/panel/mi-perfil")}
+          >
+            Mi perfil
+          </DropdownItem>
+          <DropdownItem
             key="password"
+            startContent={<Icons.keySquare className="size-4" />}
             onPress={() => {
               setError(null);
               setOk(null);
               setOpen(true);
             }}
           >
-            🔑 Cambiar contraseña
+            Cambiar contraseña
           </DropdownItem>
           <DropdownItem
             key="logout"
             className="text-danger"
             color="danger"
+            startContent={<Icons.close className="size-4" />}
             onPress={cerrarSesion}
           >
             Cerrar sesión

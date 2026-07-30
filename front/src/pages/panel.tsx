@@ -14,6 +14,13 @@ export default function PanelPage() {
   const sucursalNombre = user?.sucursal || "";
   const isSuperAdmin = Boolean(session?.isGlobalAdmin);
 
+  // RBAC de accesos rápidos: el GESTOR solo ve LO SUYO (pedidos, importar, clientes,
+  // su perfil con sus métricas). No ve Vendedores/Usuarios/Reportes (datos ajenos).
+  const role = String(user?.role || "").toLowerCase();
+  const isGestor = role === "gestor";
+  const canVerVendedores = ["administrador", "supervisor", "super admin"].includes(role);
+  const canManageUsers = ["administrador", "super admin"].includes(role);
+
   useEffect(() => {
     // Refetch stats cada vez que se entre a la página
     refetch();
@@ -53,13 +60,15 @@ export default function PanelPage() {
               icon="add"
               title="Importar Pedido"
             />
-            <ActionCard
-              color="secondary"
-              description="Gestionar vendedores del sistema"
-              href="/panel/trabajadores"
-              icon="workers"
-              title="Vendedores"
-            />
+            {canVerVendedores && (
+              <ActionCard
+                color="secondary"
+                description="Gestionar vendedores del sistema"
+                href="/panel/trabajadores"
+                icon="workers"
+                title="Vendedores"
+              />
+            )}
             <ActionCard
               color="secondary"
               description="Gestionar clientes del sistema"
@@ -67,20 +76,33 @@ export default function PanelPage() {
               icon="client"
               title="Clientes"
             />
-            <ActionCard
-              color="success"
-              description="Gestionar usuarios del sistema"
-              href="/panel/panel-usuarios"
-              icon="users"
-              title="Usuarios"
-            />
-            <ActionCard
-              color="danger"
-              description="Generar y exportar reportes"
-              href="/panel/reportes"
-              icon="reports"
-              title="Reportes"
-            />
+            {isGestor && (
+              <ActionCard
+                color="primary"
+                description="Tus métricas y tus datos"
+                href="/panel/mi-perfil"
+                icon="user"
+                title="Mi perfil"
+              />
+            )}
+            {canManageUsers && (
+              <ActionCard
+                color="success"
+                description="Gestionar usuarios del sistema"
+                href="/panel/panel-usuarios"
+                icon="users"
+                title="Usuarios"
+              />
+            )}
+            {!isGestor && (
+              <ActionCard
+                color="danger"
+                description="Generar y exportar reportes"
+                href="/panel/reportes"
+                icon="reports"
+                title="Reportes"
+              />
+            )}
             {isSuperAdmin && (
               <ActionCard
                 color="warning"

@@ -9,6 +9,7 @@ import NuevoUsuarioPage from "./pages/usuarios/nuevo-usuario";
 import ListaUsuariosPage from "./pages/usuarios/lista-usuarios";
 import VendedoresPage from "./pages/vendedores/vendedores";
 import ClientesPage from "./pages/clientes/clientes";
+import MiPerfilPage from "./pages/perfil/mi-perfil";
 import ConfiguracionPage from "./pages/configuracion/configuracion";
 import ReportesPage from "./pages/reportes/reportes";
 import ReportePedidosFechaPage from "./pages/reportes/pedidos-fecha";
@@ -65,6 +66,9 @@ function App() {
         {/* Clientes */}
         <Route element={<ClientesPage />} path="/panel/clientes" />
 
+        {/* Mi perfil: cualquier usuario autenticado ve SUS datos y SUS métricas. */}
+        <Route element={<MiPerfilPage />} path="/panel/mi-perfil" />
+
         {/* Reportes */}
         <Route element={<ReportesPage />} path="/panel/reportes" />
         <Route
@@ -85,21 +89,14 @@ function App() {
         />
       </Route>
 
-      {/* Rutas protegidas para Administrador y Supervisor */}
+      {/* Nuevo Pedido / Importar: cualquier usuario autenticado (gestor, operador,
+          vendedor) sube SUS pedidos. El backend scopea por sucursal y, para el gestor,
+          restringe la importación a SUS vendedores (no puede subir los de otro). */}
       <Route element={<ProtectedRoute />}>
         <Route
-          element={
-            <AdminRoute
-              allowedRoles={["Super Admin", "Administrador", "Supervisor"]}
-            />
-          }
-        >
-          {/* Nuevo Pedido */}
-          <Route
-            element={<NuevoPedidoPage />}
-            path="/panel/panel-pedidos/nuevo"
-          />
-        </Route>
+          element={<NuevoPedidoPage />}
+          path="/panel/panel-pedidos/nuevo"
+        />
       </Route>
 
       {/* Rutas protegidas solo para Administrador */}

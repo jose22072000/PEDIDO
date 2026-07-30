@@ -22,11 +22,16 @@ async function main() {
 
   const concurrency = Number(process.env.IMPORT_CONCURRENCY || 2);
   queue.process(concurrency, async (job) => {
-    const { records, uploaderSucursalId } = job.data as {
+    const { records, uploaderSucursalId, restrictToGestorId } = job.data as {
       records: unknown[];
       uploaderSucursalId: string | null;
+      restrictToGestorId?: string | null;
     };
-    const outcome = await processBulkImport(records, uploaderSucursalId);
+    const outcome = await processBulkImport(
+      records as any[],
+      uploaderSucursalId,
+      restrictToGestorId ?? null,
+    );
     if (!outcome.ok) {
       // Colisión de vendedor: publica el fallo (el SSE lo reenvía al front) y falla el job.
       await publishJSON(CH_IMPORT_FAILED, { jobId: String(job.id), uploaderSucursalId, error: outcome.error });
