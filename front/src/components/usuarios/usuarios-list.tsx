@@ -67,6 +67,8 @@ export const UsuariosList = () => {
   const [selectedUsuario, setSelectedUsuario] = useState<Usuario | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [searchValue, setSearchValue] = useState("");
+  const [rolFilter, setRolFilter] = useState("");
+  const [sucursalFilter, setSucursalFilter] = useState("");
   const [page, setPage] = useState(1);
   const rowsPerPage = 10;
   const { isOpen, onOpen, onClose } = useDisclosure();
@@ -110,19 +112,26 @@ export const UsuariosList = () => {
   // En vivo (SSE): refresca al cambiar usuarios o vínculos de vendedor.
   useLiveEvents(["usuario", "vendedor"], () => fetchUsuarios());
 
-  // Filtro por texto (usuario, rol o sucursal) en cliente: /users devuelve la lista completa.
+  // Filtros en cliente (texto + rol + sucursal): /users devuelve la lista completa.
   const filteredUsuarios = useMemo(() => {
     const q = searchValue.trim().toLowerCase();
 
-    if (!q) return usuarios;
+    return usuarios.filter((u) => {
+      if (rolFilter && (u.rol?.nombre ?? "") !== rolFilter) return false;
+      if (sucursalFilter && (u.sucursal?.nombre ?? "") !== sucursalFilter) return false;
+      if (
+        q &&
+        !(
+          u.username.toLowerCase().includes(q) ||
+          (u.rol?.nombre ?? "").toLowerCase().includes(q) ||
+          (u.sucursal?.nombre ?? "").toLowerCase().includes(q)
+        )
+      )
+        return false;
 
-    return usuarios.filter(
-      (u) =>
-        u.username.toLowerCase().includes(q) ||
-        (u.rol?.nombre ?? "").toLowerCase().includes(q) ||
-        (u.sucursal?.nombre ?? "").toLowerCase().includes(q),
-    );
-  }, [usuarios, searchValue]);
+      return true;
+    });
+  }, [usuarios, searchValue, rolFilter, sucursalFilter]);
 
   const totalPages = Math.ceil(filteredUsuarios.length / rowsPerPage) || 1;
 
@@ -318,6 +327,44 @@ export const UsuariosList = () => {
             onChange={(e) => setSearchValue(e.target.value)}
             onClear={() => setSearchValue("")}
           />
+          <div className="flex flex-col md:flex-row gap-4 mt-4">
+            <Select
+              className="md:max-w-xs"
+              label="Rol"
+              placeholder="Todos los roles"
+              selectedKeys={rolFilter ? [rolFilter] : []}
+              variant="bordered"
+              onChange={(e) =>
+                setRolFilter(e.target.value === "__all__" ? "" : e.target.value)
+              }
+            >
+              {[
+                <SelectItem key="__all__">Todos los roles</SelectItem>,
+                ...roles.map((r) => (
+                  <SelectItem key={r.nombre}>{r.nombre}</SelectItem>
+                )),
+              ]}
+            </Select>
+            <Select
+              className="md:max-w-xs"
+              label="Sucursal"
+              placeholder="Todas las sucursales"
+              selectedKeys={sucursalFilter ? [sucursalFilter] : []}
+              variant="bordered"
+              onChange={(e) =>
+                setSucursalFilter(
+                  e.target.value === "__all__" ? "" : e.target.value,
+                )
+              }
+            >
+              {[
+                <SelectItem key="__all__">Todas las sucursales</SelectItem>,
+                ...sucursales.map((s) => (
+                  <SelectItem key={s.nombre}>{s.nombre}</SelectItem>
+                )),
+              ]}
+            </Select>
+          </div>
         </CardBody>
       </Card>
 
