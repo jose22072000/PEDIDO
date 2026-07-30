@@ -51,8 +51,16 @@ function App() {
         {/* Pedidos */}
         <Route element={<PedidosPanelPage />} path="/panel/panel-pedidos" />
 
-        {/* Vendedores */}
-        <Route element={<VendedoresPage />} path="/panel/trabajadores" />
+        {/* Vendedores — solo gestión (Super Admin/Administrador/Supervisor). El Gestor NO. */}
+        <Route
+          element={
+            <AdminRoute
+              allowedRoles={["Super Admin", "Administrador", "Supervisor"]}
+            />
+          }
+        >
+          <Route element={<VendedoresPage />} path="/panel/trabajadores" />
+        </Route>
 
         {/* Clientes */}
         <Route element={<ClientesPage />} path="/panel/clientes" />
