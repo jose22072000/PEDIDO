@@ -20,75 +20,99 @@ const TODOS = [
   "reporte",
 ];
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SINGLETON: UNA sola conexión SSE para TODA la app (no una por vista). Antes cada
+// vista abría su propio ticket + EventSource al montar → navegar costaba 2-3
+// round-trips por vista (lento, sobre todo en enlaces de alta latencia tipo Starlink)
+// y saturaba el api con aperturas/cierres. Ahora la conexión se abre UNA vez y las
+// vistas solo registran/quitan un listener; navegar no reabre nada.
+// ─────────────────────────────────────────────────────────────────────────────
+type Listener = { tipos: Set<string> | null; cb: (ev: LiveEvent) => void };
+const listeners = new Set<Listener>();
+let es: EventSource | null = null;
+let connecting = false;
+let retry: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleRetry() {
+  if (retry || listeners.size === 0) return;
+  retry = setTimeout(() => {
+    retry = null;
+    void ensureConnected();
+  }, 4000);
+}
+
+async function ensureConnected() {
+  if (es || connecting) return;
+  connecting = true;
+  try {
+    const r = await fetch(`${getApiBaseUrl()}/events/sse-ticket`, { method: "POST" });
+    if (!r.ok) {
+      connecting = false;
+      scheduleRetry();
+
+      return;
+    }
+    const { ticket } = await r.json();
+
+    es = new EventSource(
+      `${getApiBaseUrl()}/events/stream?ticket=${encodeURIComponent(ticket)}`,
+    );
+    const handler = (e: Event) => {
+      let ev: LiveEvent;
+
+      try {
+        ev = JSON.parse((e as MessageEvent).data) as LiveEvent;
+      } catch {
+        return;
+      }
+      for (const l of listeners) {
+        if (!l.tipos || l.tipos.has(ev.tipo)) l.cb(ev);
+      }
+    };
+
+    TODOS.forEach((t) => es!.addEventListener(t, handler));
+    es.addEventListener("error", () => {
+      es?.close();
+      es = null;
+      scheduleRetry();
+    });
+    connecting = false;
+  } catch {
+    connecting = false;
+    scheduleRetry();
+  }
+}
+
 /**
- * SSE EN VIVO genérico: se suscribe al canal `/events/stream` y llama `onEvent` cuando
- * cambia alguna de las entidades `tipos` (ej. ["cliente"] para la vista de clientes).
- * Así cualquier vista se refresca sola, sin recargar ni polling. Reabre solo si se cae
- * (el ticket es de un solo uso). Auth por ticket efímero (mismo patrón que /orders/stream).
- *
- * `deps` fuerza reconexión cuando cambia el scope (p. ej. la sucursal seleccionada).
+ * SSE EN VIVO: registra un listener en la conexión ÚNICA compartida y llama `onEvent`
+ * cuando cambia alguna de las entidades `tipos` (ej. ["cliente"]). No abre conexión
+ * propia: montar/desmontar la vista solo agrega/quita el listener (navegación rápida).
  */
 export function useLiveEvents(
   tipos: string[],
   onEvent: (ev: LiveEvent) => void,
-  deps: unknown[] = [],
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _deps: unknown[] = [],
 ) {
   const cb = useRef(onEvent);
+
   cb.current = onEvent;
   const tiposKey = tipos.join(",");
 
   useEffect(() => {
-    let es: EventSource | null = null;
-    let cancelled = false;
-    let retry: ReturnType<typeof setTimeout> | null = null;
-
-    const conectar = async () => {
-      try {
-        const ticketRes = await fetch(`${getApiBaseUrl()}/events/sse-ticket`, {
-          method: "POST",
-        });
-        if (!ticketRes.ok || cancelled) return;
-        const { ticket } = await ticketRes.json();
-        if (cancelled) return;
-
-        es = new EventSource(
-          `${getApiBaseUrl()}/events/stream?ticket=${encodeURIComponent(ticket)}`,
-        );
-
-        const quiere = tiposKey ? new Set(tiposKey.split(",")) : null;
-        const handler = (e: Event) => {
-          try {
-            const ev = JSON.parse((e as MessageEvent).data) as LiveEvent;
-            if (!quiere || quiere.has(ev.tipo)) cb.current(ev);
-          } catch {
-            /* mensaje inválido: ignora */
-          }
-        };
-        // El backend nombra el evento SSE = tipo de entidad; escuchamos los que interesan.
-        (quiere ? [...quiere] : TODOS).forEach((t) =>
-          es!.addEventListener(t, handler),
-        );
-
-        es.addEventListener("error", () => {
-          es?.close();
-          if (!cancelled && !retry) {
-            retry = setTimeout(() => {
-              retry = null;
-              conectar();
-            }, 3000);
-          }
-        });
-      } catch {
-        /* sin stream en vivo si falla el ticket */
-      }
+    const listener: Listener = {
+      tipos: tiposKey ? new Set(tiposKey.split(",")) : null,
+      cb: (ev) => cb.current(ev),
     };
 
-    conectar();
+    listeners.add(listener);
+    void ensureConnected();
+
     return () => {
-      cancelled = true;
-      if (retry) clearTimeout(retry);
-      es?.close();
+      listeners.delete(listener);
+      // La conexión NO se cierra al desmontar una vista: queda abierta (1 sola) para
+      // la sesión, así navegar entre vistas no la reabre. Se cae sola al cerrar la pestaña.
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tiposKey, ...deps]);
+  }, [tiposKey]);
 }
