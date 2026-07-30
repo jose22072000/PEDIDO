@@ -692,11 +692,11 @@ export async function processBulkImport(
     const sellerIds = [...new Set([...sellersByCode.values()].map((s) => s.seller.id))];
     const vendedores = await prisma.vendedor.findMany({
       where: { id: { in: sellerIds } },
-      select: { id: true, code: true, name: true, gestorId: true },
+      select: { id: true, codigo: true, nombre: true, gestorId: true },
     });
     const ajenos = vendedores.filter((v) => v.gestorId !== restrictToGestorId);
     if (ajenos.length) {
-      const cods = [...new Set(ajenos.map((v) => v.code || v.name))].slice(0, 15).join(', ');
+      const cods = [...new Set(ajenos.map((v) => v.codigo || v.nombre))].slice(0, 15).join(', ');
 
       return {
         ok: false,
