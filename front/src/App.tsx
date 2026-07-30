@@ -89,14 +89,28 @@ function App() {
         />
       </Route>
 
-      {/* Nuevo Pedido / Importar: cualquier usuario autenticado (gestor, operador,
-          vendedor) sube SUS pedidos. El backend scopea por sucursal y, para el gestor,
-          restringe la importación a SUS vendedores (no puede subir los de otro). */}
+      {/* Nuevo Pedido / Importar: roles operativos suben SUS pedidos. El backend scopea
+          por sucursal y, para el gestor, restringe a SUS vendedores. Allowlist EXPLÍCITA
+          (no "cualquier autenticado") para que un rol futuro de solo-lectura no importe. */}
       <Route element={<ProtectedRoute />}>
         <Route
-          element={<NuevoPedidoPage />}
-          path="/panel/panel-pedidos/nuevo"
-        />
+          element={
+            <AdminRoute
+              allowedRoles={[
+                "Super Admin",
+                "Administrador",
+                "Supervisor",
+                "Gestor",
+                "Operador",
+              ]}
+            />
+          }
+        >
+          <Route
+            element={<NuevoPedidoPage />}
+            path="/panel/panel-pedidos/nuevo"
+          />
+        </Route>
       </Route>
 
       {/* Rutas protegidas solo para Administrador */}

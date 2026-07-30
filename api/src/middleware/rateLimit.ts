@@ -1,22 +1,18 @@
 import rateLimit from 'express-rate-limit';
 
 // Anti-bucle / anti-abuso: si un cliente entra en loop y machaca la API, esto acota el
-// daño sin tumbar el server. Límite GENEROSO a propósito: muchos usuarios comparten una
-// misma IP pública (CGNAT de Starlink) — no queremos bloquear oficinas enteras, solo
-// frenar floods patológicos. La clave prioriza el USUARIO (token) por encima de la IP,
-// así un bucle de un cliente no gasta el cupo de sus compañeros de red.
+// daño sin tumbar el server. Se clavea por IP (default de la librería, IPv6-safe): NO se
+// usa el token como clave porque el header Authorization es SPOOFEABLE (un atacante manda
+// tokens basura distintos → llaves infinitas → salta el límite). Con `trust proxy=1` la
+// IP viene del X-Forwarded-For que pone nginx, no es falsificable.
+// Límite MUY GENEROSO (6000/min ≈ 100/seg por IP) porque una sucursal entera comparte una
+// sola IP pública (CGNAT de Starlink): una oficina trabajando no llega ni cerca; solo un
+// bucle patológico lo alcanza. Los streams SSE (1 request de minutos) no cuentan.
 export const apiLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 min
-  limit: 1200, // 1200 req/min por clave: una oficina entera cabe; un bucle no.
+  limit: 6000, // 6000 req/min por IP
   standardHeaders: 'draft-7',
   legacyHeaders: false,
-  keyGenerator: (req) => {
-    const auth = req.headers.authorization;
-    if (auth && auth.length > 16) return `t:${auth.slice(-24)}`; // por usuario si hay token
-
-    return `ip:${req.ip}`;
-  },
-  // Los streams SSE son long-lived (1 request que dura minutos): no deben contar.
   skip: (req) =>
     req.path.includes('/events/stream') || req.path.includes('/import-stream'),
   message: {
