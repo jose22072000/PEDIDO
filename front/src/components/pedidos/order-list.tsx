@@ -795,6 +795,7 @@ export const OrdersList = () => {
 
       {/* Order Details Modal */}
       <Modal
+        isDismissable={false}
         isOpen={isOpen}
         placement="center"
         scrollBehavior="outside"

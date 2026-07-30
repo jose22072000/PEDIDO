@@ -462,7 +462,7 @@ export const ConfiguracionForm = () => {
       </Card>
 
       {/* Modal crear sucursal */}
-      <Modal isOpen={isCreateOpen} placement="center" onClose={onCreateClose}>
+      <Modal isDismissable={false} isOpen={isCreateOpen} placement="center" onClose={onCreateClose}>
         <ModalContent>
           <ModalHeader>Crear Sucursal</ModalHeader>
           <ModalBody>
@@ -496,7 +496,7 @@ export const ConfiguracionForm = () => {
       </Modal>
 
       {/* Modal editar sucursal */}
-      <Modal isOpen={isEditOpen} placement="center" onClose={onEditClose}>
+      <Modal isDismissable={false} isOpen={isEditOpen} placement="center" onClose={onEditClose}>
         <ModalContent>
           <ModalHeader>Editar Sucursal</ModalHeader>
           <ModalBody>

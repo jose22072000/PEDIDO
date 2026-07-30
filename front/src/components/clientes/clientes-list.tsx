@@ -333,6 +333,7 @@ export const ClientesList = () => {
 
       {/* Cliente Details Modal */}
       <Modal
+        isDismissable={false}
         isOpen={isOpen}
         placement="center"
         scrollBehavior="outside"
