@@ -42,6 +42,12 @@ export default defineConfig({
         ],
       },
       workbox: {
+        // El SW nuevo toma control de inmediato (sin esperar a cerrar todas las
+        // pestañas) y borra cachés viejas: garantiza que un reload traiga los
+        // últimos cambios en vez de quedar pegado a JS antiguo.
+        skipWaiting: true,
+        clientsClaim: true,
+        cleanupOutdatedCaches: true,
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/.*\.(?:png|jpg|jpeg|svg|gif)$/,

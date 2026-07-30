@@ -5,6 +5,7 @@ import { Avatar, Button, Link } from "@heroui/react";
 
 import Icons from "@/components/icons/iconify";
 import { SucursalSelector } from "@/components/sucursal-selector";
+import { UserMenu } from "@/components/user-menu";
 
 export const NavigationHeading = ({
   title,
@@ -46,6 +47,10 @@ export const NavigationHeading = ({
         <p className="block md:hidden text-lg text-default-500">{paragraph}</p>
       </div>
       <div className="w-full flex flex-col items-center gap-2 md:w-fit md:min-w-fit">
+        {/* Perfil: quién eres + cambiar contraseña + salir. */}
+        <div className="flex items-center gap-2 self-end">
+          <UserMenu />
+        </div>
         {/* Solo lo ve el Super Admin: le permite enfocarse en una sola sucursal. */}
         <SucursalSelector />
         <Button
