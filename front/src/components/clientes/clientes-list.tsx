@@ -23,6 +23,7 @@ import Icons from "../icons/iconify";
 
 import { cn, copyTextToClipboard } from "@/lib/utils";
 import { getApiBaseUrl } from "@/config";
+import { useLiveEvents } from "@/hooks/use-live-events";
 
 interface Cliente {
   id: string;
@@ -153,6 +154,9 @@ export const ClientesList = () => {
   useEffect(() => {
     fetchClientes(1);
   }, [debouncedSearch, municipio, estadoCompra]);
+
+  // EN VIVO (SSE): refresca la lista al cambiar clientes (import, edición, geo…) sin recargar.
+  useLiveEvents(["cliente"], () => fetchClientes(pagination.page));
 
   // Cleanup on unmount
   useEffect(() => {

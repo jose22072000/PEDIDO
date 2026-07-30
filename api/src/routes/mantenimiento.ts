@@ -333,16 +333,38 @@ router.post('/restore', upload.single('file') as any, async (req, res) => {
         usuariosNuevos++;
       } catch { /* se salta */ }
     }
+    // VENDEDORES por CÓDIGO (y si no, por nombre+sucursal) — NUNCA por id (los ids cambian
+    // por servidor). Mapa backupVendId -> idLocal para remapear los pedidos: si se matchea
+    // por id, el pedido queda con vendedor N/A (bug histórico). Reusa el existente si lo hay.
+    const vendMap = new Map<string, string>();
+    const prefixMap = new Map<string, string>();
+    const folioPref = (code: string | null | undefined) =>
+      code ? 'P' + code.split('.').filter(Boolean).map((s) => s.charAt(0)).join('').toUpperCase() : null;
     let vendOk = 0;
     for (const v of vendedores) {
       try {
         let gestorId = v.gestorId ?? null;
         if (gestorId && !(await prisma.usuario.findUnique({ where: { id: gestorId } }))) gestorId = null;
-        // codigo de vendedor es único global: si choca con OTRO, se deja null.
-        let codigoV: string | null = v.codigo ?? null;
-        if (codigoV) { const clash = await prisma.vendedor.findUnique({ where: { codigo: codigoV } }); if (clash && clash.id !== v.id) codigoV = null; }
-        const base = { nombre: v.nombre, codigo: codigoV, sucursalId: mapSuc(v.sucursalId), gestorId, activo: v.activo ?? true };
-        await prisma.vendedor.upsert({ where: { id: v.id }, update: base, create: { id: v.id, ...base, createdAt: fecha(v.createdAt) ?? undefined } });
+        const sucId = mapSuc(v.sucursalId);
+        const codigoV: string | null = v.codigo ?? null;
+        let local = codigoV ? await prisma.vendedor.findUnique({ where: { codigo: codigoV } }) : null;
+        if (!local) local = await prisma.vendedor.findFirst({ where: { nombre: v.nombre, sucursalId: sucId } });
+        if (local) {
+          // reusar el existente; solo completar lo que le falte (no pisar lo bueno).
+          const upd: any = {};
+          if (!local.sucursalId && sucId) upd.sucursalId = sucId;
+          if (!local.gestorId && gestorId) upd.gestorId = gestorId;
+          if (!local.codigo && codigoV) { const clash = await prisma.vendedor.findUnique({ where: { codigo: codigoV } }); if (!clash || clash.id === local.id) upd.codigo = codigoV; }
+          if (Object.keys(upd).length) await prisma.vendedor.update({ where: { id: local.id }, data: upd });
+          vendMap.set(v.id, local.id);
+          { const pf = folioPref(local.codigo || codigoV); if (pf) prefixMap.set(pf, local.id); }
+        } else {
+          let cod = codigoV;
+          if (cod) { const clash = await prisma.vendedor.findUnique({ where: { codigo: cod } }); if (clash) cod = null; }
+          const creado = await prisma.vendedor.create({ data: { nombre: v.nombre, codigo: cod, sucursalId: sucId, gestorId, activo: v.activo ?? true, createdAt: fecha(v.createdAt) ?? undefined } });
+          vendMap.set(v.id, creado.id);
+          { const pf = folioPref(creado.codigo); if (pf) prefixMap.set(pf, creado.id); }
+        }
         vendOk++;
       } catch { /* se salta */ }
     }
@@ -366,14 +388,14 @@ router.post('/restore', upload.single('file') as any, async (req, res) => {
     }
     // PEDIDOS: se matchean por su clave de negocio (sucursalId, folio, vendedorId) para NO
     // chocar con el único; clienteId/vendedorId remapeados a los ids locales. pedMap -> items.
-    const vendIds = new Set((await prisma.vendedor.findMany({ select: { id: true } })).map((v) => v.id));
     const pedMap = new Map<string, { id: string; nuevo: boolean }>();
     let pedOk = 0;
     for (const p of pedidos) {
       try {
         const sucId = mapSuc(p.sucursalId);
         const clienteId = p.clienteId ? (cliMap.get(p.clienteId) ?? null) : null;
-        const vendedorId = p.vendedorId && vendIds.has(p.vendedorId) ? p.vendedorId : null;
+        let vendedorId = p.vendedorId ? (vendMap.get(p.vendedorId) ?? null) : null;
+        if (!vendedorId && p.folio) vendedorId = prefixMap.get(String(p.folio).substring(0, 3)) ?? null;
         const base = { sucursalId: sucId, vendedorId, clienteId, direccion: p.direccion ?? null, encargado: p.encargado ?? null, telefono: p.telefono ?? null, fecha: fecha(p.fecha) ?? new Date(), fecha_comprometida: fecha(p.fecha_comprometida), estado: p.estado ?? null, pedido_cobrado: p.pedido_cobrado ?? null, requiere_domicilio: p.requiere_domicilio ?? null, costoDomicilio: p.costoDomicilio ?? null };
         const existente = await prisma.pedido.findFirst({ where: { sucursalId: sucId, folio: p.folio, vendedorId } });
         if (existente) { await prisma.pedido.update({ where: { id: existente.id }, data: base }); pedMap.set(p.id, { id: existente.id, nuevo: false }); }
@@ -507,22 +529,36 @@ router.post('/import-sqlite', upload.single('file') as any, async (req, res) => 
       } catch { /* fila mala: se salta */ }
     }
 
-    // 4) Vendedores: gestorId null (sin asignar). El código de vendedor es único global:
-    //    si choca con otra persona, se deja null para no romper.
+    // 4) Vendedores por CÓDIGO (o nombre+sucursal), NUNCA por id (cambia por servidor).
+    //    vendMap: backupVendId -> idLocal para remapear pedidos. prefixMap: prefijo de folio
+    //    (P+iniciales del código, ej. deyanira.zaldivar -> PDZ) -> idLocal, como RESPALDO
+    //    para sacar el vendedor DESDE EL PEDIDO si no matchea por id (evita el N/A).
+    const vendMap = new Map<string, string>();
+    const prefixMap = new Map<string, string>();
+    const folioPref = (code: string | null | undefined) =>
+      code ? 'P' + code.split('.').filter(Boolean).map((s) => s.charAt(0)).join('').toUpperCase() : null;
     let vendOk = 0;
     for (const v of vendedoresSrc) {
       try {
-        let codigoV: string | null = v.code ?? null;
-        if (codigoV) {
-          const clash = await prisma.vendedor.findUnique({ where: { codigo: codigoV } });
-          if (clash && clash.id !== v.id) codigoV = null;
+        const codigoV: string | null = v.code ?? null;
+        let local = codigoV ? await prisma.vendedor.findUnique({ where: { codigo: codigoV } }) : null;
+        if (!local) local = await prisma.vendedor.findFirst({ where: { nombre: v.name, sucursalId } });
+        let localId: string;
+        if (local) {
+          const upd: any = {};
+          if (!local.sucursalId && sucursalId) upd.sucursalId = sucursalId;
+          if (!local.codigo && codigoV) { const clash = await prisma.vendedor.findUnique({ where: { codigo: codigoV } }); if (!clash || clash.id === local.id) upd.codigo = codigoV; }
+          if (Object.keys(upd).length) await prisma.vendedor.update({ where: { id: local.id }, data: upd });
+          localId = local.id;
+        } else {
+          let cod = codigoV;
+          if (cod) { const clash = await prisma.vendedor.findUnique({ where: { codigo: cod } }); if (clash) cod = null; }
+          const creado = await prisma.vendedor.create({ data: { nombre: v.name, codigo: cod, sucursalId, gestorId: null, activo: true, createdAt: fecha(v.createdAt) ?? undefined } });
+          localId = creado.id;
         }
-        const base = { nombre: v.name, codigo: codigoV, sucursalId, gestorId: null, activo: true };
-        await prisma.vendedor.upsert({
-          where: { id: v.id },
-          update: base,
-          create: { id: v.id, ...base, createdAt: fecha(v.createdAt) ?? undefined },
-        });
+        vendMap.set(v.id, localId);
+        const pf = folioPref(local?.codigo || codigoV);
+        if (pf) prefixMap.set(pf, localId);
         vendOk++;
       } catch { /* se salta */ }
     }
@@ -545,13 +581,13 @@ router.post('/import-sqlite', upload.single('file') as any, async (req, res) => 
     }
 
     // 6) PEDIDOS por (sucursalId, folio, vendedorId); clienteId/vendedorId remapeados. + items.
-    const vendIds = new Set((await prisma.vendedor.findMany({ select: { id: true } })).map((v) => v.id));
     const pedMap = new Map<string, { id: string; nuevo: boolean }>();
     let pedOk = 0;
     for (const p of pedidosSrc) {
       try {
         const clienteId = p.clientId ? (cliMap.get(p.clientId) ?? null) : null;
-        const vendedorId = p.sellerId && vendIds.has(p.sellerId) ? p.sellerId : null;
+        let vendedorId = p.sellerId ? (vendMap.get(p.sellerId) ?? null) : null;
+        if (!vendedorId && p.folio) vendedorId = prefixMap.get(String(p.folio).substring(0, 3)) ?? null;
         const base = {
           sucursalId, vendedorId, clienteId,
           direccion: p.direccion ?? null, encargado: p.encargado ?? null, telefono: p.telefono ?? null,

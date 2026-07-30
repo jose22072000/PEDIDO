@@ -24,6 +24,7 @@ import Icons from "../icons/iconify";
 
 import { cn, copyTextToClipboard } from "@/lib/utils";
 import { getApiBaseUrl } from "@/config";
+import { useLiveEvents } from "@/hooks/use-live-events";
 
 interface Vendedor {
   id: string;
@@ -247,6 +248,9 @@ export const VendedoresList = () => {
   useEffect(() => {
     setPage(1);
   }, [searchValue]);
+
+  // En vivo (SSE): refresca al cambiar vendedores (vínculo, alta/baja).
+  useLiveEvents(["vendedor"], () => fetchVendedores());
 
   // Filter vendedores by search
   useEffect(() => {

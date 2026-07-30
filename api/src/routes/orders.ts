@@ -8,6 +8,7 @@ import {
   resolveSucursalScope,
 } from '../lib/sucursalContext';
 import { notifyPedidoCompletado } from '../lib/webhook';
+import { emitEvent } from '../lib/events';
 import { redisEnabled, publishJSON, getSubscriber, CH_ORDERS_NEW, CH_IMPORT_DONE, CH_IMPORT_FAILED } from '../lib/redis';
 import { importQueue, enqueueDeliveryOrders } from '../lib/queues';
 import { mintSseTicket, consumeSseTicket } from '../lib/sseTickets';
@@ -61,43 +62,28 @@ router.get('/', async (req, res) => {
       where.archivedAt = null;
     }
 
-    // General search filter (vendedor, cliente, folio)
+    // Búsqueda general TILDE-insensible (jose == josé, ramon == ramón) sobre cliente,
+    // encargado, vendedor, folio y código Parranda a la vez — así da igual buscar por
+    // nombre, apellido, encargado o folio: se distingue solo por lo que matchea.
+    // Prisma no soporta unaccent, así que se hace un query crudo que quita las tildes con
+    // translate() y devuelve los ids que matchean; el query principal aplica el scope de
+    // sucursal + filtros + paginación sobre esos ids (nunca fuga entre sucursales).
     if (searchTerm) {
-      conditions.push({
-        OR: [
-          {
-            folio: {
-              contains: searchTerm,
-            },
-          },
-          {
-            vendedor: {
-              nombre: {
-                contains: searchTerm,
-              },
-            },
-          },
-          {
-            cliente: {
-              nombre: {
-                contains: searchTerm,
-              },
-            },
-          },
-          {
-            cliente: {
-              codigo: {
-                contains: searchTerm,
-              },
-            },
-          },
-          {
-            encargado: {
-              contains: searchTerm,
-            },
-          },
-        ],
-      });
+      const ACC = 'ÁÉÍÓÚÜÑÀÈÌÒÙÄËÏÖáéíóúüñàèìòùäëïö';
+      const PLA = 'AEIOUUNAEIOUAEIOAEIOUUNAEIOUAEIO';
+      const matches = await prisma.$queryRaw<Array<{ id: string }>>`
+        SELECT o.id FROM "Order" o
+        LEFT JOIN "Client" c ON c.id = o."clientId"
+        LEFT JOIN "Seller" s ON s.id = o."sellerId"
+        WHERE translate(
+          coalesce(c.nombre,'') || ' ' || coalesce(o.encargado,'') || ' ' ||
+          coalesce(s.name,'') || ' ' || coalesce(o.folio,'') || ' ' || coalesce(c."parrandaId",''),
+          ${ACC}, ${PLA})
+        ILIKE '%' || translate(${searchTerm}, ${ACC}, ${PLA}) || '%'
+        LIMIT 5000`;
+      const ids = matches.map((m) => m.id);
+      // Si no hay match, forzar 0 resultados (id imposible) en vez de ignorar el filtro.
+      conditions.push({ id: { in: ids.length ? ids : ['__no_match__'] } });
     }
 
     // Filter by estado
@@ -369,6 +355,7 @@ router.post('/', async (req, res) => {
     // (cola Redis); no-op sin Redis. Reemplaza el poll de 15s de delivery. Delivery filtra
     // luego los que tienen geo + requieren domicilio.
     void enqueueDeliveryOrders({ reason: 'order-created', externalId: order.id });
+    emitEvent('pedido', { sucursalId: order.sucursalId, id: order.id, accion: 'create' });
 
     res.status(201).json(order);
   } catch (err) {
@@ -405,6 +392,7 @@ router.patch('/:id/completar', async (req, res) => {
 
     // Webhook PUSH (configurable): avisa a Parranda que el pedido se completó + la fecha.
     notifyPedidoCompletado(order);
+    emitEvent('pedido', { sucursalId: order.sucursalId, id: order.id, accion: 'completar' });
 
     res.json(order);
   } catch (err) {
@@ -441,6 +429,7 @@ router.delete('/:id', async (req, res) => {
     await prisma.pedido.delete({
       where: { id },
     });
+    emitEvent('pedido', { sucursalId, id, accion: 'delete' });
 
     res.json({ success: true, message: 'Pedido eliminado correctamente' });
   } catch (err) {
@@ -700,6 +689,8 @@ export async function processBulkImport(
   // Se importaron pedidos -> avisa a delivery para (re)procesar domicilios (event-driven).
   if (results.created > 0 || results.updated > 0) {
     void enqueueDeliveryOrders({ reason: 'bulk-import' });
+    emitEvent('pedido', { sucursalId: uploaderSucursalId ?? null, accion: 'bulk' });
+    emitEvent('cliente', { sucursalId: uploaderSucursalId ?? null, accion: 'bulk' });
   }
   return { ok: true, results };
 }

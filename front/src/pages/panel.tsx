@@ -6,6 +6,7 @@ import { useDashboard } from "@/providers/DashboardProvider";
 import { KPICard } from "@/components/dashboard/KPICard";
 import { LineChartCard } from "@/components/dashboard/LineChartCard";
 import { useAuthStore } from "@/stores/authStore";
+import { useLiveEvents } from "@/hooks/use-live-events";
 
 export default function PanelPage() {
   const { user, session } = useAuthStore();
@@ -17,6 +18,9 @@ export default function PanelPage() {
     // Refetch stats cada vez que se entre a la página
     refetch();
   }, []);
+
+  // EN VIVO (SSE): las estadísticas del dashboard se refrescan solas al entrar/completar pedidos.
+  useLiveEvents(["pedido"], () => refetch());
 
   return (
     <section className="flex flex-col gap-4">

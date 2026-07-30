@@ -15,6 +15,9 @@ export const CH_ORDERS_NEW = `${PREFIX}:orders:new`;
 // Eventos de la cola de importación de CSV (el worker publica; el SSE los reenvía al front).
 export const CH_IMPORT_DONE = `${PREFIX}:import:done`;
 export const CH_IMPORT_FAILED = `${PREFIX}:import:failed`;
+// Canal GENÉRICO de cambios: cualquier vista suscrita a /events/stream se refresca en vivo.
+// Payload: { tipo, sucursalId, id, accion, ts }. Scopeado por sucursal en el SSE.
+export const CH_EVENTS = `${PREFIX}:events`;
 
 const COMMON: RedisOptions = {
   maxRetriesPerRequest: null,               // requerido por BullMQ (Rebanada 2)

@@ -15,6 +15,7 @@ import reportsRouter from './routes/reports';
 import integrationRouter from './routes/integration';
 import geolocalizacionRouter from './routes/geolocalizacion';
 import mantenimientoRouter from './routes/mantenimiento';
+import eventsRouter from './routes/events';
 import prisma from './prismaClient';
 import { iniciarArchivadoAutomatico } from './lib/archivador';
 
@@ -58,6 +59,7 @@ app.use('/reports', reportsRouter);
 app.use('/integration', integrationRouter);
 app.use('/geolocalizacion', geolocalizacionRouter);
 app.use('/mantenimiento', mantenimientoRouter);
+app.use('/events', eventsRouter);
 
 app.listen(port, '0.0.0.0', async () => {
   console.log(`API listening on http://0.0.0.0:${port}`);

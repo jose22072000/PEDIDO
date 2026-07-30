@@ -1,5 +1,6 @@
 import express from 'express';
 import prisma from '../prismaClient';
+import { emitEvent } from '../lib/events';
 import {
   getRequesterContext,
   resolveSucursalFilter,
@@ -153,6 +154,7 @@ router.patch('/:id/activo', async (req, res) => {
 
     const updated = await prisma.vendedor.update({ where: { id }, data: { activo } });
 
+    emitEvent('vendedor', { sucursalId: updated.sucursalId, id: updated.id, accion: 'activo' });
     res.json({
       vendedor: updated,
       pedidosConservados: vendedor._count.pedidos,
@@ -241,6 +243,11 @@ router.patch('/:id/gestor', async (req, res) => {
       }
       return { v, pedidos, clientes };
     });
+
+    // En vivo: el vínculo cambia el vendedor y (por backfill) sus pedidos + clientes.
+    emitEvent('vendedor', { sucursalId: result.v.sucursalId, id: result.v.id, accion: 'gestor' });
+    if (result.pedidos > 0) emitEvent('pedido', { sucursalId: result.v.sucursalId, accion: 'backfill' });
+    if (result.clientes > 0) emitEvent('cliente', { sucursalId: result.v.sucursalId, accion: 'backfill' });
 
     res.json({
       vendedor: result.v,

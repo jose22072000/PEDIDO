@@ -28,6 +28,7 @@ import Icons from "../icons/iconify";
 
 import { cards } from "@/components/primitives";
 import { getApiBaseUrl } from "@/config";
+import { useLiveEvents } from "@/hooks/use-live-events";
 import { getSucursalActiva } from "@/components/sucursal-selector";
 import { useAuthStore } from "@/stores/authStore";
 
@@ -105,6 +106,9 @@ export const UsuariosList = () => {
     fetchRoles();
     fetchSucursales();
   }, []);
+
+  // En vivo (SSE): refresca al cambiar usuarios o vínculos de vendedor.
+  useLiveEvents(["usuario", "vendedor"], () => fetchUsuarios());
 
   // Filtro por texto (usuario, rol o sucursal) en cliente: /users devuelve la lista completa.
   const filteredUsuarios = useMemo(() => {

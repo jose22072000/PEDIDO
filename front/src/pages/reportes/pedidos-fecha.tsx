@@ -19,6 +19,7 @@ import {
 
 import { NavigationHeading } from "@/components/navigation-heading";
 import { getApiBaseUrl } from "@/config";
+import { useLiveEvents } from "@/hooks/use-live-events";
 import Icons from "@/components/icons/iconify";
 import { exportToExcel } from "@/utils/excelExport";
 import { useAuthStore } from "@/stores/authStore";
@@ -100,6 +101,9 @@ export default function ReportePedidosFechaPage() {
   }, [pedidos, page]);
 
   const totalPages = Math.ceil(pedidos.length / rowsPerPage);
+
+  // EN VIVO (SSE): si ya generaste el reporte (fechas puestas), se re-genera solo al cambiar pedidos.
+  useLiveEvents(["pedido"], () => { if (fechaInicio && fechaFin) handleGenerarReporte(); });
 
   const handleGenerarReporte = async () => {
     if (!fechaInicio || !fechaFin) {

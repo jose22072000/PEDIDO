@@ -2,6 +2,7 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import prisma from '../prismaClient';
 import { getRequesterContext, resolveSucursalScope } from '../lib/sucursalContext';
+import { emitEvent } from '../lib/events';
 
 const router = Router();
 
@@ -187,6 +188,7 @@ router.post('/', async (req, res) => {
     // Remove password from response
     const { password: _, ...userWithoutPassword } = user;
 
+    emitEvent('usuario', { sucursalId: user.sucursalId, id: user.id, accion: 'create' });
     res.status(201).json(userWithoutPassword);
   } catch (err) {
     console.error(err);
@@ -283,6 +285,7 @@ router.patch('/:id', async (req, res) => {
     // Remove password from response
     const { password: _, ...userWithoutPassword } = user;
 
+    emitEvent('usuario', { sucursalId: user.sucursalId, id: user.id, accion: 'update' });
     res.json(userWithoutPassword);
   } catch (err) {
     console.error(err);
@@ -318,6 +321,7 @@ router.delete('/:id', async (req, res) => {
       where: { id },
     });
 
+    emitEvent('usuario', { sucursalId: existingUser.sucursalId, id, accion: 'delete' });
     res.json({ message: 'User deleted successfully' });
   } catch (err) {
     console.error(err);

@@ -142,9 +142,9 @@ export async function processParrandaSync(
           await prisma.cliente.update({ where: { id: existingId }, data: geoData });
           r.actualizados++;
         } else {
-          const creado = await prisma.cliente.create({ data: { nombre, sucursalId, ...geoData } });
-          idByKey.set(key, creado.id); // evita duplicar si el nombre se repite en la misma corrida
-          r.creados++;
+          // Parranda SOLO enriquece a MIS clientes (los que vienen de los pedidos). Un cliente
+          // de Parranda que NO existe aquí se OMITE: no se importa el catálogo entero de Parranda.
+          r.creados = 0;
         }
       } catch {
         // P2002 (codigo/nombre duplicado) u otro: no tumbar el sync, contar y seguir.
