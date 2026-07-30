@@ -14,6 +14,7 @@ import { useEffect, useRef, useState } from "react";
 import { cards } from "../primitives";
 import Icons from "../icons/iconify";
 
+import { ApiKeysPanel } from "./api-keys-panel";
 import { getApiBaseUrl } from "@/config";
 
 /**
@@ -489,6 +490,8 @@ export const MantenimientoPanel = () => {
               <Button color="primary" size="sm" isLoading={cargando === "webhook"} onPress={guardarWebhook}>Guardar</Button>
             </div>
           </div>
+
+          <ApiKeysPanel />
         </div>
       </CardBody>
     </Card>

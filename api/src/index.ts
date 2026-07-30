@@ -19,6 +19,7 @@ import eventsRouter from './routes/events';
 import prisma from './prismaClient';
 import { iniciarArchivadoAutomatico } from './lib/archivador';
 import { apiLimiter, loginLimiter } from './middleware/rateLimit';
+import apiKeysRouter from './routes/apiKeys';
 
 const app = express();
 // Detrás de nginx: confiar en el primer proxy para que req.ip sea la IP real del
@@ -69,6 +70,7 @@ app.use('/reports', reportsRouter);
 app.use('/integration', integrationRouter);
 app.use('/geolocalizacion', geolocalizacionRouter);
 app.use('/mantenimiento', mantenimientoRouter);
+app.use('/api-keys', apiKeysRouter);
 app.use('/events', eventsRouter);
 
 app.listen(port, '0.0.0.0', async () => {

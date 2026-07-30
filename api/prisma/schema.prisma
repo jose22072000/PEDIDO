@@ -149,3 +149,24 @@ model WebhookConfig {
     activo    Boolean  @default(true)
     updatedAt DateTime @updatedAt @default(now())
 }
+
+/// Claves de API para que otros proyectos/compañeros consuman la API.
+/// Se guarda SOLO el hash sha256 del token; el texto plano (pk_...) se muestra UNA vez
+/// al crearla. lastUsedAt/usageCount/lastUsedIp = "quién entra/sale".
+model ApiKey {
+    id          String    @id @default(cuid())
+    label       String // nombre del proyecto/consumidor
+    prefix      String    @unique // primeros chars visibles para identificarla
+    tokenHash   String // sha256(token) — nunca el token en claro
+    scope       String    @default("integration") // integration | read | full (reservado)
+    activo      Boolean   @default(true)
+    createdById String? // Usuario (Super Admin) que la emitió
+    lastUsedAt  DateTime?
+    lastUsedIp  String?
+    usageCount  Int       @default(0)
+    expiresAt   DateTime?
+    revokedAt   DateTime?
+    createdAt   DateTime  @default(now())
+
+    @@map("ApiKey")
+}
