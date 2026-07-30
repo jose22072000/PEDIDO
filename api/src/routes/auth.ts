@@ -113,4 +113,34 @@ router.get('/me', authenticateToken, async (req: AuthRequest, res: Response) => 
   }
 });
 
+// Cambiar la PROPIA contraseña. Cualquier usuario autenticado, SOLO la suya (usa el userId
+// del token). Nadie puede cambiar la de otro por aquí; editar a otros es de Admin/Super Admin
+// (ver /users, guard canManageUsers). Pide la contraseña actual para confirmar identidad.
+router.post('/change-password', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    const { currentPassword, newPassword } = req.body as {
+      currentPassword?: string;
+      newPassword?: string;
+    };
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Falta la contraseña actual o la nueva.' });
+    }
+    if (String(newPassword).length < 6) {
+      return res.status(400).json({ error: 'La nueva contraseña debe tener al menos 6 caracteres.' });
+    }
+    const user = await prisma.usuario.findUnique({ where: { id: req.user?.userId } });
+    if (!user || !user.password) return res.status(404).json({ error: 'Usuario no encontrado.' });
+    const ok = await bcrypt.compare(currentPassword, user.password);
+    if (!ok) return res.status(401).json({ error: 'La contraseña actual no es correcta.' });
+    await prisma.usuario.update({
+      where: { id: user.id },
+      data: { password: await bcrypt.hash(newPassword, 10) },
+    });
+    return res.json({ message: 'Contraseña actualizada.' });
+  } catch (err) {
+    console.error('change-password error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 export default router;

@@ -6,6 +6,7 @@ import {
   requireSucursalId,
   resolveSucursalFilter,
   resolveSucursalScope,
+  getRequesterContext,
 } from '../lib/sucursalContext';
 import { notifyPedidoCompletado } from '../lib/webhook';
 import { emitEvent } from '../lib/events';
@@ -50,6 +51,13 @@ router.get('/', async (req, res) => {
     // Build where clause
     const where: any = { sucursalId };
     const conditions: any[] = [];
+
+    // RBAC — rol GESTOR: SOLO ve SUS pedidos (los de su vendedor vinculado por gestorId).
+    // Nunca ve los de compañeros, aunque sean de su misma sucursal.
+    const gestorCtx = getRequesterContext(req);
+    if (gestorCtx.isGestor && gestorCtx.userId) {
+      conditions.push({ vendedor: { gestorId: gestorCtx.userId } });
+    }
 
     // Archivados (completados + expirados con +1 semana): OCULTOS por defecto para que la
     // lista solo acumule los "en proceso".

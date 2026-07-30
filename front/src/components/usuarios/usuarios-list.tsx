@@ -468,18 +468,23 @@ export const UsuariosList = () => {
                     <SelectItem key={rol.id}>{rol.nombre}</SelectItem>
                   ))}
                 </Select>
-                <Select
-                  label="Sucursal"
-                  selectedKeys={editForm.sucursalId ? [editForm.sucursalId] : []}
-                  variant="bordered"
-                  onChange={(e) =>
-                    setEditForm({ ...editForm, sucursalId: e.target.value })
-                  }
-                >
-                  {sucursales.map((sucursal) => (
-                    <SelectItem key={sucursal.id}>{sucursal.nombre}</SelectItem>
-                  ))}
-                </Select>
+                {/* Super Admin es global: no lleva sucursal → se oculta el selector. */}
+                {String(
+                  roles.find((r) => r.id === editForm.rolId)?.nombre || "",
+                ).toUpperCase() !== "SUPER ADMIN" && (
+                  <Select
+                    label="Sucursal"
+                    selectedKeys={editForm.sucursalId ? [editForm.sucursalId] : []}
+                    variant="bordered"
+                    onChange={(e) =>
+                      setEditForm({ ...editForm, sucursalId: e.target.value })
+                    }
+                  >
+                    {sucursales.map((sucursal) => (
+                      <SelectItem key={sucursal.id}>{sucursal.nombre}</SelectItem>
+                    ))}
+                  </Select>
+                )}
                 <Input
                   autoComplete="new-password"
                   label="Nueva contraseña"

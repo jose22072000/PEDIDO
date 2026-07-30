@@ -158,6 +158,11 @@ router.get('/', async (req, res) => {
     const skip = (page - 1) * limit;
 
     const where: any = { sucursalId };
+    // RBAC — rol GESTOR: SOLO los clientes de SUS pedidos (por su vendedor vinculado).
+    const gestorCtx = getRequesterContext(req);
+    if (gestorCtx.isGestor && gestorCtx.userId) {
+      where.pedidos = { some: { vendedor: { gestorId: gestorCtx.userId } } };
+    }
     // Filtros extra: municipio y estado de compra (Compra / No Compra). El scope de
     // sucursal ya lo aplicó resolveSucursalFilter según el rol y si eligió "Todas".
     const municipio = (req.query.municipio as string)?.trim();

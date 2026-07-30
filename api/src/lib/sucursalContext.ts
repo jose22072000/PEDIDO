@@ -12,6 +12,7 @@ interface TokenPayload {
 }
 
 interface RequesterContext {
+  userId?: string;
   username?: string;
   role?: string;
   sucursalId?: string | null;
@@ -20,6 +21,8 @@ interface RequesterContext {
   isSuperAdmin: boolean;
   /** Puede entrar a Usuarios (Super Admin o Administrador). */
   canManageUsers: boolean;
+  /** Rol Gestor: SOLO ve SUS datos (sus pedidos/clientes), nada de compañeros. */
+  isGestor: boolean;
 }
 
 interface ResolveScopeOptions {
@@ -82,14 +85,17 @@ export function getRequesterContext(req: Request): RequesterContext {
   // scopeado a SU sucursal, pero sigue pudiendo gestionar los usuarios de ella.
   const isGlobalAdmin = isSuperAdmin;
   const canManageUsers = isSuperAdmin || role === 'ADMINISTRADOR';
+  const isGestor = role === 'GESTOR';
 
   return {
+    userId: payload?.userId,
     username,
     role,
     sucursalId: payload?.sucursalId ?? null,
     isGlobalAdmin,
     isSuperAdmin,
     canManageUsers,
+    isGestor,
   };
 }
 
