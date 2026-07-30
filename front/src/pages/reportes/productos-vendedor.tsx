@@ -475,7 +475,6 @@ export default function ReporteProductosVendedorPage() {
                       </CardHeader>
                       <CardBody>
                         <Table
-                          removeWrapper
                           aria-label={`Productos de ${vendedorData.vendedor?.nombre}`}
                         >
                           <TableHeader>

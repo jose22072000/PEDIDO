@@ -55,7 +55,7 @@ export const NavigationHeading = ({
         <SucursalSelector />
         <Button
           as={Link}
-          className="btn w-full max-w-[300px] min-w-[300px] text-center"
+          className="btn w-full max-w-[300px] text-center"
           color="primary"
           href={cta.href}
           size="lg"

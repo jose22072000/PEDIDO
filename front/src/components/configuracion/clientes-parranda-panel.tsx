@@ -292,7 +292,6 @@ export const ClientesParrandaPanel = () => {
           {/* Tabla paginada */}
           <Table
             aria-label="Clientes de Parranda"
-            removeWrapper
             bottomContent={
               lista && lista.pages > 1 ? (
                 <div className="flex justify-between items-center">
