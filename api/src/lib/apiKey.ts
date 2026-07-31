@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import type { Request } from 'express';
 import prisma from '../prismaClient';
+import { emitEvent } from './events';
 
 // "pk_" + prefijo visible. El prefijo identifica la key sin revelar el secreto.
 const PREFIX_LEN = 12; // "pk_" + 9 hex
@@ -45,6 +46,11 @@ export async function verifyApiKeyToken(token: string, req?: Request) {
       data: { lastUsedAt: new Date(), usageCount: { increment: 1 }, lastUsedIp: req ? clientIp(req) : undefined },
     })
     .catch(() => {});
+  // En vivo (SSE): avisa al panel de API keys que hubo uso, para que se refresque sin
+  // polling. Throttle: como máximo 1 evento cada 2s por key (si un proyecto llama muy
+  // seguido no inunda el SSE de todos los clientes).
+  const lastMs = key.lastUsedAt ? key.lastUsedAt.getTime() : 0;
+  if (Date.now() - lastMs > 2000) emitEvent('apikey', { id: key.id });
   return key;
 }
 

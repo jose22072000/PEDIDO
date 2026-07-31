@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Icons from "../icons/iconify";
 
 import { getApiBaseUrl } from "@/config";
+import { useLiveEvents } from "@/hooks/use-live-events";
 
 type ApiKey = {
   id: string;
@@ -40,14 +41,13 @@ export const ApiKeysPanel = () => {
     }
   };
 
-  // En vivo: refresca cada 4s mientras el panel está abierto, así ves el uso
-  // (veces / última / IP) moverse en tiempo real sin recargar la página.
   useEffect(() => {
     cargar();
-    const t = setInterval(cargar, 4000);
-
-    return () => clearInterval(t);
   }, []);
+
+  // En vivo por SSE (sin polling): cuando una key se usa, el backend emite un evento
+  // 'apikey' y el panel se refresca solo (veces / última / IP se mueven en tiempo real).
+  useLiveEvents(["apikey"], () => cargar());
 
   const crear = async () => {
     if (!label.trim()) {

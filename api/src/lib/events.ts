@@ -9,7 +9,8 @@ export type EntidadEvento =
   | 'meta'
   | 'sucursal'
   | 'config'
-  | 'reporte';
+  | 'reporte'
+  | 'apikey';
 
 /**
  * Emite un evento de cambio para que las vistas conectadas al SSE se refresquen EN VIVO
