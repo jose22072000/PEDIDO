@@ -4,6 +4,7 @@
 // plano (secuencial, con pausa anti-ban), sin golpear la DB desde el request.
 import prisma from '../prismaClient';
 import { enqueueDeliveryOrders } from './queues';
+import { emitEvent } from './events';
 
 const PARRANDA_URL = process.env.PARRANDA_API_URL || 'https://ccsa.retool.com/url/procovar';
 const PARRANDA_KEY = process.env.PARRANDA_API_KEY || ''; // SECRETO: solo por env (nunca en repo)
@@ -161,6 +162,9 @@ export async function processParrandaSync(
   // Avisar a delivery: hay clientes nuevos/geolocalizados -> el mirror se re-sincroniza.
   if (r.creados > 0 || r.actualizados > 0) {
     try { await enqueueDeliveryOrders({ reason: 'parranda-clientes' }); } catch { /* best-effort */ }
+    // Y avisar al front por SSE: el sync corre en el worker, así que sin este evento la
+    // lista de clientes se queda con los datos viejos hasta que alguien recargue.
+    emitEvent('cliente', { accion: 'sync-parranda' });
   }
   return r;
 }
