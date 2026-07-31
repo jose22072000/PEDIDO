@@ -26,7 +26,9 @@ function soloSuperAdmin(req: any, res: any): boolean {
 router.get('/', async (req, res) => {
   try {
     const ctx = getRequesterContext(req);
-    const where = ctx.isSuperAdmin
+    // isGlobalAdmin (== super admin para usuarios reales) ve TODAS; una API key de
+    // lectura también es global. Un usuario de sucursal ve solo la suya.
+    const where = ctx.isGlobalAdmin
       ? {}
       : { id: ctx.sucursalId ?? '__ninguna__' };
     const sucursales = await prisma.sucursal.findMany({ where, orderBy: { nombre: 'asc' } });

@@ -19,6 +19,7 @@ import eventsRouter from './routes/events';
 import prisma from './prismaClient';
 import { iniciarArchivadoAutomatico } from './lib/archivador';
 import apiKeysRouter from './routes/apiKeys';
+import { apiKeyAuth } from './middleware/apiKeyAuth';
 
 const app = express();
 // Detrás de nginx: confiar en el primer proxy para que req.ip sea la IP real del
@@ -55,6 +56,10 @@ const upload = multer({ dest: 'uploads/temp' });
 app.locals.upload = upload;
 
 app.get('/health', (req, res) => res.json({ ok: true }));
+
+// Identidad por API key (x-api-key) en endpoints de lectura -> otros proyectos consumen
+// la data. Debe ir ANTES de los routers para que getRequesterContext ya la tenga.
+app.use(apiKeyAuth);
 
 app.use('/auth', authRouter);
 app.use('/orders', ordersRouter);

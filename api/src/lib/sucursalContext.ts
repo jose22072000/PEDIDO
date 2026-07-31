@@ -70,6 +70,23 @@ function parseBearerToken(req: Request): TokenPayload | null {
 }
 
 export function getRequesterContext(req: Request): RequesterContext {
+  // API key (x-api-key) validada por el middleware apiKeyAuth (solo en GET/HEAD):
+  // identidad GLOBAL de lectura → ve TODAS las sucursales (sucursalId=all funciona),
+  // pero sin gestión de usuarios ni privilegios de super admin.
+  const apiKeyCtx = (req as unknown as { apiKeyCtx?: { id: string; label: string } }).apiKeyCtx;
+  if (apiKeyCtx) {
+    return {
+      userId: `apikey:${apiKeyCtx.id}`,
+      username: apiKeyCtx.label,
+      role: 'SUPER ADMIN',
+      sucursalId: null,
+      isGlobalAdmin: true,
+      isSuperAdmin: false,
+      canManageUsers: false,
+      isGestor: false,
+    };
+  }
+
   const payload = parseBearerToken(req);
   const role = payload?.role ? String(payload.role).toUpperCase() : undefined;
   const username = payload?.username;
