@@ -142,12 +142,16 @@ export const useAuthStore = create<AuthState>()(
           });
 
           if (!response.ok) {
-            const data = await response.json();
+            // Parseo SEGURO: un 404/405/500 puede devolver HTML (no JSON) y
+            // response.json() lanzaría → caería al catch mostrando "Error de conexión"
+            // aunque SÍ hubo respuesta del servidor. Distinguimos credenciales de otros.
+            const data = await response.json().catch(() => ({}) as any);
+            const msg =
+              response.status === 401
+                ? "Usuario o contraseña incorrectos"
+                : data?.error || `No se pudo iniciar sesión (error ${response.status})`;
 
-            return {
-              ok: false,
-              error: data.error || "Error al iniciar sesión",
-            };
+            return { ok: false, error: msg };
           }
 
           const data = await response.json();

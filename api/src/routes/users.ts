@@ -89,7 +89,9 @@ router.get('/:id', async (req, res) => {
 // Create new user
 router.post('/', async (req, res) => {
   try {
-    const { username, password, rolId, sucursalId: incomingSucursalId } = req.body;
+    const { username: rawUsername, password, rolId, sucursalId: incomingSucursalId } = req.body;
+    // Sin espacios al borde: evita usuarios como "Sidney " que luego no pueden entrar.
+    const username = typeof rawUsername === 'string' ? rawUsername.trim() : rawUsername;
     const requester = getRequesterContext(req);
     if (!requester.canManageUsers) {
       return res.status(403).json({ error: 'No tienes permiso para crear usuarios.' });
@@ -159,13 +161,16 @@ router.post('/', async (req, res) => {
       }
     }
 
-    // Check if username already exists
-    const existingUser = await prisma.usuario.findUnique({
-      where: { username },
+    // El nombre debe ser ÚNICO aunque cambie la mayúscula/minúscula: así no se crean dos
+    // usuarios "iguales" (ej. "Ernesto" y "ernesto") y el que crea recibe un aviso claro.
+    const existingUser = await prisma.usuario.findFirst({
+      where: { username: { equals: username, mode: 'insensitive' } },
     });
 
     if (existingUser) {
-      return res.status(400).json({ error: 'Username already exists' });
+      return res.status(409).json({
+        error: `El nombre de usuario "${existingUser.username}" ya está en uso. Elige otro.`,
+      });
     }
 
     // Hash password
@@ -227,7 +232,7 @@ router.patch('/:id', async (req, res) => {
 
     const updateData: any = {};
 
-    if (username) updateData.username = username;
+    if (username) updateData.username = String(username).trim();
     if (password) updateData.password = await bcrypt.hash(password, 10);
     if (rolId !== undefined) {
       if (rolId === null) {

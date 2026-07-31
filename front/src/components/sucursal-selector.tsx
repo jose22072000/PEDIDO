@@ -1,4 +1,4 @@
-import { Select, SelectItem, Chip } from "@heroui/react";
+import { Select, SelectItem } from "@heroui/react";
 import { useEffect, useState } from "react";
 
 import Icons from "@/components/icons/iconify";
@@ -56,35 +56,24 @@ export const SucursalSelector = () => {
     window.location.reload();
   };
 
-  const actual = sucursales.find((s) => s.id === valor);
-
   return (
-    <div className="flex items-center gap-2">
-      <Select
-        aria-label="Sucursal activa"
-        className="w-full sm:w-64"
-        selectedKeys={new Set([valor])}
-        size="sm"
-        startContent={<Icons.building className="size-4 text-default-400" />}
-        variant="bordered"
-        onSelectionChange={(keys) => cambiar(Array.from(keys)[0] as string)}
-      >
-        {[
-          <SelectItem key={TODAS}>Todas las sucursales</SelectItem>,
-          ...sucursales.map((s) => (
-            <SelectItem key={s.id}>
-              {s.codigo ? `${s.nombre} · ${s.codigo}` : s.nombre}
-            </SelectItem>
-          )),
-        ]}
-      </Select>
-      <Chip
-        color={valor === TODAS ? "primary" : "success"}
-        size="sm"
-        variant="flat"
-      >
-        {valor === TODAS ? "Todas" : (actual?.codigo ?? "Enfocado")}
-      </Chip>
-    </div>
+    <Select
+      aria-label="Sucursal activa"
+      className="w-full sm:w-64"
+      selectedKeys={new Set([valor])}
+      size="sm"
+      startContent={<Icons.building className="size-4 text-default-400" />}
+      variant="bordered"
+      onSelectionChange={(keys) => cambiar(Array.from(keys)[0] as string)}
+    >
+      {[
+        <SelectItem key={TODAS}>Todas las sucursales</SelectItem>,
+        ...sucursales.map((s) => (
+          <SelectItem key={s.id}>
+            {s.codigo ? `${s.nombre} · ${s.codigo}` : s.nombre}
+          </SelectItem>
+        )),
+      ]}
+    </Select>
   );
 };

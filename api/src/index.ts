@@ -18,7 +18,6 @@ import mantenimientoRouter from './routes/mantenimiento';
 import eventsRouter from './routes/events';
 import prisma from './prismaClient';
 import { iniciarArchivadoAutomatico } from './lib/archivador';
-import { apiLimiter, loginLimiter } from './middleware/rateLimit';
 import apiKeysRouter from './routes/apiKeys';
 
 const app = express();
@@ -46,10 +45,9 @@ app.use(express.json({ limit: '50mb' }));
 // via multer on specific routes.
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Rate limiting: frena bucles/floods de un cliente sin tumbar el server. Generoso por
-// el CGNAT (muchos usuarios por IP). Login más estricto. Ver middleware/rateLimit.
-app.use('/auth/login', loginLimiter);
-app.use(apiLimiter);
+// (Rate limiting retirado: una sucursal entera comparte UNA IP pública por el CGNAT de
+// Starlink, así que un límite por IP bloqueaba a todos con "error de conexión". No se
+// pone hasta tener un límite por USUARIO autenticado que no afecte a los compañeros.)
 
 // Multer setup for file uploads. Use per-route middleware like
 // `upload.single('file')` or `upload.array('files')` in route handlers.

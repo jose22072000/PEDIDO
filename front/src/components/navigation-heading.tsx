@@ -47,12 +47,14 @@ export const NavigationHeading = ({
         <p className="block md:hidden text-lg text-default-500">{paragraph}</p>
       </div>
       <div className="w-full flex flex-col items-center gap-2 md:w-fit md:min-w-fit">
-        {/* Perfil: quién eres + cambiar contraseña + salir. */}
-        <div className="flex items-center gap-2 self-end">
+        {/* Una sola fila: el selector de sucursal (solo Super Admin) a la izquierda y el
+            avatar del perfil a la derecha. En móvil se ve limpio en una línea. */}
+        <div className="w-full flex items-center gap-2">
+          <div className="flex-1 min-w-0">
+            <SucursalSelector />
+          </div>
           <UserMenu />
         </div>
-        {/* Solo lo ve el Super Admin: le permite enfocarse en una sola sucursal. */}
-        <SucursalSelector />
         <Button
           as={Link}
           className="btn w-full max-w-[300px] text-center"
