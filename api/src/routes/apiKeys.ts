@@ -3,6 +3,7 @@ import prisma from '../prismaClient';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
 import { generateApiKey } from '../lib/apiKey';
 import { getRequesterContext } from '../lib/sucursalContext';
+import { emitEvent } from '../lib/events';
 
 // Gestión de API keys para otros proyectos/compañeros. SOLO el Super Admin. El token en
 // claro (pk_...) se muestra UNA sola vez al crear; después solo queda el hash + el uso.
@@ -57,6 +58,7 @@ router.post('/', async (req: AuthRequest, res) => {
   const created = await prisma.apiKey.create({
     data: { label, prefix, tokenHash, scope, expiresAt, createdById: req.user?.userId || null },
   });
+  emitEvent('apikey', { id: created.id, accion: 'create' });
   // El token solo se ve AHORA; guárdalo. Después solo queda el hash.
   res.status(201).json({ ...maskKey(created), token });
 });
@@ -70,6 +72,7 @@ router.post('/:id/revoke', async (req: AuthRequest, res) => {
     where: { id: req.params.id },
     data: { activo: false, revokedAt: new Date() },
   });
+  emitEvent('apikey', { id: updated.id, accion: 'update' });
   res.json(maskKey(updated));
 });
 
@@ -77,6 +80,7 @@ router.post('/:id/revoke', async (req: AuthRequest, res) => {
 router.delete('/:id', async (req: AuthRequest, res) => {
   if (!requireSuperAdmin(req, res)) return;
   await prisma.apiKey.delete({ where: { id: req.params.id } }).catch(() => {});
+  emitEvent('apikey', { id: req.params.id, accion: 'delete' });
   res.json({ ok: true });
 });
 
