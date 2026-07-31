@@ -40,8 +40,13 @@ export const ApiKeysPanel = () => {
     }
   };
 
+  // En vivo: refresca cada 4s mientras el panel está abierto, así ves el uso
+  // (veces / última / IP) moverse en tiempo real sin recargar la página.
   useEffect(() => {
     cargar();
+    const t = setInterval(cargar, 4000);
+
+    return () => clearInterval(t);
   }, []);
 
   const crear = async () => {
