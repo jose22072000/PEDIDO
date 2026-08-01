@@ -184,6 +184,17 @@ router.get('/clients', async (req, res) => {
     sucursalScope = { sucursal: { codigo: askedCodigo } };
   }
 
+  // Paginación OPCIONAL por cursor. Sin `limit` se devuelve todo, igual que
+  // siempre: un cliente viejo que no sepa paginar sigue funcionando tal cual.
+  // Importa porque delivery BORRA de su espejo los clientes que no vengan en
+  // la respuesta; si un cliente antiguo recibiera solo la primera página,
+  // borraría el resto.
+  const limitRaw = req.query.limit ? Number(req.query.limit) : null;
+  const limit = limitRaw && Number.isFinite(limitRaw) && limitRaw > 0
+    ? Math.min(Math.floor(limitRaw), 2000)
+    : null;
+  const cursor = typeof req.query.cursor === 'string' && req.query.cursor ? req.query.cursor : null;
+
   const clientes = await prisma.cliente.findMany({
     where: {
       ...sucursalScope,
@@ -191,7 +202,12 @@ router.get('/clients', async (req, res) => {
       longitud: { not: null },
     },
     include: { sucursal: { select: { codigo: true, nombre: true } } },
-    orderBy: { nombre: 'asc' },
+    // Al paginar se ordena por id: es único y estable, así ninguna fila se
+    // repite ni se pierde entre páginas aunque cambien los nombres mientras
+    // se recorre. Sin paginar se conserva el orden por nombre de siempre.
+    orderBy: limit ? { id: 'asc' } : { nombre: 'asc' },
+    ...(limit ? { take: limit } : {}),
+    ...(limit && cursor ? { skip: 1, cursor: { id: cursor } } : {}),
   });
 
   const clients = clientes.map((c) => ({
@@ -211,7 +227,13 @@ router.get('/clients', async (req, res) => {
     sucursalNombre: c.sucursal?.nombre || null,
   }));
 
-  res.json({ count: clients.length, clients });
+  // nextCursor solo aparece si se pidió paginación Y la página vino llena:
+  // una página incompleta significa que ya no queda nada más.
+  const nextCursor = limit && clientes.length === limit
+    ? clientes[clientes.length - 1].id
+    : null;
+
+  res.json({ count: clients.length, clients, ...(limit ? { nextCursor } : {}) });
 });
 
 /**
