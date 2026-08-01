@@ -93,6 +93,9 @@ model Pedido {
     @@unique([sucursalId, folio, vendedorId])
     @@index([fecha])
     @@index([archivedAt])
+    // Los reportes y la vista de vendedores filtran por vendedorId (8 sitios en
+    // el código). Sin índice, cada uno recorre los 43k pedidos.
+    @@index([vendedorId])
     @@map("Order")
 }
 
@@ -106,6 +109,12 @@ model PedidoItem {
     packs       Int?    @default(0)
     descripcion String?
 
+    // Prisma NO crea indices automaticos sobre las claves foraneas en
+    // PostgreSQL. Sin este, cada vez que se traen los items de un pedido se
+    // recorre la tabla ENTERA: medido, 43 escaneos completos habian leido
+    // 2.878.764 filas y cero consultas habian usado indice. Hay 11 sitios en
+    // el codigo que incluyen los items.
+    @@index([pedidoId])
     @@map("OrderItem")
 }
 
