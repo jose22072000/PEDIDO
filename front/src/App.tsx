@@ -1,28 +1,51 @@
 import { Route, Routes } from "react-router-dom";
-import { useEffect } from "react";
+import { useEffect, lazy, Suspense } from "react";
 import { Spinner } from "@heroui/react";
-
-import PedidosPanelPage from "./pages/pedidos/panel-pedidos";
-import NuevoPedidoPage from "./pages/pedidos/nuevo-pedido";
-import UsuariosPanelPage from "./pages/usuarios/panel-usuarios";
-import NuevoUsuarioPage from "./pages/usuarios/nuevo-usuario";
-import ListaUsuariosPage from "./pages/usuarios/lista-usuarios";
-import VendedoresPage from "./pages/vendedores/vendedores";
-import ClientesPage from "./pages/clientes/clientes";
-import MiPerfilPage from "./pages/perfil/mi-perfil";
-import ConfiguracionPage from "./pages/configuracion/configuracion";
-import ReportesPage from "./pages/reportes/reportes";
-import ReportePedidosFechaPage from "./pages/reportes/pedidos-fecha";
-import ReportePedidosVendedorPage from "./pages/reportes/pedidos-vendedor";
-import ReportePedidosEstadoPage from "./pages/reportes/pedidos-estado";
-import ReporteProductosVendedorPage from "./pages/reportes/productos-vendedor";
 
 import ProtectedRoute from "@/components/ProtectedRoute";
 import AdminRoute from "@/components/AdminRoute";
-import PanelPageWrapper from "@/pages/panel-wrapper";
 import LoginPage from "@/pages/login";
 import UnauthorizedPage from "@/pages/unauthorized";
 import { useAuthStore } from "@/stores/authStore";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CARGA PEREZOSA por ruta.
+//
+// Antes todo iba en un único JS de ~1,95 MB: al entrar, el navegador tenía que
+// bajar y ejecutar la app ENTERA —reportes, configuración, importador de CSV—
+// antes de pintar el login. En las sucursales, con enlaces lentos y de mucha
+// latencia, eso es la diferencia entre entrar en segundos o en minutos.
+//
+// Ahora cada ruta es su propio trozo y se baja solo cuando se visita. Login y
+// panel entran directos; el resto llega cuando hace falta.
+//
+// Login, ProtectedRoute y AdminRoute NO son perezosos a propósito: son lo primero
+// que se pinta y meterlos en un trozo aparte añadiría una ida y vuelta más justo
+// en el arranque, que es exactamente lo que se quiere evitar.
+// ─────────────────────────────────────────────────────────────────────────────
+const PanelPageWrapper = lazy(() => import("@/pages/panel-wrapper"));
+const PedidosPanelPage = lazy(() => import("./pages/pedidos/panel-pedidos"));
+const NuevoPedidoPage = lazy(() => import("./pages/pedidos/nuevo-pedido"));
+const UsuariosPanelPage = lazy(() => import("./pages/usuarios/panel-usuarios"));
+const NuevoUsuarioPage = lazy(() => import("./pages/usuarios/nuevo-usuario"));
+const ListaUsuariosPage = lazy(() => import("./pages/usuarios/lista-usuarios"));
+const VendedoresPage = lazy(() => import("./pages/vendedores/vendedores"));
+const ClientesPage = lazy(() => import("./pages/clientes/clientes"));
+const MiPerfilPage = lazy(() => import("./pages/perfil/mi-perfil"));
+const ConfiguracionPage = lazy(() => import("./pages/configuracion/configuracion"));
+const ReportesPage = lazy(() => import("./pages/reportes/reportes"));
+const ReportePedidosFechaPage = lazy(() => import("./pages/reportes/pedidos-fecha"));
+const ReportePedidosVendedorPage = lazy(() => import("./pages/reportes/pedidos-vendedor"));
+const ReportePedidosEstadoPage = lazy(() => import("./pages/reportes/pedidos-estado"));
+const ReporteProductosVendedorPage = lazy(
+  () => import("./pages/reportes/productos-vendedor"),
+);
+
+const Cargando = () => (
+  <div className="flex h-[60vh] w-full items-center justify-center">
+    <Spinner color="primary" size="lg" />
+  </div>
+);
 
 function App() {
   const { loadSession, isLoading } = useAuthStore();
@@ -40,104 +63,105 @@ function App() {
   }
 
   return (
-    <Routes>
-      {/* Rutas públicas (autenticación) */}
-      <Route element={<LoginPage />} path="/" />
-      <Route element={<UnauthorizedPage />} path="/unauthorized" />
+    <Suspense fallback={<Cargando />}>
+      <Routes>
+        {/* Rutas públicas (autenticación) */}
+        <Route element={<LoginPage />} path="/" />
+        <Route element={<UnauthorizedPage />} path="/unauthorized" />
 
-      {/* Rutas protegidas */}
-      <Route element={<ProtectedRoute />}>
-        <Route element={<PanelPageWrapper />} path="/panel" />
+        {/* Rutas protegidas */}
+        <Route element={<ProtectedRoute />}>
+          <Route element={<PanelPageWrapper />} path="/panel" />
 
-        {/* Pedidos */}
-        <Route element={<PedidosPanelPage />} path="/panel/panel-pedidos" />
+          {/* Pedidos */}
+          <Route element={<PedidosPanelPage />} path="/panel/panel-pedidos" />
 
-        {/* Vendedores — solo gestión (Super Admin/Administrador/Supervisor). El Gestor NO. */}
-        <Route
-          element={
-            <AdminRoute
-              allowedRoles={["Super Admin", "Administrador", "Supervisor"]}
+          {/* Vendedores — solo gestión (Super Admin/Administrador/Supervisor). El Gestor NO. */}
+          <Route
+            element={
+              <AdminRoute
+                allowedRoles={["Super Admin", "Administrador", "Supervisor"]}
+              />
+            }
+          >
+            <Route element={<VendedoresPage />} path="/panel/trabajadores" />
+          </Route>
+
+          {/* Clientes */}
+          <Route element={<ClientesPage />} path="/panel/clientes" />
+
+          {/* Mi perfil: cualquier usuario autenticado ve SUS datos y SUS métricas. */}
+          <Route element={<MiPerfilPage />} path="/panel/mi-perfil" />
+
+          {/* Reportes */}
+          <Route element={<ReportesPage />} path="/panel/reportes" />
+          <Route
+            element={<ReportePedidosFechaPage />}
+            path="/panel/reportes/pedidos-fecha"
+          />
+          <Route
+            element={<ReportePedidosVendedorPage />}
+            path="/panel/reportes/pedidos-vendedor"
+          />
+          <Route
+            element={<ReportePedidosEstadoPage />}
+            path="/panel/reportes/pedidos-estado"
+          />
+          <Route
+            element={<ReporteProductosVendedorPage />}
+            path="/panel/reportes/productos-vendedor"
+          />
+        </Route>
+
+        {/* Nuevo Pedido / Importar: roles operativos suben SUS pedidos. El backend scopea
+            por sucursal y, para el gestor, restringe a SUS vendedores. Allowlist EXPLÍCITA
+            (no "cualquier autenticado") para que un rol futuro de solo-lectura no importe. */}
+        <Route element={<ProtectedRoute />}>
+          <Route
+            element={
+              <AdminRoute
+                allowedRoles={[
+                  "Super Admin",
+                  "Administrador",
+                  "Supervisor",
+                  "Gestor",
+                  "Operador",
+                ]}
+              />
+            }
+          >
+            <Route
+              element={<NuevoPedidoPage />}
+              path="/panel/panel-pedidos/nuevo"
             />
-          }
-        >
-          <Route element={<VendedoresPage />} path="/panel/trabajadores" />
+          </Route>
         </Route>
 
-        {/* Clientes */}
-        <Route element={<ClientesPage />} path="/panel/clientes" />
-
-        {/* Mi perfil: cualquier usuario autenticado ve SUS datos y SUS métricas. */}
-        <Route element={<MiPerfilPage />} path="/panel/mi-perfil" />
-
-        {/* Reportes */}
-        <Route element={<ReportesPage />} path="/panel/reportes" />
-        <Route
-          element={<ReportePedidosFechaPage />}
-          path="/panel/reportes/pedidos-fecha"
-        />
-        <Route
-          element={<ReportePedidosVendedorPage />}
-          path="/panel/reportes/pedidos-vendedor"
-        />
-        <Route
-          element={<ReportePedidosEstadoPage />}
-          path="/panel/reportes/pedidos-estado"
-        />
-        <Route
-          element={<ReporteProductosVendedorPage />}
-          path="/panel/reportes/productos-vendedor"
-        />
-      </Route>
-
-      {/* Nuevo Pedido / Importar: roles operativos suben SUS pedidos. El backend scopea
-          por sucursal y, para el gestor, restringe a SUS vendedores. Allowlist EXPLÍCITA
-          (no "cualquier autenticado") para que un rol futuro de solo-lectura no importe. */}
-      <Route element={<ProtectedRoute />}>
-        <Route
-          element={
-            <AdminRoute
-              allowedRoles={[
-                "Super Admin",
-                "Administrador",
-                "Supervisor",
-                "Gestor",
-                "Operador",
-              ]}
+        {/* Rutas protegidas solo para Administrador */}
+        <Route element={<ProtectedRoute />}>
+          <Route element={<AdminRoute />}>
+            {/* Usuarios */}
+            <Route element={<UsuariosPanelPage />} path="/panel/panel-usuarios" />
+            <Route
+              element={<NuevoUsuarioPage />}
+              path="/panel/panel-usuarios/nuevo"
             />
-          }
-        >
-          <Route
-            element={<NuevoPedidoPage />}
-            path="/panel/panel-pedidos/nuevo"
-          />
+            <Route
+              element={<ListaUsuariosPage />}
+              path="/panel/panel-usuarios/lista"
+            />
+          </Route>
         </Route>
-      </Route>
 
-      {/* Rutas protegidas solo para Administrador */}
-      <Route element={<ProtectedRoute />}>
-        <Route element={<AdminRoute />}>
-          {/* Usuarios */}
-          <Route element={<UsuariosPanelPage />} path="/panel/panel-usuarios" />
-          <Route
-            element={<NuevoUsuarioPage />}
-            path="/panel/panel-usuarios/nuevo"
-          />
-          <Route
-            element={<ListaUsuariosPage />}
-            path="/panel/panel-usuarios/lista"
-          />
-
+        {/* Configuración (sucursales, parámetros, borrar base): SOLO Super Admin.
+            Un Administrador es de una única sucursal y no debe entrar aquí. */}
+        <Route element={<ProtectedRoute />}>
+          <Route element={<AdminRoute allowedRoles={["Super Admin"]} />}>
+            <Route element={<ConfiguracionPage />} path="/panel/configuracion" />
+          </Route>
         </Route>
-      </Route>
-
-      {/* Configuración (sucursales, parámetros, borrar base): SOLO Super Admin.
-          Un Administrador es de una única sucursal y no debe entrar aquí. */}
-      <Route element={<ProtectedRoute />}>
-        <Route element={<AdminRoute allowedRoles={["Super Admin"]} />}>
-          <Route element={<ConfiguracionPage />} path="/panel/configuracion" />
-        </Route>
-      </Route>
-    </Routes>
+      </Routes>
+    </Suspense>
   );
 }
 
