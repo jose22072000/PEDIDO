@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { create } from "zustand";
 
-import { useLiveEvents } from "@/hooks/use-live-events";
+import { useLiveEvents, type LiveEvent } from "@/hooks/use-live-events";
 
 /**
  * Fábrica de stores de datos. Cada entidad tiene el SUYO (clientes, vendedores,
@@ -16,7 +16,9 @@ import { useLiveEvents } from "@/hooks/use-live-events";
  * Con esto:
  *  - los datos sobreviven a la navegación → volver a una vista es instantáneo
  *  - el esqueleto solo sale cuando NO hay nada que mostrar
- *  - las recargas por SSE son en segundo plano: la pantalla no parpadea
+ *  - los cambios que llegan por SSE se aplican EN SITIO sobre lo cacheado
+ *    (opción `aplicar`), sin volver a pedir nada y sin parpadeo
+ *  - cuando no se pueden aplicar, la recarga es en segundo plano
  *  - un fallo de red en una recarga de fondo no borra lo que ya se veía
  */
 
@@ -32,6 +34,13 @@ const VACIA = { datos: null, cargando: false, error: null, traidoEn: 0 };
 /** Cuánto se considera fresco un dato antes de refrescarlo al volver a la vista. */
 const FRESCO_MS = 30_000;
 
+/**
+ * Ventana larga para consultas CARAS que el usuario pide a mano (los reportes).
+ * Volver a la vista no debe relanzar una agregación pesada por haber tardado
+ * medio minuto en volver: si la quiere rehacer, está el botón de generar.
+ */
+export const FRESCO_LARGO_MS = 10 * 60_000;
+
 export type StoreDatos<T> = {
   /** Una entrada por combinación de filtros/página. */
   entradas: Record<string, Entrada<T>>;
@@ -40,11 +49,20 @@ export type StoreDatos<T> = {
   invalidar: () => void;
 };
 
-export type OpcionesUso = {
+export type OpcionesUso<T> = {
   /** Entidades del SSE que refrescan este dato (ej. ["cliente"]). */
   tipos?: string[];
   /** Si false, no pide nada (faltan filtros obligatorios, permisos, etc.). */
   activo?: boolean;
+  /** Cuánto dura fresco el dato. Por defecto 30 s; ver FRESCO_LARGO_MS. */
+  frescoMs?: number;
+  /**
+   * Aplica la ráfaga de eventos SSE sobre lo que ya hay cacheado, sin tocar el
+   * servidor. Devuelve el valor nuevo, o `null` si no se puede aplicar (una
+   * importación masiva, un evento sin objeto): entonces se recarga, pero DE
+   * FONDO. Si no se pasa, siempre se recarga de fondo.
+   */
+  aplicar?: (actual: T, lote: LiveEvent[]) => T | null;
 };
 
 /**
@@ -67,22 +85,28 @@ export function crearStoreDatos<T>(tiposPorDefecto: string[] = []) {
 
   /**
    * @param clave  identifica la consulta (página + filtros). Cada combinación
-   *               se cachea por separado.
+   *               se cachea por separado. TIENE que incluir TODO lo que cambia
+   *               el resultado: si falta un filtro, se enseñan datos de otro.
    * @param traer  función que pide los datos; recibe la señal de cancelación.
    */
   function usar(
     clave: string,
     traer: (signal: AbortSignal) => Promise<T>,
-    { tipos = tiposPorDefecto, activo = true }: OpcionesUso = {},
+    { tipos = tiposPorDefecto, activo = true, aplicar, frescoMs = FRESCO_MS }: OpcionesUso<T> = {},
   ) {
     const entrada = useStore((s) => s.entradas[clave]) ?? (VACIA as Entrada<T>);
     const fijar = useStore((s) => s.fijar);
 
-    // El fetcher cambia de identidad en cada render (cierra sobre los filtros),
-    // así que se guarda en una ref: si no, el efecto se relanzaría sin parar.
+    // El fetcher y el aplicador cambian de identidad en cada render (cierran
+    // sobre los filtros de la vista), así que se guardan en refs: si no, el
+    // efecto se relanzaría sin parar.
     const traerRef = useRef(traer);
 
     traerRef.current = traer;
+
+    const aplicarRef = useRef(aplicar);
+
+    aplicarRef.current = aplicar;
 
     const abortRef = useRef<AbortController | null>(null);
     const claveRef = useRef(clave);
@@ -107,7 +131,14 @@ export function crearStoreDatos<T>(tiposPorDefecto: string[] = []) {
 
         fijar(k, { datos, cargando: false, error: null, traidoEn: Date.now() });
       } catch (e) {
-        if (ctrl.signal.aborted) return; // cancelada a propósito, no es un error
+        if (ctrl.signal.aborted) {
+          // Cancelada a propósito (cambió el filtro, se desmontó la vista). No
+          // es un error, pero hay que bajar la bandera de "cargando" si nadie
+          // ha tomado el relevo: si no, al volver se ve un esqueleto eterno.
+          if (abortRef.current === ctrl) fijar(k, { cargando: false });
+
+          return;
+        }
         fijar(k, {
           cargando: false,
           // Si ya hay datos en pantalla, un fallo de red no debe borrarlos ni
@@ -120,7 +151,7 @@ export function crearStoreDatos<T>(tiposPorDefecto: string[] = []) {
     useEffect(() => {
       if (!activo) return;
       const e = useStore.getState().entradas[clave];
-      const fresco = e?.datos != null && Date.now() - (e.traidoEn || 0) < FRESCO_MS;
+      const fresco = e?.datos != null && Date.now() - (e.traidoEn || 0) < frescoMs;
 
       // Dato fresco: se pinta al instante y no se pide nada. Volver a una vista
       // deja de costar una vuelta al servidor.
@@ -128,12 +159,29 @@ export function crearStoreDatos<T>(tiposPorDefecto: string[] = []) {
 
       return () => abortRef.current?.abort();
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [clave, activo]);
+    }, [clave, activo, frescoMs]);
 
-    // Refresco por SSE, siempre en segundo plano. El hook ya agrupa las ráfagas,
-    // así que una importación de cientos de pedidos produce UNA recarga.
-    useLiveEvents(tipos, () => {
-      if (activo) void recargar(true);
+    // Cambios en vivo. El hook ya agrupa las ráfagas, así que una importación de
+    // cientos de pedidos produce UNA entrega. Si la vista sabe aplicar el lote,
+    // se aplica en memoria y NO se toca el servidor; si no, recarga de fondo.
+    useLiveEvents(tipos, (_ev, lote) => {
+      if (!activo) return;
+      const k = claveRef.current;
+      const actual = useStore.getState().entradas[k]?.datos ?? null;
+      const fn = aplicarRef.current;
+
+      if (fn && actual != null) {
+        const nuevo = fn(actual, lote);
+
+        if (nuevo !== null) {
+          // Misma referencia = nada que cambiar: ni se toca el store, así no se
+          // provoca un render de balde.
+          if (nuevo !== actual) fijar(k, { datos: nuevo, traidoEn: Date.now() });
+
+          return;
+        }
+      }
+      void recargar(true);
     });
 
     return {
@@ -143,10 +191,9 @@ export function crearStoreDatos<T>(tiposPorDefecto: string[] = []) {
       /** Recarga manual (botón "reintentar"/"actualizar"). */
       recargar: (fondo = false) => recargar(fondo),
       /**
-       * Modifica lo cacheado SIN pedir nada al servidor. Para actualizaciones
-       * incrementales: p. ej. el SSE de pedidos manda el pedido completo, así
-       * que se inserta en la lista en vez de recargarla entera. Eso ahorra una
-       * vuelta al servidor por cada pedido que entra.
+       * Modifica lo cacheado SIN pedir nada al servidor. Para cambios que hace
+       * la propia vista (borrar una fila, marcar completado) y que ya sabe el
+       * resultado: se refleja al instante en vez de esperar una vuelta.
        */
       actualizar: (fn: (actual: T | null) => T | null) => {
         const k = claveRef.current;

@@ -16,120 +16,94 @@ import {
   useDisclosure,
   Chip,
 } from "@heroui/react";
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useCallback } from "react";
 
 import { cards } from "../primitives";
 import Icons from "../icons/iconify";
 
 import { cn, copyTextToClipboard } from "@/lib/utils";
 import { getApiBaseUrl } from "@/config";
-import { useLiveEvents } from "@/hooks/use-live-events";
+import { getSucursalActiva } from "@/components/sucursal-selector";
+import { useAuthStore } from "@/stores/authStore";
+import {
+  usarClientes,
+  type Cliente,
+  type RespuestaClientes,
+} from "@/stores/datos/clientes";
 
-interface Cliente {
-  id: string;
-  nombre: string;
-  codigo?: string | null;
-  zona?: string | null;
-  createdAt: string;
-  // Datos del Consolidado de Parranda. La lat/lng es la que usa delivery para
-  // calcular el costo del domicilio: sin ella, ese cliente no se puede cotizar.
-  direccion?: string | null;
-  municipio?: string | null;
-  tipoCliente?: string | null;
-  estadoCompra?: string | null;
-  latitud?: number | null;
-  longitud?: number | null;
-}
+// Los tipos viven en el store: los comparten quien los pinta y quien los trae.
 
-interface PaginationData {
-  page: number;
-  limit: number;
-  total: number;
-  totalPages: number;
-}
+/** Cuantos clientes por pagina. Fijo, asi que no hace falta llevarlo en estado. */
+const POR_PAGINA = 10;
 
-interface ClientesResponse {
-  data: Cliente[];
-  pagination: PaginationData;
-  municipios?: string[];
-}
+// Referencias FIJAS para cuando aun no hay datos: si se pusieran en linea serian
+// objetos nuevos en cada render y dispararian efectos y memos sin parar.
+const SIN_CLIENTES: Cliente[] = [];
+const PAGINACION_VACIA = { page: 1, limit: POR_PAGINA, total: 0, totalPages: 1 };
+
+const traerClientes =
+  (page: number, search: string, municipio: string, estadoCompra: string) =>
+  async (signal: AbortSignal): Promise<RespuestaClientes> => {
+    const params = new URLSearchParams({
+      page: String(page),
+      limit: String(POR_PAGINA),
+    });
+
+    if (search.length > 0) params.append("search", search);
+    if (municipio) params.append("municipio", municipio);
+    if (estadoCompra) params.append("estadoCompra", estadoCompra);
+
+    const r = await fetch(`${getApiBaseUrl()}/clientes?${params}`, { signal });
+
+    if (!r.ok) throw new Error("Error al cargar los clientes");
+
+    return r.json();
+  };
 
 export const ClientesList = () => {
-  const [clientes, setClientes] = useState<Cliente[]>([]);
-  const [pagination, setPagination] = useState<PaginationData>({
-    page: 1,
-    limit: 10,
-    total: 0,
-    totalPages: 1,
-  });
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { session } = useAuthStore();
+  const activeSucursalId = session?.isGlobalAdmin
+    ? getSucursalActiva()
+    : session?.sucursalId;
+
+  // La pagina PEDIDA es estado de la vista; la paginacion REAL (total, paginas)
+  // viene con los datos. Antes eran la misma variable, y por eso pedir una pagina
+  // obligaba a tener ya la respuesta anterior.
+  const [page, setPage] = useState(1);
   const [debouncedSearch, setDebouncedSearch] = useState<string>("");
   const [searchValue, setSearchValue] = useState<string>("");
   const [municipio, setMunicipio] = useState<string>("");
   const [estadoCompra, setEstadoCompra] = useState<string>("");
-  const [municipios, setMunicipios] = useState<string[]>([]);
   const [selectedCliente, setSelectedCliente] = useState<Cliente | null>(null);
   const [copiedClienteId, setCopiedClienteId] = useState<string | null>(null);
   const { isOpen, onOpen, onClose } = useDisclosure();
-  const abortControllerRef = useRef<AbortController | null>(null);
 
-  /**
-   * @param fondo  recarga silenciosa: no pone la vista en "cargando" ni pinta
-   *               errores. La usa el SSE, donde el usuario no ha pedido nada y no
-   *               tiene por qué ver la tabla desaparecer y volver a aparecer.
-   */
-  const fetchClientes = useCallback(
-    async (page: number = 1, fondo = false) => {
-      // Cancel previous request
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-
-      // Create new abort controller
-      abortControllerRef.current = new AbortController();
-
-      if (!fondo) {
-        setIsLoading(true);
-        setError(null);
-      }
-
-      try {
-        const params = new URLSearchParams({
-          page: String(page),
-          limit: String(pagination.limit),
-        });
-
-        if (debouncedSearch.length > 0) params.append("search", debouncedSearch);
-        if (municipio) params.append("municipio", municipio);
-        if (estadoCompra) params.append("estadoCompra", estadoCompra);
-
-        const response = await fetch(`${getApiBaseUrl()}/clientes?${params}`, {
-          signal: abortControllerRef.current.signal,
-        });
-
-        if (!response.ok) {
-          throw new Error("Error al cargar los clientes");
-        }
-
-        const data: ClientesResponse = await response.json();
-
-        setClientes(data.data);
-        setPagination(data.pagination);
-        if (data.municipios) setMunicipios(data.municipios);
-      } catch (err) {
-        // Ignore abort errors
-        if (err instanceof Error && err.name === "AbortError") {
-          return;
-        }
-        // Fallo de red en recarga de fondo: se conserva lo que ya se ve.
-        if (!fondo) setError(err instanceof Error ? err.message : "Error desconocido");
-      } finally {
-        if (!fondo) setIsLoading(false);
-      }
-    },
-    [pagination.limit, debouncedSearch, municipio, estadoCompra],
+  // Cada combinacion de pagina + filtros + sucursal se cachea por separado: la
+  // clave TIENE que llevarlas todas, o se enseniarian los datos de otra consulta.
+  // Volver a una pagina ya vista es instantaneo.
+  //
+  // Los cambios de cliente llegan siempre en bloque (importacion de CSV, sync de
+  // Parranda, backfill al enlazar un gestor), asi que no hay un objeto suelto que
+  // aplicar: se relee. Pero de fondo, sin esqueleto y sin borrar lo que se ve.
+  const {
+    datos,
+    cargando: isLoading,
+    error,
+    recargar: fetchClientes,
+  } = usarClientes(
+    `clientes:${activeSucursalId ?? "todas"}:${page}:${debouncedSearch}:${municipio}:${estadoCompra}`,
+    traerClientes(page, debouncedSearch, municipio, estadoCompra),
   );
+
+  const clientes = datos?.data ?? SIN_CLIENTES;
+  const pagination = datos?.pagination ?? PAGINACION_VACIA;
+  // El api solo manda la lista de municipios en algunas respuestas: se conserva la
+  // ultima que llego para que el desplegable no se vacie al pasar de pagina.
+  const [municipios, setMunicipios] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (datos?.municipios?.length) setMunicipios(datos.municipios);
+  }, [datos]);
 
   const handleOpenDetails = useCallback(
     (cliente: Cliente) => {
@@ -158,25 +132,11 @@ export const ClientesList = () => {
     return () => clearTimeout(timeoutId);
   }, [searchValue]);
 
-  // Fetch clientes when dependencies change
+  // Al cambiar un filtro se vuelve a la primera pagina: la 7 de una busqueda no
+  // significa nada en la siguiente. El store se encarga de pedir lo que falte.
   useEffect(() => {
-    fetchClientes(1);
+    setPage(1);
   }, [debouncedSearch, municipio, estadoCompra]);
-
-  // EN VIVO (SSE): los cambios de cliente llegan siempre en bloque (importación de
-  // CSV, sync de Parranda, backfill al enlazar un gestor), así que no hay un objeto
-  // suelto que aplicar: toca releer la página. Pero DE FONDO — sin esqueleto y sin
-  // borrar lo que ya se está viendo.
-  useLiveEvents(["cliente"], () => fetchClientes(pagination.page, true));
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-    };
-  }, []);
 
   return (
     <div className="flex flex-col gap-4 w-full">
@@ -225,7 +185,7 @@ export const ClientesList = () => {
       </Card>
 
       {/* Loading State */}
-      {isLoading && (
+      {(isLoading || datos == null) && (
         <div className="flex justify-center py-8">
           <Spinner color="primary" size="lg" />
         </div>
@@ -239,7 +199,7 @@ export const ClientesList = () => {
             <Button
               className="mt-4"
               color="primary"
-              onPress={() => fetchClientes(pagination.page)}
+              onPress={() => fetchClientes()}
             >
               Reintentar
             </Button>
@@ -248,7 +208,7 @@ export const ClientesList = () => {
       )}
 
       {/* Clientes List */}
-      {!isLoading && !error && (
+      {!isLoading && !error && datos != null && (
         <>
           <div className="flex flex-col gap-2">
             {clientes.map((cliente) => (
@@ -264,14 +224,39 @@ export const ClientesList = () => {
                         <p className="font-semibold text-lg">
                           {cliente.nombre}
                         </p>
-                        <Chip
-                          className="border-primary [&>span]:text-primary [&>span]:font-bold w-fit"
-                          color="primary"
-                          size="sm"
-                          variant="dot"
-                        >
-                          {cliente.codigo || "N/A"}
-                        </Chip>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Chip
+                            className="border-primary [&>span]:text-primary [&>span]:font-bold w-fit"
+                            color="primary"
+                            size="sm"
+                            variant="dot"
+                          >
+                            {cliente.codigo || "N/A"}
+                          </Chip>
+                          {/* Quién trajo al cliente: el vendedor de su pedido más
+                              antiguo. No hay relación directa cliente->vendedor;
+                              el api la resuelve mirando los pedidos. */}
+                          {cliente.vendedorNombre && (
+                            <Chip
+                              className="w-fit"
+                              size="sm"
+                              startContent={
+                                <Icons.user className="size-3.5 ml-1" />
+                              }
+                              title={
+                                cliente.otrosVendedores
+                                  ? `Lo trajo ${cliente.vendedorNombre}. Le han hecho pedidos ${cliente.otrosVendedores} vendedor(es) más.`
+                                  : `Lo trajo ${cliente.vendedorNombre}`
+                              }
+                              variant="flat"
+                            >
+                              {cliente.vendedorNombre}
+                              {cliente.otrosVendedores
+                                ? ` +${cliente.otrosVendedores}`
+                                : ""}
+                            </Chip>
+                          )}
+                        </div>
                       </div>
                     </div>
                     <div className="flex flex-row gap-2 w-full md:w-auto">
@@ -330,7 +315,7 @@ export const ClientesList = () => {
                 siblings={1}
                 size="lg"
                 total={pagination.totalPages}
-                onChange={(p) => fetchClientes(p)}
+                onChange={setPage}
               />
             </div>
           )}

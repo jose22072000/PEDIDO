@@ -19,7 +19,8 @@ import {
 
 import { NavigationHeading } from "@/components/navigation-heading";
 import { getApiBaseUrl } from "@/config";
-import { useLiveEvents } from "@/hooks/use-live-events";
+import { usarReporte } from "@/stores/datos/reportes";
+import { FRESCO_LARGO_MS } from "@/stores/crearStoreDatos";
 import Icons from "@/components/icons/iconify";
 import { exportToExcel } from "@/utils/excelExport";
 import { useAuthStore } from "@/stores/authStore";
@@ -62,6 +63,49 @@ interface Sucursal {
   nombre: string;
 }
 
+interface RespuestaReporte {
+  pedidos: Pedido[];
+  resumen: Resumen | null;
+}
+
+/** Lo que el usuario PIDIO al pulsar Generar. Ver el comentario del store abajo. */
+interface Peticion {
+  inicio: string;
+  fin: string;
+  sucursal: string;
+  vendedorId: string;
+  estado: string;
+}
+
+const SIN_PEDIDOS: Pedido[] = [];
+
+// Peticion vacia para cuando aun no se ha generado nada: el store esta inactivo,
+// asi que esta funcion nunca llega a ejecutarse, pero el tipo tiene que cuadrar.
+const EMPTY_Q: Peticion = { inicio: "", fin: "", sucursal: "", vendedorId: "", estado: "" };
+
+const claveDe = (q: Peticion) =>
+  `estado:${q.sucursal}:${q.inicio}:${q.fin}:${q.vendedorId}:${q.estado}`;
+
+const traerReporte =
+  (q: Peticion, global: boolean) =>
+  async (signal: AbortSignal): Promise<RespuestaReporte> => {
+    const params = new URLSearchParams({
+      fechaInicio: q.inicio,
+      fechaFin: q.fin, vendedorId: q.vendedorId, estado: q.estado,
+    });
+
+    if (global) params.append("sucursalId", q.sucursal || "all");
+
+    const r = await fetch(
+      `${getApiBaseUrl()}/reports/pedidos-por-estado?${params.toString()}`,
+      { signal },
+    );
+
+    if (!r.ok) throw new Error("Error al generar el reporte. Intenta de nuevo.");
+
+    return r.json();
+  };
+
 export default function ReportePedidosEstadoPage() {
   const { user, session } = useAuthStore();
   const [fechaInicio, setFechaInicio] = useState("");
@@ -71,15 +115,65 @@ export default function ReportePedidosEstadoPage() {
   const [vendedorId, setVendedorId] = useState("all");
   const [estado, setEstado] = useState("all");
   const [vendedores, setVendedores] = useState<Vendedor[]>([]);
-  const [pedidos, setPedidos] = useState<Pedido[]>([]);
-  const [resumen, setResumen] = useState<Resumen | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
   const [isLoadingVendedores, setIsLoadingVendedores] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const rowsPerPage = 10;
   const isGlobalAdmin = Boolean(session?.isGlobalAdmin);
   const userSucursalId = user?.sucursalId || session?.sucursalId || "";
+
+  // Falta de fechas: es un aviso de la vista, no un fallo de carga (ese lo lleva
+  // el store).
+  const [aviso, setAviso] = useState<string | null>(null);
+
+  // El reporte NO se genera solo: se guarda lo que el usuario pidio al pulsar el
+  // boton, y el store solo trabaja con eso. Asi cambiar un filtro no dispara una
+  // agregacion pesada a medias, y la clave y la consulta nunca se desincronizan
+  // (que es lo que enseniaria el reporte de otros filtros).
+  const [peticion, setPeticion] = useState<Peticion | null>(null);
+  const clave = peticion ? claveDe(peticion) : "";
+
+  const {
+    datos,
+    cargando: isLoading,
+    error,
+    recargar,
+  } = usarReporte<RespuestaReporte>(
+    clave,
+    traerReporte(peticion ?? EMPTY_Q, isGlobalAdmin),
+    {
+      activo: peticion !== null,
+      // Un reporte es caro: volver a la vista no debe relanzarlo por haber
+      // tardado medio minuto. Para rehacerlo esta el boton.
+      frescoMs: FRESCO_LARGO_MS,
+    },
+  );
+
+  const pedidos = datos?.pedidos ?? SIN_PEDIDOS;
+  const resumen = datos?.resumen ?? null;
+
+  const handleGenerarReporte = () => {
+    if (!fechaInicio || !fechaFin) {
+      setAviso("Por favor selecciona ambas fechas");
+
+      return;
+    }
+    setAviso(null);
+    setPage(1);
+
+    const nueva: Peticion = {
+      inicio: fechaInicio,
+      fin: fechaFin,
+      sucursal: sucursalId,
+      vendedorId,
+      estado,
+    };
+
+    // Mismos filtros otra vez: la clave no cambia y el efecto no dispararia nada.
+    // El usuario ha pedido rehacerlo, se rehace.
+    if (claveDe(nueva) === clave) void recargar();
+    else setPeticion(nueva);
+  };
+
 
   const paginatedPedidos = useMemo(() => {
     const start = (page - 1) * rowsPerPage;
@@ -139,58 +233,9 @@ export default function ReportePedidosEstadoPage() {
     }
   };
 
-  // EN VIVO (SSE): si ya generaste el reporte (fechas puestas), se re-genera solo al cambiar pedidos.
-  // EN VIVO (SSE): el reporte se rehace solo cuando entran o se completan pedidos.
-  // En SEGUNDO PLANO: los datos se sustituyen cuando llegan, sin vaciar la tabla ni
-  // volver al esqueleto. Durante una importacion esto pasaba decenas de veces por
-  // minuto y dejaba el reporte parpadeando.
-  useLiveEvents(["pedido"], () => {
-    if (fechaInicio && fechaFin) void handleGenerarReporte(true);
-  });
-
-  const handleGenerarReporte = async (fondo = false) => {
-    if (!fechaInicio || !fechaFin) {
-      setError("Por favor selecciona ambas fechas");
-
-      return;
-    }
-
-    if (!fondo) {
-      setIsLoading(true);
-      setError(null);
-    }
-
-    try {
-      const params = new URLSearchParams({
-        fechaInicio,
-        fechaFin,
-        vendedorId,
-        estado,
-      });
-      if (isGlobalAdmin) {
-        params.append("sucursalId", sucursalId || "all");
-      }
-
-      const url = `${getApiBaseUrl()}/reports/pedidos-por-estado?${params.toString()}`;
-      const response = await fetch(url);
-
-      if (!response.ok) {
-        throw new Error("Error al generar el reporte");
-      }
-
-      const data = await response.json();
-
-      setPedidos(data.pedidos);
-      setResumen(data.resumen);
-      setPage(1); // Reset to first page when new data loads
-    } catch (err) {
-      // En recarga de fondo no se pisa lo que ya se ve con un error.
-      if (!fondo) setError("Error al generar el reporte. Intenta de nuevo.");
-      console.error(err);
-    } finally {
-      if (!fondo) setIsLoading(false);
-    }
-  };
+  // El refresco en vivo lo lleva el store: escucha los eventos de "pedido" y,
+  // como un reporte no se puede parchear con un objeto suelto, lo rehace de
+  // fondo, sin vaciar la tabla ni volver al esqueleto.
 
   const handleExportExcel = () => {
     if (pedidos.length === 0) return;
@@ -343,7 +388,7 @@ export default function ReportePedidosEstadoPage() {
               </Button>
             </div>
           </div>
-          {error && <p className="text-danger mt-2">{error}</p>}
+          {(aviso ?? error) && <p className="text-danger mt-2">{aviso ?? error}</p>}
         </CardBody>
       </Card>
 

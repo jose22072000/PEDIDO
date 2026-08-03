@@ -19,7 +19,7 @@ import {
   Tooltip,
   Switch,
 } from "@heroui/react";
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useCallback } from "react";
 
 import { cards } from "../primitives";
 import Icons from "../icons/iconify";
@@ -27,62 +27,17 @@ import Icons from "../icons/iconify";
 import { cn, copyTextToClipboard } from "@/lib/utils";
 import { getApiBaseUrl } from "@/config";
 import { useAuthStore } from "@/stores/authStore";
-import { useLiveEvents, useLiveStatus } from "@/hooks/use-live-events";
+import { useLiveStatus } from "@/hooks/use-live-events";
 import { aplicarLote } from "@/hooks/aplicar-eventos";
+import { getSucursalActiva } from "@/components/sucursal-selector";
+import {
+  usarPedidos,
+  type Order,
+  type RespuestaPedidos,
+} from "@/stores/datos/pedidos";
 
-interface OrderItem {
-  id: string;
-  producto: string;
-  unidades: number;
-  packs?: number | null;
-  descripcion?: string | null;
-}
-
-interface Cliente {
-  id: string;
-  nombre: string;
-  codigo?: string | null;
-  zona?: string | null;
-}
-
-interface Vendedor {
-  id: string;
-  nombre: string;
-  codigo?: string | null;
-}
-
-interface Order {
-  id: string;
-  folio: string;
-  vendedorId?: string | null;
-  vendedor?: Vendedor | null;
-  clienteId?: string | null;
-  cliente?: Cliente | null;
-  direccion?: string | null;
-  encargado?: string | null;
-  telefono?: string | null;
-  fecha: string;
-  fecha_comprometida?: string | null;
-  estado: string;
-  pedido_cobrado?: string | null;
-  requiere_domicilio?: boolean | null;
-  costoDomicilio?: number | null;
-  createdAt: string;
-  archivedAt?: string | null; // si tiene valor, el pedido está archivado (histórico)
-  items: OrderItem[];
-}
-
-interface PaginationData {
-  page: number;
-  limit: number;
-  total: number;
-  totalPages: number;
-}
-
-interface OrdersResponse {
-  data: Order[];
-  pagination: PaginationData;
-}
+// Los tipos del listado viven en el store: los comparten quien los pinta y quien
+// los trae, y asi no se separan cuando cambie el api.
 
 const estadoColors: Record<string, "success" | "warning" | "danger"> = {
   completada: "success",
@@ -122,8 +77,67 @@ interface VendedorOpt {
   codigo?: string | null;
 }
 
+/** Cuantos pedidos por pagina. Fijo, asi que no hace falta llevarlo en estado. */
+const POR_PAGINA = 10;
+
+// Referencias FIJAS para cuando aun no hay datos: en linea serian objetos nuevos
+// en cada render y dispararian efectos y memos sin parar.
+const SIN_PEDIDOS: Order[] = [];
+const PAGINACION_VACIA = { page: 1, limit: POR_PAGINA, total: 0, totalPages: 1 };
+
+interface FiltrosPedidos {
+  page: number;
+  estado: string;
+  search: string;
+  fechaDesde: string;
+  fechaHasta: string;
+  domicilio: string;
+  vendedor: string;
+  incluirArchivados: boolean;
+}
+
+/** La clave de cache: TIENE que llevar todo lo que cambia el resultado. */
+const clavePedidos = (f: FiltrosPedidos, sucursal: string) =>
+  [
+    "pedidos",
+    sucursal,
+    f.page,
+    f.estado,
+    f.search,
+    f.fechaDesde,
+    f.fechaHasta,
+    f.domicilio,
+    f.vendedor,
+    f.incluirArchivados ? "1" : "0",
+  ].join(":");
+
+const traerPedidos =
+  (f: FiltrosPedidos) =>
+  async (signal: AbortSignal): Promise<RespuestaPedidos> => {
+    const params = new URLSearchParams({
+      page: String(f.page),
+      limit: String(POR_PAGINA),
+    });
+
+    if (f.estado !== "todos") params.append("estado", f.estado);
+    if (f.search.length > 0) params.append("search", f.search);
+    if (f.fechaDesde) params.append("fechaDesde", f.fechaDesde);
+    if (f.fechaHasta) params.append("fechaHasta", f.fechaHasta);
+    if (f.domicilio !== "todos") params.append("domicilio", f.domicilio);
+    if (f.vendedor !== "todos") params.append("vendedorId", f.vendedor);
+    // Switch: si esta activo, la busqueda incluye tambien los archivados (se
+    // distinguen en la tarjeta con el chip "Archivado"). Si no, solo activos.
+    if (f.incluirArchivados) params.append("incluirArchivados", "1");
+
+    const r = await fetch(`${getApiBaseUrl()}/orders?${params}`, { signal });
+
+    if (!r.ok) throw new Error("Error al cargar los pedidos");
+
+    return r.json();
+  };
+
 export const OrdersList = () => {
-  const [orders, setOrders] = useState<Order[]>([]);
+  const [page, setPage] = useState(1);
   const [estadoFilter, setEstadoFilter] = useState<string>("todos");
   const [domicilioFilter, setDomicilioFilter] = useState<string>("todos");
   const [vendedorFilter, setVendedorFilter] = useState<string>("todos");
@@ -133,14 +147,6 @@ export const OrdersList = () => {
   const [incluirArchivados, setIncluirArchivados] = useState(false);
   const [fechaDesde, setFechaDesde] = useState<string>("");
   const [fechaHasta, setFechaHasta] = useState<string>("");
-  const [pagination, setPagination] = useState<PaginationData>({
-    page: 1,
-    limit: 10,
-    total: 0,
-    totalPages: 1,
-  });
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [debouncedSearch, setDebouncedSearch] = useState<string>("");
   const [searchValue, setSearchValue] = useState<string>("");
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
@@ -161,94 +167,80 @@ export const OrdersList = () => {
     onOpen: onDeleteConfirmOpen,
     onClose: onDeleteConfirmClose,
   } = useDisclosure();
-  const abortControllerRef = useRef<AbortController | null>(null);
   const { session } = useAuthStore();
 
   // Check if user can delete orders (Administrador or Supervisor)
   const canDeleteOrders =
     session?.rol === "ADMINISTRADOR" || session?.rol === "SUPERVISOR";
 
+  const activeSucursalId = session?.isGlobalAdmin
+    ? getSucursalActiva()
+    : session?.sucursalId;
+
+  const filtros: FiltrosPedidos = {
+    page,
+    estado: estadoFilter,
+    search: debouncedSearch,
+    fechaDesde,
+    fechaHasta,
+    domicilio: domicilioFilter,
+    vendedor: vendedorFilter,
+    incluirArchivados,
+  };
+
+  // Sin filtros = primera pagina y orden por fecha: ahi SI se puede insertar un
+  // pedido nuevo arriba sin mentir sobre lo que la lista dice estar enseniando.
+  // Con filtros solo se cuenta y se avisa ("hay N nuevos").
+  const sinFiltros =
+    page === 1 &&
+    !debouncedSearch &&
+    estadoFilter === "todos" &&
+    domicilioFilter === "todos" &&
+    vendedorFilter === "todos" &&
+    !fechaDesde &&
+    !fechaHasta;
+
+  // La lista vive en el store: cada combinacion de pagina + filtros se cachea por
+  // separado, asi que volver a una consulta ya vista es instantaneo en vez de
+  // costar otra vuelta al servidor.
+  const {
+    datos,
+    cargando: isLoading,
+    error,
+    recargar: fetchOrders,
+  } = usarPedidos(
+    clavePedidos(filtros, activeSucursalId ?? "todas"),
+    traerPedidos(filtros),
+    {
+      tipos: ["pedido"],
+      aplicar: (actual, lote) => {
+        const lista = aplicarLote<Order>(actual.data, lote, {
+          alPrincipio: sinFiltros,
+        });
+
+        if (lista === null) return null;
+
+        if (!sinFiltros) {
+          // Los pedidos nuevos que NO caben en la vista filtrada se cuentan aparte.
+          const nuevos = lote.filter(
+            (e) => e.accion === "create" && !actual.data.some((o) => o.id === e.id),
+          ).length;
+
+          if (nuevos) setNuevosPend((n) => n + nuevos);
+        }
+
+        return lista === actual.data ? actual : { ...actual, data: lista };
+      },
+    },
+  );
+
+  const orders = datos?.data ?? SIN_PEDIDOS;
+  const pagination = datos?.pagination ?? PAGINACION_VACIA;
+
   /**
    * @param fondo  recarga silenciosa: sin esqueleto y sin pintar errores. La usa el
    *               SSE cuando llega un cambio masivo que no se puede aplicar en sitio.
    */
-  const fetchOrders = useCallback(
-    async (page: number = 1, fondo = false) => {
-      // Cancel previous request
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-
-      // Create new abort controller
-      abortControllerRef.current = new AbortController();
-
-      if (!fondo) {
-        setIsLoading(true);
-        setError(null);
-      }
-
-      try {
-        const params = new URLSearchParams({
-          page: String(page),
-          limit: String(pagination.limit),
-        });
-
-        // Only add estado param if not "todos"
-        if (estadoFilter !== "todos") {
-          params.append("estado", estadoFilter);
-        }
-
-        if (debouncedSearch.length > 0) {
-          params.append("search", debouncedSearch);
-        }
-
-        if (fechaDesde) {
-          params.append("fechaDesde", fechaDesde);
-        }
-
-        if (fechaHasta) {
-          params.append("fechaHasta", fechaHasta);
-        }
-
-        if (domicilioFilter !== "todos") {
-          params.append("domicilio", domicilioFilter);
-        }
-
-        if (vendedorFilter !== "todos") {
-          params.append("vendedorId", vendedorFilter);
-        }
-
-        // Switch: si está activo, la búsqueda incluye también los archivados (se
-        // distinguen en la tarjeta con el chip "Archivado"). Si no, solo activos.
-        if (incluirArchivados) {
-          params.append("incluirArchivados", "1");
-        }
-
-        const response = await fetch(`${getApiBaseUrl()}/orders?${params}`, {
-          signal: abortControllerRef.current.signal,
-        });
-
-        if (!response.ok) {
-          throw new Error("Error al cargar los pedidos");
-        }
-
-        const data: OrdersResponse = await response.json();
-
-        setOrders(data.data);
-        setPagination(data.pagination);
-      } catch (err) {
-        // Ignore abort errors
-        if (err instanceof Error && err.name === "AbortError") {
-          return;
-        }
-        // Fallo de red en recarga de fondo: se conserva lo que ya se ve.
-        if (!fondo) setError(err instanceof Error ? err.message : "Error desconocido");
-      } finally {
-        if (!fondo) setIsLoading(false);
-      }
-    },
-    [pagination.limit, estadoFilter, domicilioFilter, vendedorFilter, incluirArchivados, debouncedSearch, fechaDesde, fechaHasta],
-  );
 
   const handleCompletarOrder = useCallback(
     async (orderId: string) => {
@@ -265,7 +257,7 @@ export const OrdersList = () => {
         }
 
         // Refetch current page and close modals
-        fetchOrders(pagination.page);
+        void fetchOrders(true);
         onClose();
         onConfirmClose();
         setOrderToComplete(null);
@@ -273,7 +265,7 @@ export const OrdersList = () => {
         alert("Error al completar el pedido");
       }
     },
-    [fetchOrders, pagination.page, onClose, onConfirmClose],
+    [fetchOrders, onClose, onConfirmClose],
   );
 
   const handleDeleteOrder = useCallback(
@@ -300,7 +292,7 @@ export const OrdersList = () => {
         });
 
         // Refetch current page and close modals
-        fetchOrders(pagination.page);
+        void fetchOrders(true);
         onClose();
         onDeleteConfirmClose();
         setOrderToDelete(null);
@@ -316,7 +308,7 @@ export const OrdersList = () => {
         setIsDeleting(false);
       }
     },
-    [fetchOrders, pagination.page, onClose, onDeleteConfirmClose],
+    [fetchOrders, onClose, onDeleteConfirmClose],
   );
 
   const handleAskConfirmDelete = useCallback(
@@ -381,60 +373,16 @@ export const OrdersList = () => {
       .then((v: VendedorOpt[]) => setVendedores(Array.isArray(v) ? v : []))
       .catch(() => setVendedores([]));
   }, []);
-
-  // Fetch orders when dependencies change
+  // Al cambiar un filtro se vuelve a la primera pagina: la 7 de una busqueda no
+  // significa nada en la siguiente. El store pide lo que falte al cambiar la clave.
   useEffect(() => {
-    fetchOrders(1);
-  }, [debouncedSearch, estadoFilter, domicilioFilter, vendedorFilter, fechaDesde, fechaHasta, fetchOrders]);
+    setPage(1);
+  }, [debouncedSearch, estadoFilter, domicilioFilter, vendedorFilter, fechaDesde, fechaHasta, incluirArchivados]);
 
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-    };
-  }, []);
-
-  // Pedidos en tiempo real. Va por la conexión SSE ÚNICA de la app (/events/stream).
-  //
-  // Antes esta vista abría su PROPIO EventSource contra /orders/stream. Dos
-  // problemas: era una segunda conexión por pestaña, y en producción no servía para
-  // nada — escuchaba un canal de Redis que ningún sitio publicaba, así que el
-  // indicador "en vivo" salía verde pero no llegaba jamás un pedido.
-  //
-  // Ahora el evento trae el pedido COMPLETO: se inserta arriba si la vista está sin
-  // filtros (primera página, orden por fecha), y si hay filtros solo se cuenta y se
-  // avisa, porque meterlo a mano mentiría sobre lo que la lista dice estar enseñando.
-  useLiveEvents(["pedido"], (_ev, lote) => {
-    const sinFiltros =
-      pagination.page === 1 &&
-      !debouncedSearch &&
-      estadoFilter === "todos" &&
-      domicilioFilter === "todos" &&
-      vendedorFilter === "todos" &&
-      !fechaDesde &&
-      !fechaHasta;
-
-    const nueva = aplicarLote<Order>(orders, lote, { alPrincipio: sinFiltros });
-
-    // Sin objeto que aplicar (importación masiva, backfill): relectura de fondo.
-    if (nueva === null) {
-      void fetchOrders(pagination.page, true);
-
-      return;
-    }
-
-    if (!sinFiltros) {
-      // Los pedidos nuevos que NO caben en la vista filtrada se cuentan aparte.
-      const nuevos = lote.filter(
-        (e) => e.accion === "create" && !orders.some((o) => o.id === e.id),
-      ).length;
-
-      if (nuevos) setNuevosPend((n) => n + nuevos);
-    }
-    if (nueva !== orders) setOrders(nueva);
-  });
+  // Pedidos en tiempo real: lo lleva el store (opcion `aplicar` de arriba). Va por
+  // la conexion SSE UNICA de la app; antes esta vista abria su PROPIO EventSource
+  // contra /orders/stream, que ademas escuchaba un canal de Redis que nadie
+  // publicaba: el indicador salia verde y no llegaba jamas un pedido.
 
   return (
     <div className="flex flex-col w-full gap-4">
@@ -566,7 +514,7 @@ export const OrdersList = () => {
             startContent={<Icons.receipt className="size-4" />}
             onPress={() => {
               setNuevosPend(0);
-              fetchOrders(1);
+              setPage(1);
             }}
           >
             {nuevosPend} pedido{nuevosPend > 1 ? "s" : ""} nuevo{nuevosPend > 1 ? "s" : ""} — actualizar
@@ -589,7 +537,7 @@ export const OrdersList = () => {
             <Button
               className="mt-4"
               color="primary"
-              onPress={() => fetchOrders(pagination.page)}
+              onPress={() => fetchOrders()}
             >
               Reintentar
             </Button>
@@ -770,7 +718,7 @@ export const OrdersList = () => {
                 siblings={1}
                 size="lg"
                 total={pagination.totalPages}
-                onChange={(p) => fetchOrders(p)}
+                onChange={setPage}
               />
             </div>
           )}

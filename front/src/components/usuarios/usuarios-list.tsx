@@ -28,24 +28,25 @@ import Icons from "../icons/iconify";
 
 import { cards } from "@/components/primitives";
 import { getApiBaseUrl } from "@/config";
-import { useLiveEvents } from "@/hooks/use-live-events";
 import { aplicarLote } from "@/hooks/aplicar-eventos";
+import { usarUsuarios, type Usuario } from "@/stores/datos/usuarios";
 import { getSucursalActiva } from "@/components/sucursal-selector";
 import { useAuthStore } from "@/stores/authStore";
 
-interface Usuario {
-  id: string;
-  username: string;
-  rolId?: string | null;
-  sucursalId?: string | null;
-  rol?: {
-    nombre: string;
-  } | null;
-  sucursal?: {
-    nombre: string;
-  } | null;
-  createdAt: string;
-}
+// El tipo Usuario vive en el store (stores/datos/usuarios), no aquí: lo comparten
+// quien lo pinta y quien lo trae, y así no se separan cuando cambie el api.
+
+/**
+ * Trae la lista. Va a nivel de módulo porque no depende de nada de la vista: la
+ * sucursal enfocada la añade el envoltorio de fetch (main.tsx) como cabecera.
+ */
+const traerUsuarios = async (signal: AbortSignal): Promise<Usuario[]> => {
+  const r = await fetch(`${getApiBaseUrl()}/users`, { signal });
+
+  if (!r.ok) throw new Error("Error al cargar los usuarios");
+
+  return r.json();
+};
 
 interface Rol {
   id: string;
@@ -59,10 +60,9 @@ interface Sucursal {
 
 export const UsuariosList = () => {
   const { user, session } = useAuthStore();
-  const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [roles, setRoles] = useState<Rol[]>([]);
   const [sucursales, setSucursales] = useState<Sucursal[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  // Errores de una ACCIÓN (borrar, guardar). Los de CARGA los lleva el store.
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [selectedUsuario, setSelectedUsuario] = useState<Usuario | null>(null);
@@ -105,44 +105,47 @@ export const UsuariosList = () => {
   );
 
   useEffect(() => {
-    fetchUsuarios();
     fetchRoles();
     fetchSucursales();
   }, []);
 
-  // En vivo (SSE): el evento trae el usuario COMPLETO, así que se mete/sustituye/
-  // quita en la tabla que ya está pintada. Nada de volver a pedir la lista: eso es
-  // lo que hacía que la vista parpadeara sola cada pocos segundos.
+  // La lista vive en el store de usuarios, no en un useState de esta vista. Así
+  // sobrevive a la navegación: salir y volver la pinta al instante en vez de
+  // costar otra vuelta al servidor (~600 ms en los enlaces de las sucursales).
   //
-  // Los eventos de 'vendedor' sí obligan a recargar (cambian el conteo de
-  // vendedores a cargo de cada usuario, que no viaja en el evento), pero de fondo.
-  useLiveEvents(["usuario", "vendedor"], (_ev, lote) => {
-    const deUsuario = lote.filter((e) => e.tipo === "usuario");
-    const hayDeVendedor = deUsuario.length !== lote.length;
-    // El hook reasigna el callback en cada render, así que `usuarios` está al día:
-    // se calcula la lista nueva de forma pura y luego se decide, en vez de meter
-    // efectos dentro del updater de setState (que React puede reejecutar).
-    const nueva = deUsuario.length
-      ? aplicarLote<Usuario>(usuarios, deUsuario, {
-          // El Administrador solo ve su sucursal; el Super Admin, todas.
-          filtrar: (u) => !activeSucursalId || u.sucursalId === activeSucursalId,
-          alPrincipio: true,
-        })
-      : usuarios;
+  // La clave incluye la sucursal enfocada porque el servidor filtra por ella: sin
+  // eso, cambiar de sucursal enseñaría la lista de la anterior.
+  //
+  // El SSE se aplica EN SITIO sobre lo cacheado (el evento trae el usuario
+  // completo), así que la tabla no parpadea. Los eventos de 'vendedor' sí obligan
+  // a releer —cambian el conteo de vendedores a cargo, que no viaja en el
+  // evento—, pero de fondo: sin esqueleto y sin borrar lo que se está viendo.
+  const {
+    datos: usuarios,
+    cargando: isLoading,
+    error: errorCarga,
+    recargar: recargarUsuarios,
+  } = usarUsuarios(`usuarios:${activeSucursalId ?? "todas"}`, traerUsuarios, {
+    aplicar: (actual, lote) => {
+      const deUsuario = lote.filter((e) => e.tipo === "usuario");
 
-    if (nueva === null || hayDeVendedor) {
-      void fetchUsuarios(true);
+      // Hay eventos de vendedor en la ráfaga: no se puede aplicar todo, se relee.
+      if (deUsuario.length !== lote.length) return null;
 
-      return;
-    }
-    if (nueva !== usuarios) setUsuarios(nueva);
+      return aplicarLote<Usuario>(actual, deUsuario, {
+        // El Administrador solo ve su sucursal; el Super Admin, todas.
+        filtrar: (u) => !activeSucursalId || u.sucursalId === activeSucursalId,
+        alPrincipio: true,
+      });
+    },
   });
 
   // Filtros en cliente (texto + rol + sucursal): /users devuelve la lista completa.
   const filteredUsuarios = useMemo(() => {
     const q = searchValue.trim().toLowerCase();
 
-    return usuarios.filter((u) => {
+    // `usuarios` es null mientras no haya llegado la primera carga.
+    return (usuarios ?? []).filter((u) => {
       if (rolFilter && (u.rol?.nombre ?? "") !== rolFilter) return false;
       if (sucursalFilter && (u.sucursal?.nombre ?? "") !== sucursalFilter) return false;
       if (
@@ -171,36 +174,6 @@ export const UsuariosList = () => {
   useEffect(() => {
     setPage(1);
   }, [searchValue]);
-
-  /**
-   * @param fondo  recarga silenciosa: ni esqueleto ni error en pantalla. Se usa
-   *               desde el SSE, donde el usuario no ha pedido nada y no tiene por
-   *               qué ver la tabla desaparecer y volver.
-   */
-  const fetchUsuarios = async (fondo = false) => {
-    if (!fondo) {
-      setIsLoading(true);
-      setError(null);
-    }
-
-    try {
-      const response = await fetch(`${getApiBaseUrl()}/users`);
-
-      if (!response.ok) {
-        throw new Error("Error al cargar los usuarios");
-      }
-
-      const data = await response.json();
-
-      setUsuarios(data);
-    } catch (err) {
-      // Un fallo de red en una recarga de fondo no debe borrar lo que ya se ve
-      // ni pintar un error: se conserva lo último bueno.
-      if (!fondo) setError(err instanceof Error ? err.message : "Error desconocido");
-    } finally {
-      if (!fondo) setIsLoading(false);
-    }
-  };
 
   const fetchRoles = async () => {
     try {
@@ -237,7 +210,7 @@ export const UsuariosList = () => {
 
       setSuccess("Usuario eliminado correctamente");
       setTimeout(() => setSuccess(null), 3000);
-      fetchUsuarios();
+      void recargarUsuarios(true);
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error desconocido");
@@ -302,7 +275,7 @@ export const UsuariosList = () => {
 
       setSuccess("Usuario actualizado correctamente");
       setTimeout(() => setSuccess(null), 3000);
-      fetchUsuarios();
+      void recargarUsuarios(true);
       onEditClose();
     } catch (err) {
       setEditError(err instanceof Error ? err.message : "Error desconocido");
@@ -311,7 +284,10 @@ export const UsuariosList = () => {
     }
   };
 
-  if (isLoading) {
+  // `usuarios === null` = todavía no ha llegado nada. Sin esta condición, en el
+  // primer render (antes de que arranque el efecto de carga) se vería un parpadeo
+  // de "no hay usuarios" antes del spinner.
+  if (isLoading || usuarios === null) {
     return (
       <div className="flex justify-center p-8">
         <Spinner color="primary" size="lg" />
@@ -319,14 +295,16 @@ export const UsuariosList = () => {
     );
   }
 
-  if (error) {
+  const errorVisible = error ?? errorCarga;
+
+  if (errorVisible) {
     return (
       <Card className={cards()}>
         <CardBody>
           <div className="bg-danger-50 border-l-4 border-danger p-4 rounded">
             <div className="flex items-center gap-2">
               <Icons.close className="size-5 text-danger" />
-              <p className="text-sm text-danger-700">{error}</p>
+              <p className="text-sm text-danger-700">{errorVisible}</p>
             </div>
           </div>
         </CardBody>
