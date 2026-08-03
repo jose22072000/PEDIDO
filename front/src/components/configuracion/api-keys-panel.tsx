@@ -45,9 +45,16 @@ export const ApiKeysPanel = () => {
     cargar();
   }, []);
 
-  // En vivo por SSE (sin polling): cuando una key se usa, el backend emite un evento
-  // 'apikey' y el panel se refresca solo (veces / última / IP se mueven en tiempo real).
-  useLiveEvents(["apikey"], () => cargar());
+  // En vivo por SSE, pero SOLO cuando la lista cambia de verdad (crear, editar,
+  // revocar, borrar).
+  //
+  // Antes se recargaba con CUALQUIER evento 'apikey', y el backend emite uno cada
+  // vez que se USA una clave (delivery consulta sin parar): la tabla se rehacía
+  // cada dos segundos y la pantalla parpadeaba sola. Los contadores de uso se
+  // ponen al día al volver a entrar; no valen un parpadeo permanente.
+  useLiveEvents(["apikey"], (_ev, lote) => {
+    if (lote.some((e) => e.accion !== "change")) void cargar();
+  });
 
   const crear = async () => {
     if (!label.trim()) {
