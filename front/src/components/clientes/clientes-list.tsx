@@ -23,40 +23,17 @@ import Icons from "../icons/iconify";
 
 import { cn, copyTextToClipboard } from "@/lib/utils";
 import { getApiBaseUrl } from "@/config";
-import { useDatos } from "@/stores/datosStore";
+import { usarClientes } from "@/stores/datos/clientes";
+import type {
+  Cliente,
+  RespuestaClientes,
+  PaginacionClientes,
+} from "@/stores/datos/clientes";
 
-interface Cliente {
-  id: string;
-  nombre: string;
-  codigo?: string | null;
-  zona?: string | null;
-  createdAt: string;
-  // Datos del Consolidado de Parranda. La lat/lng es la que usa delivery para
-  // calcular el costo del domicilio: sin ella, ese cliente no se puede cotizar.
-  direccion?: string | null;
-  municipio?: string | null;
-  tipoCliente?: string | null;
-  estadoCompra?: string | null;
-  latitud?: number | null;
-  longitud?: number | null;
-}
-
-interface PaginationData {
-  page: number;
-  limit: number;
-  total: number;
-  totalPages: number;
-}
-
-interface ClientesResponse {
-  data: Cliente[];
-  pagination: PaginationData;
-  municipios?: string[];
-}
 
 export const ClientesList = () => {
   const [paginaActual, setPaginaActual] = useState(1);
-  const [pagination, setPagination] = useState<PaginationData>({
+  const [pagination, setPagination] = useState<PaginacionClientes>({
     page: 1,
     limit: 10,
     total: 0,
@@ -71,9 +48,9 @@ export const ClientesList = () => {
   const [copiedClienteId, setCopiedClienteId] = useState<string | null>(null);
   const { isOpen, onOpen, onClose } = useDisclosure();
 
-  // Los datos viven en la caché compartida (stores/datosStore), no en este
-  // componente: al salir y volver se pintan al instante en vez de pedirse otra
-  // vez, y los refrescos por SSE no vacían la tabla ni disparan esqueletos.
+  // Los datos viven en el store de clientes (stores/datos/clientes), no en
+  // este componente: al salir y volver se pintan al instante en vez de pedirse
+  // otra vez, y los refrescos por SSE no vacían la tabla ni sacan esqueletos.
   // La clave incluye los filtros: cada combinación se cachea por separado.
   const clave = `clientes|${paginaActual}|${pagination.limit}|${debouncedSearch}|${municipio}|${estadoCompra}`;
 
@@ -82,7 +59,7 @@ export const ClientesList = () => {
     cargando: isLoading,
     error,
     recargar,
-  } = useDatos<ClientesResponse>(
+  } = usarClientes(
     clave,
     async (signal) => {
       const params = new URLSearchParams({
@@ -98,9 +75,8 @@ export const ClientesList = () => {
 
       if (!response.ok) throw new Error("Error al cargar los clientes");
 
-      return (await response.json()) as ClientesResponse;
+      return (await response.json()) as RespuestaClientes;
     },
-    { tipos: ["cliente"] },
   );
 
   const clientes = respuesta?.data ?? [];
@@ -154,7 +130,7 @@ export const ClientesList = () => {
     setPaginaActual(1);
   }, [debouncedSearch, municipio, estadoCompra]);
 
-  // El refresco por SSE y la cancelación de peticiones los gestiona useDatos:
+  // El refresco por SSE y la cancelación de peticiones los gestiona el store:
   // ya no hace falta el listener ni el AbortController de este componente.
 
   return (
