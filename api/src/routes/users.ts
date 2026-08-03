@@ -193,7 +193,12 @@ router.post('/', async (req, res) => {
     // Remove password from response
     const { password: _, ...userWithoutPassword } = user;
 
-    emitEvent('usuario', { sucursalId: user.sucursalId, id: user.id, accion: 'create' });
+    emitEvent('usuario', {
+      sucursalId: user.sucursalId,
+      id: user.id,
+      accion: 'create',
+      datos: userWithoutPassword,
+    });
     res.status(201).json(userWithoutPassword);
   } catch (err) {
     console.error(err);
@@ -231,6 +236,7 @@ router.patch('/:id', async (req, res) => {
     }
 
     const updateData: any = {};
+    let pasaASuperAdmin = false;
 
     if (username) updateData.username = String(username).trim();
     if (password) updateData.password = await bcrypt.hash(password, 10);
@@ -256,6 +262,7 @@ router.patch('/:id', async (req, res) => {
         }
 
         updateData.rolId = rolId;
+        pasaASuperAdmin = String(selectedRole.nombre).toUpperCase() === 'SUPER ADMIN';
       }
     }
     if (!requester.isGlobalAdmin && sucursalId !== undefined && sucursalId !== activeSucursalId) {
@@ -278,6 +285,12 @@ router.patch('/:id', async (req, res) => {
       }
     }
 
+    // Va AL FINAL, después del bloque de sucursal, para que gane: el Super Admin
+    // es el único rol GLOBAL y no pertenece a ninguna sucursal. Al promover a
+    // alguien se le quitaba nada y seguía saliendo con la vieja (Claudia figurando
+    // en Camagüey siendo global), y el backend se la aplicaba como filtro.
+    if (pasaASuperAdmin) updateData.sucursalId = null;
+
     const user = await prisma.usuario.update({
       where: { id },
       data: updateData,
@@ -290,7 +303,17 @@ router.patch('/:id', async (req, res) => {
     // Remove password from response
     const { password: _, ...userWithoutPassword } = user;
 
-    emitEvent('usuario', { sucursalId: user.sucursalId, id: user.id, accion: 'update' });
+    // El usuario viaja COMPLETO (sin contraseña) para que la vista lo sustituya en
+    // sitio. Si cambió de sucursal se emite también a la anterior, que si no se
+    // quedaba enseñándolo: el SSE filtra por sucursal y no le llegaría el evento.
+    for (const scope of new Set([user.sucursalId, existingUser.sucursalId])) {
+      emitEvent('usuario', {
+        sucursalId: scope,
+        id: user.id,
+        accion: 'update',
+        datos: userWithoutPassword,
+      });
+    }
     res.json(userWithoutPassword);
   } catch (err) {
     console.error(err);

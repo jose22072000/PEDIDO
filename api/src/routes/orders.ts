@@ -10,7 +10,7 @@ import {
 } from '../lib/sucursalContext';
 import { notifyPedidoCompletado } from '../lib/webhook';
 import { emitEvent } from '../lib/events';
-import { redisEnabled, publishJSON, getSubscriber, CH_ORDERS_NEW, CH_IMPORT_DONE, CH_IMPORT_FAILED } from '../lib/redis';
+import { redisEnabled, publishJSON, getSubscriber, CH_IMPORT_DONE, CH_IMPORT_FAILED } from '../lib/redis';
 import { importQueue, enqueueDeliveryOrders } from '../lib/queues';
 import { mintSseTicket, consumeSseTicket } from '../lib/sseTickets';
 
@@ -22,6 +22,20 @@ function computeEstado(o: { estado: string | null; fecha_comprometida: Date | nu
   if (o.estado === 'completada') return 'completada';
   if (o.fecha_comprometida && new Date(o.fecha_comprometida) < new Date()) return 'expirada';
   return 'en_proceso';
+}
+
+/**
+ * El pedido con EXACTAMENTE la forma que devuelve GET / (items + cliente +
+ * vendedor + estado derivado). Es lo que viaja por SSE: con esto la vista lo
+ * inserta o lo sustituye en la lista que ya tiene, sin pedir nada al servidor.
+ */
+async function pedidoParaLista(id: string) {
+  const o = await prisma.pedido.findUnique({
+    where: { id },
+    include: { items: true, cliente: true, vendedor: true },
+  });
+
+  return o ? { ...o, estado: computeEstado(o) } : null;
 }
 
 // List orders with pagination and filters.
@@ -258,72 +272,12 @@ router.post('/sse-ticket', async (req, res) => {
   return res.json({ ticket });
 });
 
-router.get('/stream', async (req, res) => {
-  // Auth por TICKET efímero (no token en la URL). Ver POST /orders/sse-ticket.
-  const ticket = await consumeSseTicket(req.query.ticket as string | undefined);
-  if (!ticket) return res.status(401).json({ error: 'Ticket inválido o expirado' });
-  const sucursalId = ticket.sucursalId ?? undefined;
-
-  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
-  res.setHeader('Cache-Control', 'no-cache, no-transform');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no');
-  (res as any).flushHeaders?.();
-
-  let closed = false;
-  const send = (event: string, data: unknown) => {
-    if (!closed) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-  };
-  send('ready', { since: new Date().toISOString() });
-
-  const keepAlive = setInterval(() => { if (!closed) res.write(': keep-alive\n\n'); }, 20000);
-
-  if (redisEnabled()) {
-    // Camino Redis pub/sub: los pedidos nuevos llegan por EVENTO (cero polling a Postgres).
-    const sub = getSubscriber()!;
-    await sub.subscribe(CH_ORDERS_NEW);
-    const onMessage = (channel: string, message: string) => {
-      if (closed || channel !== CH_ORDERS_NEW) return;
-      try {
-        const { sucursalId: sid, order } = JSON.parse(message);
-        if (sid !== sucursalId) return; // aislamiento por sucursal
-        send('order', order);
-      } catch { /* mensaje inválido: ignora */ }
-    };
-    sub.on('message', onMessage);
-    req.on('close', () => {
-      closed = true;
-      clearInterval(keepAlive);
-      sub.off('message', onMessage); // NO unsubscribe: otros clientes pueden seguir escuchando
-    });
-  } else {
-    // Fallback SIN Redis: polling a Postgres cada 3s (comportamiento original).
-    let since = new Date(); // solo pedidos creados DESPUÉS de conectarse
-    const tick = async () => {
-      if (closed) return;
-      try {
-        const nuevos = await prisma.pedido.findMany({
-          where: { sucursalId, createdAt: { gt: since } },
-          include: { items: true, cliente: true, vendedor: true },
-          orderBy: { createdAt: 'asc' },
-          take: 50,
-        });
-        if (nuevos.length) {
-          since = nuevos[nuevos.length - 1].createdAt;
-          for (const o of nuevos) send('order', { ...o, estado: computeEstado(o) });
-        }
-      } catch {
-        /* transitorio; el próximo tick reintenta */
-      }
-    };
-    const interval = setInterval(tick, 3000);
-    req.on('close', () => {
-      closed = true;
-      clearInterval(interval);
-      clearInterval(keepAlive);
-    });
-  }
-});
+// El SSE de pedidos vive en /events/stream (canal único de toda la app). Aquí había
+// un SEGUNDO stream propio, /orders/stream, que en producción NO servía para nada: se
+// suscribía al canal Redis `orders:new` y ese canal no lo publicaba NADIE, así que la
+// lista tenía una conexión permanentemente abierta que jamás recibía un pedido (y el
+// indicador "en vivo" salía verde igual). Ahora el pedido completo viaja por el canal
+// único, con lo que además se ahorra una conexión por pestaña.
 
 // Create a new order (basic)
 router.post('/', async (req, res) => {
@@ -363,7 +317,14 @@ router.post('/', async (req, res) => {
     // (cola Redis); no-op sin Redis. Reemplaza el poll de 15s de delivery. Delivery filtra
     // luego los que tienen geo + requieren domicilio.
     void enqueueDeliveryOrders({ reason: 'order-created', externalId: order.id });
-    emitEvent('pedido', { sucursalId: order.sucursalId, id: order.id, accion: 'create' });
+    // El pedido viaja COMPLETO (misma forma que la lista) para que las vistas lo
+    // inserten arriba sin volver a pedir la página entera.
+    emitEvent('pedido', {
+      sucursalId: order.sucursalId,
+      id: order.id,
+      accion: 'create',
+      datos: await pedidoParaLista(order.id),
+    });
 
     res.status(201).json(order);
   } catch (err) {
@@ -400,7 +361,12 @@ router.patch('/:id/completar', async (req, res) => {
 
     // Webhook PUSH (configurable): avisa a Parranda que el pedido se completó + la fecha.
     notifyPedidoCompletado(order);
-    emitEvent('pedido', { sucursalId: order.sucursalId, id: order.id, accion: 'completar' });
+    emitEvent('pedido', {
+      sucursalId: order.sucursalId,
+      id: order.id,
+      accion: 'update',
+      datos: { ...order, estado: computeEstado(order) },
+    });
 
     res.json(order);
   } catch (err) {
@@ -473,13 +439,9 @@ class VendedorInactivoError extends Error {
   }
 }
 
-// `uploaderSucursalId` = la sucursal del que sube (como SIEMPRE se ha hecho). El
-// gestor solo AÑADE una forma de rutear cuando existe; si no, todo sigue igual.
-async function resolveSeller(
-  name: string,
-  code: string,
-  uploaderSucursalId: string | null,
-): Promise<SellerResolution> {
+// La sucursal la decide el GESTOR del vendedor. Quién sube el CSV ya no influye:
+// un vendedor sin gestor entra "Sin asignar", sin sucursal.
+async function resolveSeller(name: string, code: string): Promise<SellerResolution> {
   const nombre = name.toUpperCase().trim();
 
   // 1) Por código (clave nueva). 2) Si no aparece, POR NOMBRE: así seguimos
@@ -525,25 +487,27 @@ async function resolveSeller(
     if (!existing.activo) {
       throw new VendedorInactivoError(existing.nombre);
     }
-    // Sucursal: la del gestor si está enlazado; si no, la del que sube (como hasta
-    // ahora); si tampoco (p. ej. Super Admin en la nube), la propia del vendedor.
-    // Solo queda null —y por tanto oculto— si no hay ninguna de las tres.
-    const sucursalId =
-      existing.gestor?.sucursalId ?? uploaderSucursalId ?? existing.sucursalId ?? null;
+    // La sucursal sale del GESTOR y de nadie más. Antes caía en cascada al que
+    // subía el CSV, y eso metía a un vendedor "Sin asignar" dentro de la sucursal
+    // del que le tocara importar ese día: así 'glenda.melisa' acabó fichada en GTO
+    // con sus 1447 pedidos en STG. Sin gestor => sin sucursal => "Sin asignar".
+    const sucursalId = existing.gestor?.sucursalId ?? null;
 
-    // Si el vendedor aún no tenía sucursal, se la fijamos (comportamiento de siempre).
-    if (!existing.sucursalId && sucursalId) {
+    // La ficha del vendedor sigue al gestor. Si estaba en otra sucursal (heredada
+    // del uploader o de una restauración), se corrige aquí en vez de quedar torcida.
+    if (existing.sucursalId !== sucursalId) {
       await prisma.vendedor.update({ where: { id: existing.id }, data: { sucursalId } });
     }
     return { seller: existing, sucursalId };
   }
 
-  // Vendedor nuevo: se crea en la sucursal del que sube (igual que antes). Queda sin
-  // gestor hasta que se le enlace uno desde la vista de Vendedores.
+  // Vendedor nuevo: SIN sucursal y SIN gestor. Sus pedidos entran pero quedan
+  // ocultos hasta que se le enlace un gestor desde la vista de Vendedores; ese
+  // enlace los reparte a la sucursal correcta.
   const seller = await prisma.vendedor.create({
-    data: { nombre: name, codigo: code || null, sucursalId: uploaderSucursalId, gestorId: null },
+    data: { nombre: name, codigo: code || null, sucursalId: null, gestorId: null },
   });
-  return { seller, sucursalId: uploaderSucursalId };
+  return { seller, sucursalId: null };
 }
 
 // Bulk create orders from CSV records
@@ -675,7 +639,7 @@ export async function processBulkImport(
     for (const r of mappedRecords) {
       const key = r.seller.code || r.seller.name.toUpperCase().trim();
       if (!sellersByCode.has(key)) {
-        sellersByCode.set(key, await resolveSeller(r.seller.name, r.seller.code, uploaderSucursalId));
+        sellersByCode.set(key, await resolveSeller(r.seller.name, r.seller.code));
       }
     }
   } catch (error) {
@@ -1012,111 +976,85 @@ router.get('/stats', async (req, res) => {
       }
     } : {};
 
-    // Total de pedidos (del año seleccionado o todos)
-    const totalPedidos = await prisma.pedido.count({
-      where: {
-        sucursalId,
-        ...gestorFilter,
-        ...yearCondition,
-      }
-    });
+    // Los cuatro conteos son independientes entre sí: van en PARALELO. En serie
+    // sumaban sus cuatro latencias, y este endpoint es el que pinta el panel —
+    // o sea, lo primero que ve todo el mundo al entrar.
+    //
+    // El desglose mensual va aparte, en SQL. Antes se traía a Node TODOS los
+    // pedidos de la sucursal (43.000 filas, dos columnas) en cada carga del panel
+    // solo para contarlos por mes con un bucle. Ahora lo agrupa Postgres y vuelven
+    // ~24 filas.
+    const filtroMensual = [
+      Prisma.sql`o.fecha_comprometida is not null`,
+      sucursalId ? Prisma.sql`o."sucursalId" = ${sucursalId}` : Prisma.sql`true`,
+      statsCtx.isGestor && statsCtx.userId
+        ? Prisma.sql`exists (select 1 from "Seller" s where s.id = o."sellerId" and s."gestorId" = ${statsCtx.userId})`
+        : Prisma.sql`true`,
+    ];
 
-    // Pedidos completados
-    const pedidosCompletados = await prisma.pedido.count({
-      where: {
-        sucursalId,
-        ...gestorFilter,
-        estado: 'completada',
-        ...yearCondition
-      }
-    });
+    const [totalPedidos, pedidosCompletados, pedidosEnProceso, pedidosExpirados, porMes] =
+      await Promise.all([
+        // Total de pedidos (del año seleccionado o todos)
+        prisma.pedido.count({
+          where: { sucursalId, ...gestorFilter, ...yearCondition },
+        }),
 
-    // Pedidos en proceso (no completados y no expirados)
-    const pedidosEnProceso = await prisma.pedido.count({
-      where: {
-        sucursalId,
-        ...gestorFilter,
-        OR: [
-          { estado: null },
-          { estado: { not: 'completada' } }
-        ],
-        AND: [
-          {
-            OR: [
-              { fecha_comprometida: null },
-              { fecha_comprometida: { gte: now } }
-            ]
-          }
-        ],
-        ...yearCondition
-      }
-    });
+        // Pedidos completados
+        prisma.pedido.count({
+          where: { sucursalId, ...gestorFilter, estado: 'completada', ...yearCondition },
+        }),
 
-    // Pedidos expirados (no completados y con fecha vencida)
-    const pedidosExpirados = await prisma.pedido.count({
-      where: {
-        sucursalId,
-        ...gestorFilter,
-        OR: [
-          { estado: null },
-          { estado: { not: 'completada' } }
-        ],
-        AND: [
-          {
-            fecha_comprometida: { lt: now }
-          }
-        ],
-        ...yearCondition
-      }
-    });
+        // Pedidos en proceso (no completados y no expirados)
+        prisma.pedido.count({
+          where: {
+            sucursalId,
+            ...gestorFilter,
+            OR: [{ estado: null }, { estado: { not: 'completada' } }],
+            AND: [
+              { OR: [{ fecha_comprometida: null }, { fecha_comprometida: { gte: now } }] },
+            ],
+            ...yearCondition,
+          },
+        }),
 
-    // Estadísticas mensuales
-    const allOrders = await prisma.pedido.findMany({
-      where: { sucursalId, ...gestorFilter },
-      select: {
-        fecha_comprometida: true,
-        estado: true
-      }
-    });
+        // Pedidos expirados (no completados y con fecha vencida)
+        prisma.pedido.count({
+          where: {
+            sucursalId,
+            ...gestorFilter,
+            OR: [{ estado: null }, { estado: { not: 'completada' } }],
+            AND: [{ fecha_comprometida: { lt: now } }],
+            ...yearCondition,
+          },
+        }),
 
-    // Agrupar por año y mes
-    const monthlyStatsMap = new Map<string, { total: number; completed: number }>();
-    const yearsSet = new Set<number>();
+        // Desglose mensual agregado por Postgres. Los count() vuelven como bigint,
+        // que JSON.stringify no sabe serializar: se castean a int aquí.
+        prisma.$queryRaw<Array<{ year: number; month: number; total: number; completed: number }>>(
+          Prisma.sql`
+            select extract(year  from o.fecha_comprometida)::int as year,
+                   extract(month from o.fecha_comprometida)::int as month,
+                   count(*)::int                                  as total,
+                   count(*) filter (where o.status = 'completada')::int as completed
+              from "Order" o
+             where ${Prisma.join(filtroMensual, ' and ')}
+             group by 1, 2
+             order by 1 desc, 2 asc
+          `,
+        ),
+      ]);
 
-    allOrders.forEach(order => {
-      if (order.fecha_comprometida) {
-        const date = new Date(order.fecha_comprometida);
-        const orderYear = date.getFullYear();
-        const month = date.getMonth() + 1; // 1-12
-        const key = `${orderYear}-${month}`;
-
-        yearsSet.add(orderYear);
-
-        if (!monthlyStatsMap.has(key)) {
-          monthlyStatsMap.set(key, { total: 0, completed: 0 });
-        }
-
-        const stats = monthlyStatsMap.get(key)!;
-        stats.total++;
-        if (order.estado === 'completada') {
-          stats.completed++;
-        }
-      }
-    });
-
-    // Convertir a array
-    const monthlyStats = Array.from(monthlyStatsMap.entries()).map(([key, stats]) => {
-      const [statsYear, month] = key.split('-').map(Number);
-      return {
-        year: statsYear,
-        month,
-        total: stats.total,
-        completed: stats.completed
-      };
-    });
+    const monthlyStats = porMes.map((m) => ({
+      year: Number(m.year),
+      month: Number(m.month),
+      total: Number(m.total),
+      completed: Number(m.completed),
+    }));
 
     // Años disponibles ordenados descendente
-    const availableYears = Array.from(yearsSet).sort((a, b) => b - a);
+    const availableYears = Array.from(new Set(monthlyStats.map((m) => m.year))).sort(
+      (a, b) => b - a,
+    );
 
     return res.json({
       totalPedidos,

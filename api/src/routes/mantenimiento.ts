@@ -345,7 +345,9 @@ router.post('/restore', upload.single('file') as any, async (req, res) => {
       try {
         let gestorId = v.gestorId ?? null;
         if (gestorId && !(await prisma.usuario.findUnique({ where: { id: gestorId } }))) gestorId = null;
-        const sucId = mapSuc(v.sucursalId);
+        // Sin gestor no hay sucursal: un vendedor "Sin asignar" no pertenece a
+        // ninguna. Restaurar un backup no puede colarlo dentro de una sucursal.
+        const sucId = gestorId ? mapSuc(v.sucursalId) : null;
         const codigoV: string | null = v.codigo ?? null;
         let local = codigoV ? await prisma.vendedor.findUnique({ where: { codigo: codigoV } }) : null;
         if (!local) local = await prisma.vendedor.findFirst({ where: { nombre: v.nombre, sucursalId: sucId } });
@@ -546,14 +548,18 @@ router.post('/import-sqlite', upload.single('file') as any, async (req, res) => 
         let localId: string;
         if (local) {
           const upd: any = {};
-          if (!local.sucursalId && sucursalId) upd.sucursalId = sucursalId;
+          // Solo se le pone sucursal si YA tiene gestor. Sin gestor va "Sin
+          // asignar", sin sucursal: importar la base vieja de una sucursal no
+          // puede fichar ahi a un vendedor que nadie lleva.
+          if (!local.sucursalId && local.gestorId && sucursalId) upd.sucursalId = sucursalId;
           if (!local.codigo && codigoV) { const clash = await prisma.vendedor.findUnique({ where: { codigo: codigoV } }); if (!clash || clash.id === local.id) upd.codigo = codigoV; }
           if (Object.keys(upd).length) await prisma.vendedor.update({ where: { id: local.id }, data: upd });
           localId = local.id;
         } else {
           let cod = codigoV;
           if (cod) { const clash = await prisma.vendedor.findUnique({ where: { codigo: cod } }); if (clash) cod = null; }
-          const creado = await prisma.vendedor.create({ data: { nombre: v.name, codigo: cod, sucursalId, gestorId: null, activo: true, createdAt: fecha(v.createdAt) ?? undefined } });
+          // Nace sin gestor => nace sin sucursal.
+          const creado = await prisma.vendedor.create({ data: { nombre: v.name, codigo: cod, sucursalId: null, gestorId: null, activo: true, createdAt: fecha(v.createdAt) ?? undefined } });
           localId = creado.id;
         }
         vendMap.set(v.id, localId);

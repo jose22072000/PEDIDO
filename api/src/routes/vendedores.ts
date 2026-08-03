@@ -14,6 +14,34 @@ const router = express.Router();
 // gestor). El Supervisor también sube pedidos, así que también tiene que poder llevarlos.
 const ROLES_ENLAZABLES = ['Gestor', 'Supervisor'];
 
+// Mismo `include` que la lista de /gestores: el evento SSE tiene que llevar el
+// vendedor con EXACTAMENTE la forma que la vista ya tiene en pantalla, para poder
+// sustituirlo en sitio sin volver a pedir la lista entera.
+const FORMA_LISTA = {
+  gestor: { select: { id: true, username: true, sucursalId: true } },
+  sucursal: { select: { id: true, nombre: true, codigo: true } },
+  _count: { select: { pedidos: true } },
+} as const;
+
+/**
+ * Publica el vendedor COMPLETO por SSE para que las vistas lo apliquen en sitio.
+ *
+ * Si cambió de sucursal se emite DOS veces, una por cada sucursal implicada: el
+ * SSE filtra por sucursal, así que sin el segundo evento la sucursal que lo
+ * perdía se quedaba enseñándolo hasta que alguien recargara.
+ */
+async function emitirVendedor(id: string, accion: string, sucursalAnterior?: string | null) {
+  const v = await prisma.vendedor.findUnique({ where: { id }, include: FORMA_LISTA });
+  if (!v) return;
+
+  const destinos = new Set<string | null>([v.sucursalId ?? null]);
+  if (sucursalAnterior !== undefined) destinos.add(sucursalAnterior ?? null);
+
+  for (const sucursalId of destinos) {
+    emitEvent('vendedor', { sucursalId, id: v.id, accion, datos: v });
+  }
+}
+
 // GET /vendedores - List all vendedores
 router.get('/', async (req, res) => {
   try {
@@ -154,7 +182,7 @@ router.patch('/:id/activo', async (req, res) => {
 
     const updated = await prisma.vendedor.update({ where: { id }, data: { activo } });
 
-    emitEvent('vendedor', { sucursalId: updated.sucursalId, id: updated.id, accion: 'activo' });
+    await emitirVendedor(updated.id, 'update');
     res.json({
       vendedor: updated,
       pedidosConservados: vendedor._count.pedidos,
@@ -213,16 +241,21 @@ router.patch('/:id/gestor', async (req, res) => {
     const result = await prisma.$transaction(async (tx) => {
       const v = await tx.vendedor.update({
         where: { id },
-        // Al desenlazar (gestorId null) el vendedor queda "Sin asignar" de nuevo,
-        // pero NO se le quita la sucursal a sus pedidos históricos.
-        data: { gestorId: gestorId || null, ...(sucursalId ? { sucursalId } : {}) },
+        // La sucursal del vendedor ES la de su gestor. Al desenlazar vuelve a
+        // "Sin asignar" y se queda SIN sucursal (antes conservaba la vieja, que
+        // es como acababan apareciendo vendedores sin gestor dentro de una
+        // sucursal). Sus pedidos históricos no se tocan al desenlazar.
+        data: { gestorId: gestorId || null, sucursalId },
       });
 
       let pedidos = 0;
       let clientes = 0;
       if (sucursalId) {
+        // TODOS sus pedidos, no solo los que estaban en null. Si el vendedor
+        // arrastraba pedidos en la sucursal equivocada (heredada del que subió
+        // el CSV), enlazar al gestor los recoloca donde de verdad van.
         const p = await tx.pedido.updateMany({
-          where: { vendedorId: id, sucursalId: null },
+          where: { vendedorId: id, NOT: { sucursalId } },
           data: { sucursalId },
         });
         pedidos = p.count;
@@ -234,6 +267,8 @@ router.patch('/:id/gestor', async (req, res) => {
           .filter((x): x is string => !!x);
 
         if (clienteIds.length) {
+          // En clientes solo se rellenan los huérfanos: un cliente puede comprarle
+          // a vendedores de más de una sucursal, así que no se le pisa la suya.
           const c = await tx.cliente.updateMany({
             where: { id: { in: clienteIds }, sucursalId: null },
             data: { sucursalId },
@@ -245,7 +280,9 @@ router.patch('/:id/gestor', async (req, res) => {
     });
 
     // En vivo: el vínculo cambia el vendedor y (por backfill) sus pedidos + clientes.
-    emitEvent('vendedor', { sucursalId: result.v.sucursalId, id: result.v.id, accion: 'gestor' });
+    // El vendedor viaja completo; los pedidos/clientes son demasiados para mandarlos
+    // uno a uno, así que esos sí piden un refresco (de fondo, sin esqueleto).
+    await emitirVendedor(result.v.id, 'update', vendedor.sucursalId);
     if (result.pedidos > 0) emitEvent('pedido', { sucursalId: result.v.sucursalId, accion: 'backfill' });
     if (result.clientes > 0) emitEvent('cliente', { sucursalId: result.v.sucursalId, accion: 'backfill' });
 
