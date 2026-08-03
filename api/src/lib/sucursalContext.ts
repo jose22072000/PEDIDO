@@ -1,4 +1,7 @@
-import { Request } from 'express';
+// `import type` (no `import`): Request es SOLO un tipo. Escrito como import normal,
+// cualquier ejecución sin compilar —los tests, por ejemplo— intenta importarlo de
+// verdad de express, que al ser CommonJS no exporta nada con ese nombre y revienta.
+import type { Request } from 'express';
 import jwt from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-key';

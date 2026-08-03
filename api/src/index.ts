@@ -20,6 +20,7 @@ import prisma from './prismaClient';
 import { iniciarArchivadoAutomatico } from './lib/archivador';
 import apiKeysRouter from './routes/apiKeys';
 import { apiKeyAuth } from './middleware/apiKeyAuth';
+import { observarRespuestas, manejarErrores, estadoSalud } from './middleware/errores';
 
 const app = express();
 // Detrás de nginx: confiar en el primer proxy para que req.ip sea la IP real del
@@ -61,6 +62,14 @@ app.get('/health', (req, res) => res.json({ ok: true }));
 // la data. Debe ir ANTES de los routers para que getRequesterContext ya la tenga.
 app.use(apiKeyAuth);
 
+// Vigilancia de 5xx: apunta cada respuesta con error de servidor. Va antes de los
+// routers para verlas TODAS, incluidas las que devuelve una ruta a mano.
+app.use(observarRespuestas);
+
+// Salud del api: sirve para el healthcheck del contenedor y para mirar de un
+// vistazo cuántos 5xx lleva y cuáles fueron los últimos.
+app.get('/salud', (_req, res) => res.json(estadoSalud()));
+
 app.use('/auth', authRouter);
 app.use('/orders', ordersRouter);
 app.use('/users', usersRouter);
@@ -75,6 +84,20 @@ app.use('/geolocalizacion', geolocalizacionRouter);
 app.use('/mantenimiento', mantenimientoRouter);
 app.use('/api-keys', apiKeysRouter);
 app.use('/events', eventsRouter);
+
+// Manejador final de errores. VA EL ÚLTIMO: recoge lo que revienta dentro de una
+// ruta y que hasta ahora tumbaba la petición sin dejar rastro identificable.
+app.use(manejarErrores);
+
+// Una promesa rechazada sin capturar mata el proceso en Node moderno. Se registra
+// con la misma marca para que el vigilante del servidor la mande por correo, en vez
+// de que el contenedor se reinicie en silencio y nadie sepa por qué.
+process.on('unhandledRejection', (motivo) => {
+  console.error(`PROCOVAR-5XX | 500 | proceso unhandledRejection | ${String(motivo).slice(0, 300)}`);
+});
+process.on('uncaughtException', (err) => {
+  console.error(`PROCOVAR-5XX | 500 | proceso uncaughtException | ${err?.message ?? String(err)}`);
+});
 
 app.listen(port, '0.0.0.0', async () => {
   console.log(`API listening on http://0.0.0.0:${port}`);

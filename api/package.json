@@ -10,7 +10,8 @@
     "worker": "node dist/worker.js",
     "worker:dev": "ts-node-dev --respawn --transpile-only src/worker.ts",
     "reset": "npx prisma migrate reset --force && npx prisma db seed",
-    "studio": "npx prisma studio"
+    "studio": "npx prisma studio",
+    "test": "node --test 'tests/*.test.ts'"
   },
   "dependencies": {
     "@prisma/adapter-better-sqlite3": "^7.1.0",
