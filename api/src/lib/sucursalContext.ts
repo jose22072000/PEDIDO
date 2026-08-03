@@ -33,14 +33,29 @@ interface ResolveScopeOptions {
 
 type SucursalSelectionSource = 'body' | 'query' | 'header' | null;
 
+// Valores que NO son un id de sucursal sino "todas". El front usa '__todas__'
+// como valor del desplegable y, al elegirlo, borra la clave de localStorage —
+// pero un navegador que ya la tenía guardada de antes la sigue mandando. Sin
+// esta lista, ese texto se buscaba como si fuera un id real: no encontraba
+// ninguna sucursal y devolvía CERO filas, con lo que el Super Admin veía la
+// pantalla vacía y sin ningún error que lo explicara.
+const CENTINELAS_TODAS = new Set(['all', 'todas', '__todas__', '*', 'null', 'undefined']);
+
+/** Normaliza el valor recibido: los centinelas de "todas" pasan a null. */
+function limpiarSeleccion(valor: string): string | null {
+  const v = valor.trim();
+
+  return v && !CENTINELAS_TODAS.has(v.toLowerCase()) ? v : null;
+}
+
 function resolveSucursalSelection(req: Request): { sucursalId: string | null; source: SucursalSelectionSource } {
-  const bodySucursalId = typeof req.body?.sucursalId === 'string' ? req.body.sucursalId.trim() : '';
+  const bodySucursalId = typeof req.body?.sucursalId === 'string' ? limpiarSeleccion(req.body.sucursalId) : null;
   if (bodySucursalId) return { sucursalId: bodySucursalId, source: 'body' };
 
-  const querySucursalId = typeof req.query?.sucursalId === 'string' ? req.query.sucursalId.trim() : '';
+  const querySucursalId = typeof req.query?.sucursalId === 'string' ? limpiarSeleccion(req.query.sucursalId) : null;
   if (querySucursalId) return { sucursalId: querySucursalId, source: 'query' };
 
-  const headerSucursalId = typeof req.headers['x-sucursal-id'] === 'string' ? req.headers['x-sucursal-id'].trim() : '';
+  const headerSucursalId = typeof req.headers['x-sucursal-id'] === 'string' ? limpiarSeleccion(req.headers['x-sucursal-id']) : null;
   if (headerSucursalId) return { sucursalId: headerSucursalId, source: 'header' };
 
   return { sucursalId: null, source: null };

@@ -20,7 +20,20 @@ const TODAS = "__todas__";
 export function getSucursalActiva(): string | null {
   if (typeof window === "undefined") return null;
 
-  return localStorage.getItem(SUCURSAL_ACTIVA_KEY) || null;
+  const guardado = localStorage.getItem(SUCURSAL_ACTIVA_KEY);
+
+  // "__todas__" NO es un id de sucursal, es el valor del desplegable. Elegir
+  // "Todas" borra la clave, pero los navegadores que la guardaron antes la
+  // siguen mandando en la cabecera x-sucursal-id, y el api la buscaba como si
+  // fuera un id real: no encontraba nada y devolvía cero filas. Se limpia al
+  // leerla para que esos navegadores se arreglen solos.
+  if (!guardado || guardado === TODAS) {
+    if (guardado) localStorage.removeItem(SUCURSAL_ACTIVA_KEY);
+
+    return null;
+  }
+
+  return guardado;
 }
 
 interface Sucursal {
