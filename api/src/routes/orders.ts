@@ -13,9 +13,28 @@ import { emitEvent } from '../lib/events';
 import { redisEnabled, publishJSON, getSubscriber, CH_IMPORT_DONE, CH_IMPORT_FAILED } from '../lib/redis';
 import { importQueue, enqueueDeliveryOrders } from '../lib/queues';
 import { mintSseTicket, consumeSseTicket } from '../lib/sseTickets';
+import { ingestaAuth } from '../middleware/ingestaAuth';
 
 
 const router = Router();
+
+// Las mismas tablas de acentos que usan los índices trigram de la búsqueda. Tienen
+// que coincidir EXACTAMENTE con las de los índices: si no, Postgres los ignora.
+const CON_TILDE = 'ÁÉÍÓÚÜÑÀÈÌÒÙÄËÏÖ';
+const SIN_TILDE = 'AEIOUUNAEIOUAEIO';
+
+/** Quita las tildes de un término ya en mayúsculas, igual que hace translate() en SQL. */
+function quitarTildes(texto: string): string {
+  let salida = '';
+
+  for (const c of texto) {
+    const i = CON_TILDE.indexOf(c);
+
+    salida += i >= 0 ? SIN_TILDE[i] : c;
+  }
+
+  return salida;
+}
 
 // Estado derivado de un pedido (compartido por el SSE y el publish de Redis).
 function computeEstado(o: { estado: string | null; fecha_comprometida: Date | null }): string {
@@ -91,17 +110,44 @@ router.get('/', async (req, res) => {
     // translate() y devuelve los ids que matchean; el query principal aplica el scope de
     // sucursal + filtros + paginación sobre esos ids (nunca fuga entre sucursales).
     if (searchTerm) {
-      const ACC = 'ÁÉÍÓÚÜÑÀÈÌÒÙÄËÏÖáéíóúüñàèìòùäëïö';
-      const PLA = 'AEIOUUNAEIOUAEIOAEIOUUNAEIOUAEIO';
+      // Una condición POR COLUMNA, no sobre la concatenación de las cinco. La
+      // concatenación no la puede indexar nadie: cada búsqueda recorría los 44.700
+      // pedidos enteros (medido: 418 millones de filas leídas en escaneos completos).
+      // Separadas, cada una tiene su índice trigram y Postgres las combina.
+      //
+      // Las tablas de acentos van como literales (Prisma.raw), NO como parámetros:
+      // el índice se creó con esa expresión exacta y si no coincide carácter por
+      // carácter, Postgres lo ignora y volvemos al escaneo completo.
+      const SIN_TILDES = (col: string) =>
+        Prisma.raw(
+          `translate(upper(coalesce(${col},'')), ` +
+            `'ÁÉÍÓÚÜÑÀÈÌÒÙÄËÏÖáéíóúüñàèìòùäëïö','AEIOUUNAEIOUAEIOAEIOUUNAEIOUAEIO')`,
+        );
+      // El término se normaliza IGUAL que las columnas: mismas tildes, mismas
+      // letras planas y en mayúsculas. Si no, "josé" no encontraría "JOSE".
+      const patron = `%${quitarTildes(searchTerm)}%`;
+
+      // UNION, no un OR gigante. Con OR sobre columnas de TABLAS DISTINTAS Postgres
+      // tiene que unir las tres tablas enteras y filtrar después: 679 ms medidos y
+      // ni un índice usado. Separado en ramas, cada una busca en SU tabla con SU
+      // índice y luego se juntan los ids.
       const matches = await prisma.$queryRaw<Array<{ id: string }>>`
-        SELECT o.id FROM "Order" o
-        LEFT JOIN "Client" c ON c.id = o."clientId"
-        LEFT JOIN "Seller" s ON s.id = o."sellerId"
-        WHERE translate(
-          coalesce(c.nombre,'') || ' ' || coalesce(o.encargado,'') || ' ' ||
-          coalesce(s.name,'') || ' ' || coalesce(o.folio,'') || ' ' || coalesce(c."parrandaId",''),
-          ${ACC}, ${PLA})
-        ILIKE '%' || translate(${searchTerm}, ${ACC}, ${PLA}) || '%'
+        SELECT id FROM (
+          SELECT o.id FROM "Order" o
+            WHERE ${SIN_TILDES('o.folio')} LIKE ${patron}
+          UNION
+          SELECT o.id FROM "Order" o
+            WHERE ${SIN_TILDES('o.encargado')} LIKE ${patron}
+          UNION
+          SELECT o.id FROM "Order" o JOIN "Client" c ON c.id = o."clientId"
+            WHERE ${SIN_TILDES('c.nombre')} LIKE ${patron}
+          UNION
+          SELECT o.id FROM "Order" o JOIN "Client" c ON c.id = o."clientId"
+            WHERE ${SIN_TILDES('c."parrandaId"')} LIKE ${patron}
+          UNION
+          SELECT o.id FROM "Order" o JOIN "Seller" s ON s.id = o."sellerId"
+            WHERE ${SIN_TILDES('s.name')} LIKE ${patron}
+        ) q
         LIMIT 5000`;
       const ids = matches.map((m) => m.id);
       // Si no hay match, forzar 0 resultados (id imposible) en vez de ignorar el filtro.
@@ -511,7 +557,7 @@ async function resolveSeller(name: string, code: string): Promise<SellerResoluti
 }
 
 // Bulk create orders from CSV records
-router.post('/bulk', async (req, res) => {
+router.post('/bulk', ingestaAuth, async (req, res) => {
   try {
     const { records } = req.body;
 

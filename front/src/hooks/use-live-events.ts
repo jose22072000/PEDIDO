@@ -17,7 +17,13 @@ export type LiveEvent = {
   ts: number;
 };
 
+// El servidor manda `event: ready` nada más abrir el stream. Va el PRIMERO en la
+// lista a propósito: es la prueba de que la conexión está viva de verdad, y sin
+// escucharlo el indicador dependía solo del evento `open` del navegador — que si
+// no llegaba dejaba el cartel en "Conectando…" para siempre aunque el stream
+// estuviera funcionando.
 const TODOS = [
+  "ready",
   "pedido",
   "cliente",
   "usuario",
@@ -94,6 +100,14 @@ async function ensureConnected() {
       `${getApiBaseUrl()}/events/stream?ticket=${encodeURIComponent(ticket)}`,
     );
     const handler = (e: Event) => {
+      // Recibir CUALQUIER cosa demuestra que el stream está vivo. Marcarlo aquí
+      // (y no solo en `open`) hace que el indicador no dependa de un único evento.
+      fijarConectado(true);
+
+      // `ready` es solo el saludo del servidor: confirma la conexión y ya está,
+      // no hay entidad que repartir.
+      if (e.type === "ready") return;
+
       let ev: LiveEvent;
 
       try {

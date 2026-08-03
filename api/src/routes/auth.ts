@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import prisma from '../prismaClient';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
+import { apuntarFallo, esperaPendiente, olvidarFallos } from '../middleware/frenoLogin';
 
 const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-key';
@@ -17,6 +18,20 @@ router.post('/login', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Username and password are required' });
     }
 
+    // Freno de fuerza bruta POR USUARIO (nunca por IP: una sucursal entera comparte
+    // una sola IP publica y se bloquearia sola). Ver middleware/frenoLogin.
+    const espera = esperaPendiente(String(username));
+
+    if (espera > 0) {
+      const seg = Math.ceil(espera / 1000);
+
+      res.setHeader('Retry-After', String(seg));
+
+      return res.status(429).json({
+        error: `Demasiados intentos fallidos con este usuario. Espera ${seg} segundos.`,
+      });
+    }
+
     // Find user by username
     const user = await prisma.usuario.findUnique({
       where: { username },
@@ -24,14 +39,22 @@ router.post('/login', async (req: Request, res: Response) => {
     });
 
     if (!user || !user.password) {
+      // Se apunta igual aunque el usuario no exista: si no, la diferencia de
+      // comportamiento delataria que nombres SI existen.
+      apuntarFallo(String(username));
+
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
     // Verify password
     const isValidPassword = await bcrypt.compare(password, user.password);
     if (!isValidPassword) {
+      apuntarFallo(String(username));
+
       return res.status(401).json({ error: 'Invalid credentials' });
     }
+
+    olvidarFallos(String(username));
 
     // Generate JWT token
     const token = jwt.sign(
