@@ -142,6 +142,18 @@ export function crearStoreDatos<T>(tiposPorDefecto: string[] = []) {
       error: entrada.error,
       /** Recarga manual (botón "reintentar"/"actualizar"). */
       recargar: (fondo = false) => recargar(fondo),
+      /**
+       * Modifica lo cacheado SIN pedir nada al servidor. Para actualizaciones
+       * incrementales: p. ej. el SSE de pedidos manda el pedido completo, así
+       * que se inserta en la lista en vez de recargarla entera. Eso ahorra una
+       * vuelta al servidor por cada pedido que entra.
+       */
+      actualizar: (fn: (actual: T | null) => T | null) => {
+        const k = claveRef.current;
+        const actual = useStore.getState().entradas[k]?.datos ?? null;
+
+        fijar(k, { datos: fn(actual) });
+      },
     };
   }
 
