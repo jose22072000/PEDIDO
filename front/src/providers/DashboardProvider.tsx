@@ -24,7 +24,8 @@ interface DashboardContextType {
   error: string | null;
   selectedYear: number | null;
   setSelectedYear: (year: number) => void;
-  refetch: (year?: number) => Promise<void>;
+  /** `fondo: true` recarga en silencio, sin mostrar skeletons ni errores. */
+  refetch: (year?: number, fondo?: boolean) => Promise<void>;
 }
 
 const DashboardContext = createContext<DashboardContextType | undefined>(
@@ -37,9 +38,17 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
 
-  const fetchStats = async (year?: number) => {
+  /**
+   * @param year   año a consultar
+   * @param fondo  true = recarga silenciosa (evento SSE, temporizador). NO enciende
+   *               el estado de carga, así la pantalla no vuelve a los skeletons ni
+   *               parpadea: los datos se sustituyen cuando llegan y ya.
+   *               Con conexiones lentas la diferencia es enorme, porque cada
+   *               recarga tardaba segundos con el panel en blanco.
+   */
+  const fetchStats = async (year?: number, fondo = false) => {
     try {
-      setIsLoading(true);
+      if (!fondo) setIsLoading(true);
       setError(null);
 
       const yearParam = year ?? selectedYear;
@@ -68,17 +77,20 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
         setSelectedYear(defaultYear);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Error desconocido");
+      // Una recarga de fondo que falla no debe pintar un error en pantalla: los
+      // datos que ya se ven siguen siendo válidos y lo intentará de nuevo.
+      if (!fondo) setError(err instanceof Error ? err.message : "Error desconocido");
     } finally {
-      setIsLoading(false);
+      if (!fondo) setIsLoading(false);
     }
   };
 
   useEffect(() => {
     fetchStats();
 
-    // Actualizar cada 15 minutos (900000 ms)
-    const interval = setInterval(() => fetchStats(), 900000);
+    // Refresco periódico de respaldo, en silencio: los datos se actualizan sin
+    // que la pantalla parpadee ni vuelva a los skeletons.
+    const interval = setInterval(() => fetchStats(undefined, true), 900000);
 
     return () => clearInterval(interval);
   }, []);

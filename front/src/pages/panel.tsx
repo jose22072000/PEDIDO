@@ -1,5 +1,3 @@
-import { useEffect } from "react";
-
 import { NavigationHeading } from "@/components/navigation-heading";
 import ActionCard from "@/components/action-card";
 import { useDashboard } from "@/providers/DashboardProvider";
@@ -21,13 +19,15 @@ export default function PanelPage() {
   const canVerVendedores = ["administrador", "supervisor", "super admin"].includes(role);
   const canManageUsers = ["administrador", "super admin"].includes(role);
 
-  useEffect(() => {
-    // Refetch stats cada vez que se entre a la página
-    refetch();
-  }, []);
+  // El provider ya pide las estadísticas al montarse: volver a pedirlas aquí
+  // duplicaba la petición en cada entrada al panel. Con enlaces lentos eso es
+  // medio segundo de más por nada.
 
-  // EN VIVO (SSE): las estadísticas del dashboard se refrescan solas al entrar/completar pedidos.
-  useLiveEvents(["pedido"], () => refetch());
+  // EN VIVO (SSE): las estadísticas se refrescan solas al entrar/completar pedidos.
+  // En SEGUNDO PLANO (segundo argumento): los números se sustituyen cuando llegan,
+  // sin volver a los skeletons. Antes cada evento dejaba el panel en blanco, y
+  // durante una importación eso ocurría decenas de veces por minuto.
+  useLiveEvents(["pedido"], () => refetch(undefined, true));
 
   return (
     <section className="flex flex-col gap-4">

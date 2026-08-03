@@ -83,10 +83,23 @@ async function ensureConnected() {
   }
 }
 
+// Ventana para agrupar eventos seguidos. Una importación de CSV genera cientos
+// de eventos de pedido en pocos segundos; sin agrupar, cada uno disparaba una
+// recarga completa de la vista. Medido en el servidor: /api/orders/stats recibió
+// 2.471 llamadas en 3 horas (~14 por minuto) por esta razón. Con enlaces de alta
+// latencia eso deja la pantalla recargando sin parar.
+//
+// Se ejecuta al FINAL de la ráfaga (no al principio): así se recarga una vez, ya
+// con todos los cambios aplicados, en vez de una vez por evento.
+const AGRUPAR_MS = 1500;
+
 /**
  * SSE EN VIVO: registra un listener en la conexión ÚNICA compartida y llama `onEvent`
  * cuando cambia alguna de las entidades `tipos` (ej. ["cliente"]). No abre conexión
  * propia: montar/desmontar la vista solo agrega/quita el listener (navegación rápida).
+ *
+ * Los eventos llegan AGRUPADOS: una ráfaga produce una sola llamada a `onEvent`,
+ * con el último evento recibido.
  */
 export function useLiveEvents(
   tipos: string[],
@@ -100,9 +113,19 @@ export function useLiveEvents(
   const tiposKey = tipos.join(",");
 
   useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let ultimo: LiveEvent | null = null;
+
     const listener: Listener = {
       tipos: tiposKey ? new Set(tiposKey.split(",")) : null,
-      cb: (ev) => cb.current(ev),
+      cb: (ev) => {
+        ultimo = ev;
+        if (timer) return; // ya hay una recarga programada para esta ráfaga
+        timer = setTimeout(() => {
+          timer = null;
+          if (ultimo) cb.current(ultimo);
+        }, AGRUPAR_MS);
+      },
     };
 
     listeners.add(listener);
@@ -110,6 +133,7 @@ export function useLiveEvents(
 
     return () => {
       listeners.delete(listener);
+      if (timer) clearTimeout(timer); // no recargar una vista ya desmontada
       // La conexión NO se cierra al desmontar una vista: queda abierta (1 sola) para
       // la sesión, así navegar entre vistas no la reabre. Se cae sola al cerrar la pestaña.
     };
