@@ -227,6 +227,23 @@ export const ClientesList = () => {
                         >
                           {cliente.codigo || "N/A"}
                         </Chip>
+                        {/* Quién trajo al cliente: el vendedor de su primer
+                            pedido. Sirve para saber a quién atribuirlo. */}
+                        {cliente.vendedorNombre && (
+                          <p className="text-xs text-default-500 mt-1">
+                            Traído por{" "}
+                            <span className="font-medium text-default-700">
+                              {cliente.vendedorNombre}
+                            </span>
+                            {(cliente.otrosVendedores ?? 0) > 0 && (
+                              <span className="text-default-400">
+                                {" "}
+                                (+{cliente.otrosVendedores} vendedor
+                                {cliente.otrosVendedores === 1 ? "" : "es"} más)
+                              </span>
+                            )}
+                          </p>
+                        )}
                       </div>
                     </div>
                     <div className="flex flex-row gap-2 w-full md:w-auto">

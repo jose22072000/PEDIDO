@@ -7,6 +7,7 @@ export interface Usuario {
   sucursalId?: string | null;
   rol?: { nombre: string } | null;
   sucursal?: { nombre: string } | null;
+  createdAt: string;
 }
 
 /**

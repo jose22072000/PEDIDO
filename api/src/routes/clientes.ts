@@ -195,6 +195,60 @@ router.get('/', async (req, res) => {
 
     const totalPages = Math.ceil(total / limit);
 
+    // Quién trajo a cada cliente: el vendedor de su pedido MÁS ANTIGUO. No hay
+    // relación directa cliente->vendedor, la unión son los pedidos. Con los datos
+    // actuales el 91% de los clientes tiene un solo vendedor (6918 de 7579), así
+    // que para casi todos "el primero" es "el suyo"; para el resto se indica
+    // cuántos más han trabajado con él.
+    //
+    // Se resuelve en UNA consulta para toda la página, no una por cliente: con
+    // ~600 ms de latencia por petición, un N+1 aquí sería letal.
+    const ids = clientes.map((c) => c.id);
+    const porCliente = new Map<string, { vendedor: string | null; codigo: string | null; otros: number }>();
+
+    if (ids.length > 0) {
+      const pedidos = await prisma.pedido.findMany({
+        where: { clienteId: { in: ids } },
+        select: {
+          clienteId: true,
+          fecha: true,
+          vendedor: { select: { nombre: true, codigo: true } },
+        },
+        orderBy: { fecha: 'asc' },
+      });
+
+      const vistos = new Map<string, Set<string>>();
+
+      for (const p of pedidos) {
+        if (!p.clienteId) continue;
+        // El primero que aparece es el más antiguo: los pedidos vienen ordenados.
+        if (!porCliente.has(p.clienteId)) {
+          porCliente.set(p.clienteId, {
+            vendedor: p.vendedor?.nombre ?? null,
+            codigo: p.vendedor?.codigo ?? null,
+            otros: 0,
+          });
+        }
+        if (p.vendedor?.nombre) {
+          if (!vistos.has(p.clienteId)) vistos.set(p.clienteId, new Set());
+          vistos.get(p.clienteId)!.add(p.vendedor.nombre);
+        }
+      }
+      // "otros" = cuántos vendedores MÁS, aparte del que lo trajo.
+      for (const [cid, set] of vistos) {
+        const e = porCliente.get(cid);
+
+        if (e) e.otros = Math.max(0, set.size - 1);
+      }
+    }
+
+    const clientesConVendedor = clientes.map((c) => ({
+      ...c,
+      vendedorNombre: porCliente.get(c.id)?.vendedor ?? null,
+      vendedorCodigo: porCliente.get(c.id)?.codigo ?? null,
+      otrosVendedores: porCliente.get(c.id)?.otros ?? 0,
+    }));
+
     // Municipios distintos del scope actual (para poblar el dropdown del filtro).
     const municipiosRaw = await prisma.cliente.findMany({
       where: { sucursalId, municipio: { not: null } },
@@ -202,7 +256,7 @@ router.get('/', async (req, res) => {
     });
 
     res.json({
-      data: clientes,
+      data: clientesConVendedor,
       pagination: { page, limit, total, totalPages },
       municipios: municipiosRaw.map((m) => m.municipio).filter(Boolean),
     });

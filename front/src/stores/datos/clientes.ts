@@ -14,6 +14,12 @@ export interface Cliente {
   // sin ella, ese cliente no se puede cotizar.
   latitud?: number | null;
   longitud?: number | null;
+  // Quién trajo al cliente: el vendedor de su pedido más antiguo. No hay
+  // relación directa cliente->vendedor; el api lo resuelve por los pedidos.
+  vendedorNombre?: string | null;
+  vendedorCodigo?: string | null;
+  /** Cuántos vendedores MÁS le han hecho pedidos, aparte del que lo trajo. */
+  otrosVendedores?: number;
 }
 
 export interface PaginacionClientes {

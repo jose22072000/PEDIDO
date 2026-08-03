@@ -96,6 +96,10 @@ model Pedido {
     // Los reportes y la vista de vendedores filtran por vendedorId (8 sitios en
     // el código). Sin índice, cada uno recorre los 43k pedidos.
     @@index([vendedorId])
+    // La lista de clientes busca, por página, el pedido más antiguo de cada uno
+    // para saber qué vendedor lo trajo. Sin este índice esa consulta recorre
+    // los 43k pedidos en cada carga de la lista.
+    @@index([clienteId])
     @@map("Order")
 }
 

@@ -17,35 +17,17 @@ import {
   Pagination,
   addToast,
 } from "@heroui/react";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 
 import { cards } from "../primitives";
 import Icons from "../icons/iconify";
 
 import { cn, copyTextToClipboard } from "@/lib/utils";
 import { getApiBaseUrl } from "@/config";
-import { useLiveEvents } from "@/hooks/use-live-events";
+import { usarVendedores } from "@/stores/datos/vendedores";
+import type { Vendedor, RespuestaVendedores } from "@/stores/datos/vendedores";
 
-interface Vendedor {
-  id: string;
-  nombre: string;
-  codigo: string | null;
-  createdAt: string;
-  // Enlace con su gestor. gestorId null = "Sin asignar": sus pedidos quedan
-  // ocultos en la vista de pedidos hasta que se le enlace un gestor.
-  gestorId: string | null;
-  activo: boolean;
-  gestor?: { id: string; username: string } | null;
-  sucursal?: { nombre: string; codigo: string | null } | null;
-  _count?: { pedidos: number };
-}
 
-interface Gestor {
-  id: string;
-  username: string;
-  sucursalId: string | null;
-  sucursal?: { nombre: string; codigo: string | null } | null;
-}
 
 const SIN_ASIGNAR = "__sin_asignar__";
 
@@ -58,10 +40,6 @@ interface VendedorStats {
 }
 
 export const VendedoresList = () => {
-  const [vendedores, setVendedores] = useState<Vendedor[]>([]);
-  const [filteredVendedores, setFilteredVendedores] = useState<Vendedor[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [searchValue, setSearchValue] = useState<string>("");
   const [selectedVendedor, setSelectedVendedor] = useState<Vendedor | null>(
     null,
@@ -74,8 +52,6 @@ export const VendedoresList = () => {
   );
   const [isLoadingStats, setIsLoadingStats] = useState(false);
   const [copiedVendedorId, setCopiedVendedorId] = useState<string | null>(null);
-  const [gestores, setGestores] = useState<Gestor[]>([]);
-  const [sinAsignar, setSinAsignar] = useState(0);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const rowsPerPage = 10;
@@ -84,29 +60,29 @@ export const VendedoresList = () => {
   // Se lee de /vendedores/gestores (NO scopeado por sucursal) porque los vendedores
   // "sin asignar" todavía no tienen sucursal y con /vendedores no aparecerían,
   // así que no habría forma de enlazarlos.
-  const fetchVendedores = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
+  // Los datos viven en el store de vendedores (stores/datos/vendedores): al
+  // volver a esta vista se pintan al instante y los refrescos por SSE no
+  // vacían la tabla ni sacan esqueletos.
+  const {
+    datos: respuesta,
+    cargando: isLoading,
+    error,
+    recargar,
+  } = usarVendedores("vendedores|gestores", async (signal) => {
+    const response = await fetch(`${getApiBaseUrl()}/vendedores/gestores`, { signal });
 
-    try {
-      const response = await fetch(`${getApiBaseUrl()}/vendedores/gestores`);
+    if (!response.ok) throw new Error("Error al cargar los vendedores");
 
-      if (!response.ok) {
-        throw new Error("Error al cargar los vendedores");
-      }
+    return (await response.json()) as RespuestaVendedores;
+  });
 
-      const data = await response.json();
+  const vendedores = respuesta?.vendedores ?? [];
+  const gestores = respuesta?.gestores ?? [];
+  const sinAsignar = respuesta?.sinAsignar ?? 0;
 
-      setVendedores(data.vendedores ?? []);
-      setFilteredVendedores(data.vendedores ?? []);
-      setGestores(data.gestores ?? []);
-      setSinAsignar(data.sinAsignar ?? 0);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Error desconocido");
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+  // Tras crear/editar/enlazar hay que traer la lista otra vez. Se hace en
+  // segundo plano: los datos ya en pantalla siguen visibles mientras llega.
+  const fetchVendedores = useCallback(() => recargar(true), [recargar]);
 
   // Enlaza el vendedor a un gestor. El backend rellena la sucursal de sus pedidos
   // y clientes -> dejan de estar ocultos en la vista de pedidos.
@@ -249,24 +225,20 @@ export const VendedoresList = () => {
     setPage(1);
   }, [searchValue]);
 
-  // En vivo (SSE): refresca al cambiar vendedores (vínculo, alta/baja).
-  useLiveEvents(["vendedor"], () => fetchVendedores());
+  // El filtrado es un valor DERIVADO, no estado: se recalcula al vuelo desde la
+  // lista y la búsqueda. Antes era un useState sincronizado por un efecto, que
+  // provoca un render de más en cada tecleo y puede quedar desincronizado.
+  const filteredVendedores = useMemo(() => {
+    const search = searchValue.trim().toLowerCase();
 
-  // Filter vendedores by search
-  useEffect(() => {
-    if (searchValue.trim() === "") {
-      setFilteredVendedores(vendedores);
-    } else {
-      const search = searchValue.toLowerCase();
-      const filtered = vendedores.filter(
-        (v) =>
-          v.nombre.toLowerCase().includes(search) ||
-          (v.codigo ?? "").toLowerCase().includes(search) ||
-          (v.gestor?.username ?? "").toLowerCase().includes(search),
-      );
+    if (!search) return vendedores;
 
-      setFilteredVendedores(filtered);
-    }
+    return vendedores.filter(
+      (v) =>
+        v.nombre.toLowerCase().includes(search) ||
+        (v.codigo ?? "").toLowerCase().includes(search) ||
+        (v.gestor?.username ?? "").toLowerCase().includes(search),
+    );
   }, [searchValue, vendedores]);
 
   // Fetch vendedores on mount

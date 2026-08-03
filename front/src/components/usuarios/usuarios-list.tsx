@@ -22,29 +22,17 @@ import {
   SelectItem,
   useDisclosure,
 } from "@heroui/react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 
 import Icons from "../icons/iconify";
 
 import { cards } from "@/components/primitives";
 import { getApiBaseUrl } from "@/config";
-import { useLiveEvents } from "@/hooks/use-live-events";
+import { usarUsuarios } from "@/stores/datos/usuarios";
+import type { Usuario } from "@/stores/datos/usuarios";
 import { getSucursalActiva } from "@/components/sucursal-selector";
 import { useAuthStore } from "@/stores/authStore";
 
-interface Usuario {
-  id: string;
-  username: string;
-  rolId?: string | null;
-  sucursalId?: string | null;
-  rol?: {
-    nombre: string;
-  } | null;
-  sucursal?: {
-    nombre: string;
-  } | null;
-  createdAt: string;
-}
 
 interface Rol {
   id: string;
@@ -58,14 +46,31 @@ interface Sucursal {
 
 export const UsuariosList = () => {
   const { user, session } = useAuthStore();
-  const [usuarios, setUsuarios] = useState<Usuario[]>([]);
+  // Los usuarios viven en su store (stores/datos/usuarios): al volver a esta
+  // vista se pintan al instante y los refrescos por SSE no sacan esqueletos.
+  const {
+    datos: usuariosDatos,
+    cargando: isLoading,
+    error,
+    recargar,
+  } = usarUsuarios("usuarios|todos", async (signal) => {
+    const response = await fetch(`${getApiBaseUrl()}/users`, { signal });
+
+    if (!response.ok) throw new Error("Error al cargar los usuarios");
+
+    return (await response.json()) as Usuario[];
+  });
+
+  const usuarios = usuariosDatos ?? [];
+
   const [roles, setRoles] = useState<Rol[]>([]);
   const [sucursales, setSucursales] = useState<Sucursal[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [selectedUsuario, setSelectedUsuario] = useState<Usuario | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  // Error de BORRADO, separado del error de carga que expone el store: son dos
+  // fallos distintos y mezclarlos hacía que uno borrara el mensaje del otro.
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [searchValue, setSearchValue] = useState("");
   const [rolFilter, setRolFilter] = useState("");
   const [sucursalFilter, setSucursalFilter] = useState("");
@@ -103,14 +108,11 @@ export const UsuariosList = () => {
     [roles, isGlobalAdmin],
   );
 
+  // La lista de usuarios la trae el store; aquí solo los catálogos auxiliares.
   useEffect(() => {
-    fetchUsuarios();
     fetchRoles();
     fetchSucursales();
   }, []);
-
-  // En vivo (SSE): refresca al cambiar usuarios o vínculos de vendedor.
-  useLiveEvents(["usuario", "vendedor"], () => fetchUsuarios());
 
   // Filtros en cliente (texto + rol + sucursal): /users devuelve la lista completa.
   const filteredUsuarios = useMemo(() => {
@@ -146,26 +148,9 @@ export const UsuariosList = () => {
     setPage(1);
   }, [searchValue]);
 
-  const fetchUsuarios = async () => {
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const response = await fetch(`${getApiBaseUrl()}/users`);
-
-      if (!response.ok) {
-        throw new Error("Error al cargar los usuarios");
-      }
-
-      const data = await response.json();
-
-      setUsuarios(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Error desconocido");
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  // Tras crear/editar/borrar un usuario hay que traer la lista otra vez. En
+  // segundo plano: lo que ya está en pantalla sigue visible mientras llega.
+  const fetchUsuarios = useCallback(() => recargar(true), [recargar]);
 
   const fetchRoles = async () => {
     try {
@@ -189,7 +174,7 @@ export const UsuariosList = () => {
 
   const handleDelete = async (id: string) => {
     setIsDeleting(true);
-    setError(null);
+    setDeleteError(null);
 
     try {
       const response = await fetch(`${getApiBaseUrl()}/users/${id}`, {
@@ -205,7 +190,7 @@ export const UsuariosList = () => {
       fetchUsuarios();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Error desconocido");
+      setDeleteError(err instanceof Error ? err.message : "Error desconocido");
     } finally {
       setIsDeleting(false);
     }
@@ -284,14 +269,14 @@ export const UsuariosList = () => {
     );
   }
 
-  if (error) {
+  if (error || deleteError) {
     return (
       <Card className={cards()}>
         <CardBody>
           <div className="bg-danger-50 border-l-4 border-danger p-4 rounded">
             <div className="flex items-center gap-2">
               <Icons.close className="size-5 text-danger" />
-              <p className="text-sm text-danger-700">{error}</p>
+              <p className="text-sm text-danger-700">{error || deleteError}</p>
             </div>
           </div>
         </CardBody>
