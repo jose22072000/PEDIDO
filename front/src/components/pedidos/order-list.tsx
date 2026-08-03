@@ -27,6 +27,8 @@ import Icons from "../icons/iconify";
 import { cn, copyTextToClipboard } from "@/lib/utils";
 import { getApiBaseUrl } from "@/config";
 import { useAuthStore } from "@/stores/authStore";
+import { useLiveEvents, useLiveStatus } from "@/hooks/use-live-events";
+import { aplicarLote } from "@/hooks/aplicar-eventos";
 
 interface OrderItem {
   id: string;
@@ -146,7 +148,7 @@ export const OrdersList = () => {
   const [orderToComplete, setOrderToComplete] = useState<Order | null>(null);
   const [orderToDelete, setOrderToDelete] = useState<Order | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [live, setLive] = useState(false); // conexión SSE viva
+  const live = useLiveStatus(); // estado de la conexión SSE compartida de la app
   const [nuevosPend, setNuevosPend] = useState(0); // pedidos nuevos no mostrados (con filtros/otra página)
   const { isOpen, onOpen, onClose } = useDisclosure();
   const {
@@ -166,8 +168,12 @@ export const OrdersList = () => {
   const canDeleteOrders =
     session?.rol === "ADMINISTRADOR" || session?.rol === "SUPERVISOR";
 
+  /**
+   * @param fondo  recarga silenciosa: sin esqueleto y sin pintar errores. La usa el
+   *               SSE cuando llega un cambio masivo que no se puede aplicar en sitio.
+   */
   const fetchOrders = useCallback(
-    async (page: number = 1) => {
+    async (page: number = 1, fondo = false) => {
       // Cancel previous request
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
@@ -176,8 +182,10 @@ export const OrdersList = () => {
       // Create new abort controller
       abortControllerRef.current = new AbortController();
 
-      setIsLoading(true);
-      setError(null);
+      if (!fondo) {
+        setIsLoading(true);
+        setError(null);
+      }
 
       try {
         const params = new URLSearchParams({
@@ -233,9 +241,10 @@ export const OrdersList = () => {
         if (err instanceof Error && err.name === "AbortError") {
           return;
         }
-        setError(err instanceof Error ? err.message : "Error desconocido");
+        // Fallo de red en recarga de fondo: se conserva lo que ya se ve.
+        if (!fondo) setError(err instanceof Error ? err.message : "Error desconocido");
       } finally {
-        setIsLoading(false);
+        if (!fondo) setIsLoading(false);
       }
     },
     [pagination.limit, estadoFilter, domicilioFilter, vendedorFilter, incluirArchivados, debouncedSearch, fechaDesde, fechaHasta],
@@ -387,65 +396,45 @@ export const OrdersList = () => {
     };
   }, []);
 
-  // Pedidos NUEVOS en tiempo real (SSE): aparecen sin refrescar la página.
-  useEffect(() => {
-    let es: EventSource | null = null;
-    let cancelled = false;
+  // Pedidos en tiempo real. Va por la conexión SSE ÚNICA de la app (/events/stream).
+  //
+  // Antes esta vista abría su PROPIO EventSource contra /orders/stream. Dos
+  // problemas: era una segunda conexión por pestaña, y en producción no servía para
+  // nada — escuchaba un canal de Redis que ningún sitio publicaba, así que el
+  // indicador "en vivo" salía verde pero no llegaba jamás un pedido.
+  //
+  // Ahora el evento trae el pedido COMPLETO: se inserta arriba si la vista está sin
+  // filtros (primera página, orden por fecha), y si hay filtros solo se cuenta y se
+  // avisa, porque meterlo a mano mentiría sobre lo que la lista dice estar enseñando.
+  useLiveEvents(["pedido"], (_ev, lote) => {
+    const sinFiltros =
+      pagination.page === 1 &&
+      !debouncedSearch &&
+      estadoFilter === "todos" &&
+      domicilioFilter === "todos" &&
+      vendedorFilter === "todos" &&
+      !fechaDesde &&
+      !fechaHasta;
 
-    (async () => {
-      try {
-        // Auth por TICKET efímero (no token en la URL). Se pide con el Bearer normal:
-        // el wrapper de fetch (main.tsx) añade Authorization + x-sucursal-id, así el
-        // backend resuelve el scope y devuelve un ticket de un solo uso.
-        const ticketRes = await fetch(`${getApiBaseUrl()}/orders/sse-ticket`, {
-          method: "POST",
-        });
+    const nueva = aplicarLote<Order>(orders, lote, { alPrincipio: sinFiltros });
 
-        if (!ticketRes.ok || cancelled) return;
-        const { ticket } = await ticketRes.json();
+    // Sin objeto que aplicar (importación masiva, backfill): relectura de fondo.
+    if (nueva === null) {
+      void fetchOrders(pagination.page, true);
 
-        if (cancelled) return;
+      return;
+    }
 
-        es = new EventSource(
-          `${getApiBaseUrl()}/orders/stream?ticket=${encodeURIComponent(ticket)}`,
-        );
-        es.addEventListener("open", () => setLive(true));
-        es.addEventListener("error", () => setLive(false));
-        es.addEventListener("order", (e) => {
-          let order: Order;
+    if (!sinFiltros) {
+      // Los pedidos nuevos que NO caben en la vista filtrada se cuentan aparte.
+      const nuevos = lote.filter(
+        (e) => e.accion === "create" && !orders.some((o) => o.id === e.id),
+      ).length;
 
-          try {
-            order = JSON.parse((e as MessageEvent).data);
-          } catch {
-            return;
-          }
-          const sinFiltros =
-            pagination.page === 1 &&
-            !debouncedSearch &&
-            estadoFilter === "todos" &&
-            domicilioFilter === "todos" &&
-            vendedorFilter === "todos" &&
-            !fechaDesde &&
-            !fechaHasta;
-
-          if (sinFiltros) {
-            setOrders((prev) =>
-              prev.some((o) => o.id === order.id) ? prev : [order, ...prev],
-            );
-          } else {
-            setNuevosPend((n) => n + 1);
-          }
-        });
-      } catch {
-        /* sin stream en vivo si falla el ticket */
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-      es?.close();
-    };
-  }, [pagination.page, debouncedSearch, estadoFilter, domicilioFilter, vendedorFilter, fechaDesde, fechaHasta]);
+      if (nuevos) setNuevosPend((n) => n + nuevos);
+    }
+    if (nueva !== orders) setOrders(nueva);
+  });
 
   return (
     <div className="flex flex-col w-full gap-4">

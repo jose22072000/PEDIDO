@@ -11,7 +11,7 @@
 import { Redis, type RedisOptions } from 'ioredis';
 
 export const PREFIX = 'procovar-pedido';
-export const CH_ORDERS_NEW = `${PREFIX}:orders:new`;
+// (CH_ORDERS_NEW retirado: el SSE de pedidos usa el canal unico CH_EVENTS.)
 // Eventos de la cola de importación de CSV (el worker publica; el SSE los reenvía al front).
 export const CH_IMPORT_DONE = `${PREFIX}:import:done`;
 export const CH_IMPORT_FAILED = `${PREFIX}:import:failed`;

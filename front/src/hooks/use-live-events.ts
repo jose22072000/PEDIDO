@@ -1,11 +1,19 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getApiBaseUrl } from "@/config";
 
 export type LiveEvent = {
   tipo: string;
   sucursalId: string | null;
   id: string | null;
+  /** 'create' | 'update' | 'delete' | 'bulk' | ... */
   accion: string;
+  /**
+   * La entidad COMPLETA, con la misma forma que devuelve su endpoint de lista.
+   * Si viene, la vista la aplica sobre lo que ya tiene y NO pide nada al
+   * servidor: eso es lo que elimina el parpadeo. Si es null (cambios masivos,
+   * objetos demasiado grandes), toca refrescar — pero de fondo, sin esqueleto.
+   */
+  datos?: unknown;
   ts: number;
 };
 
@@ -32,6 +40,34 @@ const listeners = new Set<Listener>();
 let es: EventSource | null = null;
 let connecting = false;
 let retry: ReturnType<typeof setTimeout> | null = null;
+
+// Estado de la conexión compartida, para el indicador "En vivo". Vive aquí porque
+// la conexión es una sola para toda la app: antes cada vista se lo inventaba con su
+// propio EventSource y podía decir "en vivo" sin estarlo.
+let conectado = false;
+const oyentesEstado = new Set<(v: boolean) => void>();
+
+function fijarConectado(v: boolean) {
+  if (conectado === v) return;
+  conectado = v;
+  oyentesEstado.forEach((f) => f(v));
+}
+
+/** true mientras el stream SSE compartido esté abierto. */
+export function useLiveStatus(): boolean {
+  const [v, setV] = useState(conectado);
+
+  useEffect(() => {
+    oyentesEstado.add(setV);
+    setV(conectado);
+
+    return () => {
+      oyentesEstado.delete(setV);
+    };
+  }, []);
+
+  return v;
+}
 
 function scheduleRetry() {
   if (retry || listeners.size === 0) return;
@@ -71,7 +107,9 @@ async function ensureConnected() {
     };
 
     TODOS.forEach((t) => es!.addEventListener(t, handler));
+    es.addEventListener("open", () => fijarConectado(true));
     es.addEventListener("error", () => {
+      fijarConectado(false);
       es?.close();
       es = null;
       scheduleRetry();
@@ -98,12 +136,14 @@ const AGRUPAR_MS = 1500;
  * cuando cambia alguna de las entidades `tipos` (ej. ["cliente"]). No abre conexión
  * propia: montar/desmontar la vista solo agrega/quita el listener (navegación rápida).
  *
- * Los eventos llegan AGRUPADOS: una ráfaga produce una sola llamada a `onEvent`,
- * con el último evento recibido.
+ * Los eventos llegan AGRUPADOS: una ráfaga produce UNA sola llamada, o sea un solo
+ * render. `onEvent` recibe el último evento y, como segundo argumento, TODOS los de
+ * la ráfaga en orden. Ese lote es lo que permite aplicar los cambios en sitio: si se
+ * pasara solo el último se perderían los demás objetos y habría que recargar.
  */
 export function useLiveEvents(
   tipos: string[],
-  onEvent: (ev: LiveEvent) => void,
+  onEvent: (ev: LiveEvent, lote: LiveEvent[]) => void,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _deps: unknown[] = [],
 ) {
@@ -114,16 +154,19 @@ export function useLiveEvents(
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
-    let ultimo: LiveEvent | null = null;
+    let lote: LiveEvent[] = [];
 
     const listener: Listener = {
       tipos: tiposKey ? new Set(tiposKey.split(",")) : null,
       cb: (ev) => {
-        ultimo = ev;
-        if (timer) return; // ya hay una recarga programada para esta ráfaga
+        lote.push(ev);
+        if (timer) return; // ya hay una entrega programada para esta ráfaga
         timer = setTimeout(() => {
           timer = null;
-          if (ultimo) cb.current(ultimo);
+          const enviar = lote;
+
+          lote = [];
+          if (enviar.length) cb.current(enviar[enviar.length - 1], enviar);
         }, AGRUPAR_MS);
       },
     };

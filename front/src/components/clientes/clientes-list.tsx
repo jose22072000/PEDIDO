@@ -74,8 +74,13 @@ export const ClientesList = () => {
   const { isOpen, onOpen, onClose } = useDisclosure();
   const abortControllerRef = useRef<AbortController | null>(null);
 
+  /**
+   * @param fondo  recarga silenciosa: no pone la vista en "cargando" ni pinta
+   *               errores. La usa el SSE, donde el usuario no ha pedido nada y no
+   *               tiene por qué ver la tabla desaparecer y volver a aparecer.
+   */
   const fetchClientes = useCallback(
-    async (page: number = 1) => {
+    async (page: number = 1, fondo = false) => {
       // Cancel previous request
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
@@ -84,8 +89,10 @@ export const ClientesList = () => {
       // Create new abort controller
       abortControllerRef.current = new AbortController();
 
-      setIsLoading(true);
-      setError(null);
+      if (!fondo) {
+        setIsLoading(true);
+        setError(null);
+      }
 
       try {
         const params = new URLSearchParams({
@@ -115,9 +122,10 @@ export const ClientesList = () => {
         if (err instanceof Error && err.name === "AbortError") {
           return;
         }
-        setError(err instanceof Error ? err.message : "Error desconocido");
+        // Fallo de red en recarga de fondo: se conserva lo que ya se ve.
+        if (!fondo) setError(err instanceof Error ? err.message : "Error desconocido");
       } finally {
-        setIsLoading(false);
+        if (!fondo) setIsLoading(false);
       }
     },
     [pagination.limit, debouncedSearch, municipio, estadoCompra],
@@ -155,8 +163,11 @@ export const ClientesList = () => {
     fetchClientes(1);
   }, [debouncedSearch, municipio, estadoCompra]);
 
-  // EN VIVO (SSE): refresca la lista al cambiar clientes (import, edición, geo…) sin recargar.
-  useLiveEvents(["cliente"], () => fetchClientes(pagination.page));
+  // EN VIVO (SSE): los cambios de cliente llegan siempre en bloque (importación de
+  // CSV, sync de Parranda, backfill al enlazar un gestor), así que no hay un objeto
+  // suelto que aplicar: toca releer la página. Pero DE FONDO — sin esqueleto y sin
+  // borrar lo que ya se está viendo.
+  useLiveEvents(["cliente"], () => fetchClientes(pagination.page, true));
 
   // Cleanup on unmount
   useEffect(() => {

@@ -25,6 +25,7 @@ import Icons from "../icons/iconify";
 import { cn, copyTextToClipboard } from "@/lib/utils";
 import { getApiBaseUrl } from "@/config";
 import { useLiveEvents } from "@/hooks/use-live-events";
+import { aplicarLote } from "@/hooks/aplicar-eventos";
 
 interface Vendedor {
   id: string;
@@ -84,9 +85,15 @@ export const VendedoresList = () => {
   // Se lee de /vendedores/gestores (NO scopeado por sucursal) porque los vendedores
   // "sin asignar" todavía no tienen sucursal y con /vendedores no aparecerían,
   // así que no habría forma de enlazarlos.
-  const fetchVendedores = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
+  /**
+   * @param fondo  recarga silenciosa (sin esqueleto, sin error en pantalla) para
+   *               los refrescos que dispara el SSE y que el usuario no ha pedido.
+   */
+  const fetchVendedores = useCallback(async (fondo = false) => {
+    if (!fondo) {
+      setIsLoading(true);
+      setError(null);
+    }
 
     try {
       const response = await fetch(`${getApiBaseUrl()}/vendedores/gestores`);
@@ -102,9 +109,10 @@ export const VendedoresList = () => {
       setGestores(data.gestores ?? []);
       setSinAsignar(data.sinAsignar ?? 0);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Error desconocido");
+      // Fallo de red en recarga de fondo: se conserva lo que ya se ve.
+      if (!fondo) setError(err instanceof Error ? err.message : "Error desconocido");
     } finally {
-      setIsLoading(false);
+      if (!fondo) setIsLoading(false);
     }
   }, []);
 
@@ -249,8 +257,24 @@ export const VendedoresList = () => {
     setPage(1);
   }, [searchValue]);
 
-  // En vivo (SSE): refresca al cambiar vendedores (vínculo, alta/baja).
-  useLiveEvents(["vendedor"], () => fetchVendedores());
+  // En vivo (SSE): el evento trae el vendedor COMPLETO (con gestor, sucursal y su
+  // conteo de pedidos), así que se sustituye en la tabla que ya está pintada. Nada
+  // de volver a pedir la lista entera: eso es lo que hacía parpadear la vista.
+  useLiveEvents(["vendedor"], (_ev, lote) => {
+    const nueva = aplicarLote<Vendedor>(vendedores, lote, { alPrincipio: true });
+
+    if (nueva === null) {
+      void fetchVendedores(true);
+
+      return;
+    }
+    if (nueva !== vendedores) {
+      setVendedores(nueva);
+      // El contador de "sin asignar" se recalcula aquí mismo: es la razón por la
+      // que esta vista existe y tiene que cuadrar con lo que se está viendo.
+      setSinAsignar(nueva.filter((v) => v.activo && !v.gestorId).length);
+    }
+  });
 
   // Filter vendedores by search
   useEffect(() => {

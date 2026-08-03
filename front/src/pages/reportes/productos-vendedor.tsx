@@ -128,17 +128,25 @@ export default function ReporteProductosVendedorPage() {
   };
 
   // EN VIVO (SSE): si ya generaste el reporte (fechas puestas), se re-genera solo al cambiar pedidos.
-  useLiveEvents(["pedido"], () => { if (fechaInicio && fechaFin) handleGenerarReporte(); });
+  // EN VIVO (SSE): el reporte se rehace solo cuando entran o se completan pedidos.
+  // En SEGUNDO PLANO: los datos se sustituyen cuando llegan, sin vaciar la tabla ni
+  // volver al esqueleto. Durante una importacion esto pasaba decenas de veces por
+  // minuto y dejaba el reporte parpadeando.
+  useLiveEvents(["pedido"], () => {
+    if (fechaInicio && fechaFin) void handleGenerarReporte(true);
+  });
 
-  const handleGenerarReporte = async () => {
+  const handleGenerarReporte = async (fondo = false) => {
     if (!fechaInicio || !fechaFin) {
       setError("Por favor selecciona ambas fechas");
 
       return;
     }
 
-    setIsLoading(true);
-    setError(null);
+    if (!fondo) {
+      setIsLoading(true);
+      setError(null);
+    }
 
     try {
       const params = new URLSearchParams({
@@ -164,9 +172,10 @@ export default function ReporteProductosVendedorPage() {
       setProductosGlobal(data.productosGlobal);
       setResumen(data.resumen);
     } catch (err) {
-      setError("Error al generar el reporte. Intenta de nuevo.");
+      // En recarga de fondo no se pisa lo que ya se ve con un error.
+      if (!fondo) setError("Error al generar el reporte. Intenta de nuevo.");
     } finally {
-      setIsLoading(false);
+      if (!fondo) setIsLoading(false);
     }
   };
 
@@ -297,7 +306,7 @@ export default function ReporteProductosVendedorPage() {
                 startContent={
                   !isLoading && <Icons.search className="w-4 h-4" />
                 }
-                onPress={handleGenerarReporte}
+                onPress={() => handleGenerarReporte()}
               >
                 Generar
               </Button>

@@ -29,6 +29,7 @@ import Icons from "../icons/iconify";
 import { cards } from "@/components/primitives";
 import { getApiBaseUrl } from "@/config";
 import { useLiveEvents } from "@/hooks/use-live-events";
+import { aplicarLote } from "@/hooks/aplicar-eventos";
 import { getSucursalActiva } from "@/components/sucursal-selector";
 import { useAuthStore } from "@/stores/authStore";
 
@@ -109,8 +110,33 @@ export const UsuariosList = () => {
     fetchSucursales();
   }, []);
 
-  // En vivo (SSE): refresca al cambiar usuarios o vínculos de vendedor.
-  useLiveEvents(["usuario", "vendedor"], () => fetchUsuarios());
+  // En vivo (SSE): el evento trae el usuario COMPLETO, así que se mete/sustituye/
+  // quita en la tabla que ya está pintada. Nada de volver a pedir la lista: eso es
+  // lo que hacía que la vista parpadeara sola cada pocos segundos.
+  //
+  // Los eventos de 'vendedor' sí obligan a recargar (cambian el conteo de
+  // vendedores a cargo de cada usuario, que no viaja en el evento), pero de fondo.
+  useLiveEvents(["usuario", "vendedor"], (_ev, lote) => {
+    const deUsuario = lote.filter((e) => e.tipo === "usuario");
+    const hayDeVendedor = deUsuario.length !== lote.length;
+    // El hook reasigna el callback en cada render, así que `usuarios` está al día:
+    // se calcula la lista nueva de forma pura y luego se decide, en vez de meter
+    // efectos dentro del updater de setState (que React puede reejecutar).
+    const nueva = deUsuario.length
+      ? aplicarLote<Usuario>(usuarios, deUsuario, {
+          // El Administrador solo ve su sucursal; el Super Admin, todas.
+          filtrar: (u) => !activeSucursalId || u.sucursalId === activeSucursalId,
+          alPrincipio: true,
+        })
+      : usuarios;
+
+    if (nueva === null || hayDeVendedor) {
+      void fetchUsuarios(true);
+
+      return;
+    }
+    if (nueva !== usuarios) setUsuarios(nueva);
+  });
 
   // Filtros en cliente (texto + rol + sucursal): /users devuelve la lista completa.
   const filteredUsuarios = useMemo(() => {
@@ -146,9 +172,16 @@ export const UsuariosList = () => {
     setPage(1);
   }, [searchValue]);
 
-  const fetchUsuarios = async () => {
-    setIsLoading(true);
-    setError(null);
+  /**
+   * @param fondo  recarga silenciosa: ni esqueleto ni error en pantalla. Se usa
+   *               desde el SSE, donde el usuario no ha pedido nada y no tiene por
+   *               qué ver la tabla desaparecer y volver.
+   */
+  const fetchUsuarios = async (fondo = false) => {
+    if (!fondo) {
+      setIsLoading(true);
+      setError(null);
+    }
 
     try {
       const response = await fetch(`${getApiBaseUrl()}/users`);
@@ -161,9 +194,11 @@ export const UsuariosList = () => {
 
       setUsuarios(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Error desconocido");
+      // Un fallo de red en una recarga de fondo no debe borrar lo que ya se ve
+      // ni pintar un error: se conserva lo último bueno.
+      if (!fondo) setError(err instanceof Error ? err.message : "Error desconocido");
     } finally {
-      setIsLoading(false);
+      if (!fondo) setIsLoading(false);
     }
   };
 
