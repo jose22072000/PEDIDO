@@ -340,8 +340,11 @@ export const VendedoresList = () => {
         </CardBody>
       </Card>
 
-      {/* Loading State. `datos == null` = aun no ha llegado la primera carga. */}
-      {(isLoading || datos == null) && (
+      {/* Cargando. `datos == null` = aun no ha llegado la primera carga; se
+          excluye el caso con error para no pintar el spinner ENCIMA del aviso
+          de fallo, que dejaba la pantalla girando con el error debajo sin que
+          se entendiera que ya no iba a llegar nada. */}
+      {(isLoading || (datos == null && !errorCarga)) && (
         <div className="flex justify-center py-8">
           <Spinner color="primary" size="lg" />
         </div>

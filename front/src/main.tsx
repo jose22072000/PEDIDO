@@ -39,6 +39,8 @@ if (import.meta.env.PROD && "serviceWorker" in navigator) {
 
 // Global fetch wrapper: attach Authorization Bearer header from localStorage if present
 // This keeps existing fetch calls working without modifying every file.
+import { senalConTope } from "@/lib/senal-con-tope";
+
 const _origFetch = window.fetch.bind(window) as (
   input: RequestInfo | URL,
   init?: RequestInit,
@@ -84,8 +86,15 @@ window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
 
   // Timeout de seguridad para TODA petición: en enlaces flaky (Starlink) un fetch
   // puede quedar colgado sin respuesta (el TCP no muere en minutos) y fetch NO trae
-  // timeout propio → spinner infinito en carga y al guardar. Abortamos a los 25s. Se
-  // exceptúan streams SSE e imports/subidas, largos por diseño, y quien ya trae signal.
+  // timeout propio → spinner infinito en carga y al guardar. Abortamos a los 25s.
+  // Solo se exceptúan streams SSE e imports/subidas, largos por diseño.
+  //
+  // OJO con las peticiones que YA traen `signal`: antes se les dejaba pasar SIN
+  // timeout, y como los stores de datos siempre pasan uno (para poder cancelar al
+  // cambiar de filtro), TODAS las vistas migradas se quedaron sin la red de
+  // seguridad. Resultado: con la red mala, el spinner no terminaba nunca. Ahora la
+  // señal de fuera y la del reloj se COMBINAN: cancelar sigue funcionando igual, y
+  // además hay un tope de tiempo.
   const reqUrl =
     typeof input === "string"
       ? input
@@ -94,19 +103,17 @@ window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
         : (input as Request)?.url || "";
   const sinTimeout =
     /\/events\/stream|\/import-stream|\/orders\/bulk|\/import|\/upload/.test(reqUrl);
-  const yaTieneSignal = !!(init && (init as RequestInit).signal);
 
-  if (sinTimeout || yaTieneSignal) {
+  if (sinTimeout) {
     return _origFetch(input, init);
   }
 
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 25000);
-
   init = init || {};
-  init.signal = ctrl.signal;
+  const { signal, limpiar } = senalConTope(init.signal, 25000);
 
-  return _origFetch(input, init).finally(() => clearTimeout(timer));
+  init.signal = signal;
+
+  return _origFetch(input, init).finally(limpiar);
 }) as typeof window.fetch;
 
 ReactDOM.createRoot(document.getElementById("root")!).render(

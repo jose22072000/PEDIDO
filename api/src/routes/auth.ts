@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import prisma from '../prismaClient';
 import { authenticateToken, AuthRequest } from '../middleware/auth';
 import { apuntarFallo, esperaPendiente, olvidarFallos } from '../middleware/frenoLogin';
+import { buscarUsuarioParaLogin, normalizarUsuario } from '../lib/nombreUsuario';
 
 const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-key';
@@ -12,7 +13,11 @@ const JWT_EXPIRES_IN = '7d'; // Token expires in 7 days
 // Login endpoint
 router.post('/login', async (req: Request, res: Response) => {
   try {
-    const { username, password } = req.body;
+    const { username: usuarioCrudo, password } = req.body;
+    // Se normaliza igual que en el alta (que ya hacia trim). Sin esto, un espacio
+    // al final o una tilde tecleada distinta daban "Invalid credentials" con la
+    // contrasenia correcta. Ver lib/nombreUsuario.
+    const username = normalizarUsuario(usuarioCrudo);
 
     if (!username || !password) {
       return res.status(400).json({ error: 'Username and password are required' });
@@ -32,11 +37,8 @@ router.post('/login', async (req: Request, res: Response) => {
       });
     }
 
-    // Find user by username
-    const user = await prisma.usuario.findUnique({
-      where: { username },
-      include: { rol: true, sucursal: true },
-    });
+    // Busqueda tolerante a mayusculas (exacta primero; ver lib/nombreUsuario).
+    const user = await buscarUsuarioParaLogin(username);
 
     if (!user || !user.password) {
       // Se apunta igual aunque el usuario no exista: si no, la diferencia de

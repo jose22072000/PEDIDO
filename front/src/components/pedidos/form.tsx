@@ -70,6 +70,38 @@ async function openImportStream() {
     }
   });
 
+  // Se espera al evento `ready` ANTES de devolver el canal. Crear el EventSource no
+  // significa estar suscrito: el navegador todavia tiene que hacer la peticion y el
+  // servidor engancharse a Redis. Si mientras tanto se manda el CSV y la importacion
+  // es rapida, el `done` se publica cuando aun no hay nadie escuchando y se pierde
+  // para siempre -> la pantalla se queda girando hasta agotar el tope de 5 minutos.
+  //
+  // En local no se veia porque la ida y vuelta es de microsegundos; con un enlace
+  // lento (Starlink, una sucursal con mala antena) el orden se invierte casi siempre.
+  // De ahi que fallara justo a quien peor conexion tiene.
+  await new Promise<void>((resolve, reject) => {
+    const listo = setTimeout(
+      () => reject(new Error("No se pudo abrir el canal de importación (sin respuesta)")),
+      20000,
+    );
+
+    es.addEventListener(
+      "ready",
+      () => {
+        clearTimeout(listo);
+        resolve();
+      },
+      { once: true },
+    );
+    es.addEventListener("error", () => {
+      // EventSource reintenta solo; solo se corta si aun no habia conectado nunca.
+      if (es.readyState === EventSource.CLOSED) {
+        clearTimeout(listo);
+        reject(new Error("No se pudo abrir el canal de importación"));
+      }
+    });
+  });
+
   return {
     wait: (jobId: string, fileName: string) =>
       new Promise<void>((resolve, reject) => {

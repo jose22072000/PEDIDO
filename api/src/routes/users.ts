@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
+import { normalizarUsuario } from '../lib/nombreUsuario';
 import prisma from '../prismaClient';
 import { getRequesterContext, resolveSucursalScope } from '../lib/sucursalContext';
 import { emitEvent } from '../lib/events';
@@ -90,8 +91,11 @@ router.get('/:id', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const { username: rawUsername, password, rolId, sucursalId: incomingSucursalId } = req.body;
-    // Sin espacios al borde: evita usuarios como "Sidney " que luego no pueden entrar.
-    const username = typeof rawUsername === 'string' ? rawUsername.trim() : rawUsername;
+    // Se normaliza IGUAL que en el login: sin espacios al borde y las tildes en
+    // NFC. Antes solo se hacia trim aqui, y el login ni eso, asi que un usuario
+    // con tilde tecleada de otra forma no podia entrar nunca. Ver
+    // lib/nombreUsuario.
+    const username = normalizarUsuario(rawUsername);
     const requester = getRequesterContext(req);
     if (!requester.canManageUsers) {
       return res.status(403).json({ error: 'No tienes permiso para crear usuarios.' });
@@ -170,6 +174,21 @@ router.post('/', async (req, res) => {
     if (existingUser) {
       return res.status(409).json({
         error: `El nombre de usuario "${existingUser.username}" ya está en uso. Elige otro.`,
+      });
+    }
+
+    // Dos usuarios que solo se diferencien en las mayusculas ("Sidney" y "sidney")
+    // se leen como el mismo y nadie sabria en cual esta su contrasenia. Ademas
+    // dejarian ciega a la busqueda tolerante del login, que ante dos candidatos
+    // no adivina: prefiere fallar antes que meter a alguien en la cuenta de otro.
+    const choque = await prisma.usuario.findFirst({
+      where: { username: { equals: username, mode: 'insensitive' } },
+      select: { username: true },
+    });
+
+    if (choque) {
+      return res.status(400).json({
+        error: `Ya existe el usuario "${choque.username}". Los nombres no distinguen mayusculas: elige otro.`,
       });
     }
 

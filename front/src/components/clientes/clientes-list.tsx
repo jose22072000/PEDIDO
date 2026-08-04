@@ -185,7 +185,7 @@ export const ClientesList = () => {
       </Card>
 
       {/* Loading State */}
-      {(isLoading || datos == null) && (
+      {(isLoading || (datos == null && !error)) && (
         <div className="flex justify-center py-8">
           <Spinner color="primary" size="lg" />
         </div>
