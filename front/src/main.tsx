@@ -128,6 +128,21 @@ window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
   return _origFetch(input, init).finally(limpiar);
 }) as typeof window.fetch;
 
+// El service worker viejo dejo una cache de respuestas de /api en los navegadores
+// que ya lo tenian instalado. Quitar la regla del build evita que se creen nuevas,
+// pero NO borra la que ya esta: `cleanupOutdatedCaches` solo limpia los ficheros
+// precargados, no las caches de ejecucion. Sin esto, quien ya tuviera la vieja
+// seguiria viendo pedidos y vendedores de hasta una hora antes, y ademas era la
+// que disparaba miles de peticiones repetidas.
+//
+// Se borra una sola vez al arrancar y no molesta a nadie: si no existe, no hace
+// nada.
+if (typeof caches !== "undefined") {
+  caches.delete("api-cache").catch(() => {
+    // Sin permisos o navegador sin Cache API: no es critico, se sigue.
+  });
+}
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <BrowserRouter>

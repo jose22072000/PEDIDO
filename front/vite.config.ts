@@ -103,18 +103,23 @@ export default defineConfig({
               },
             },
           },
-          {
-            urlPattern: /\/api\/.*/,
-            handler: "NetworkFirst",
-            options: {
-              cacheName: "api-cache",
-              expiration: {
-                maxEntries: 100,
-                maxAgeSeconds: 60 * 60, // 1 hora
-              },
-              networkTimeoutSeconds: 10,
-            },
-          },
+          // El service worker NO toca /api. Antes lo cacheaba con NetworkFirst y
+          // un tope de 10 s, y eso trajo dos problemas:
+          //
+          // 1. Con el registro de red delante se vieron MIL SEISCIENTAS peticiones
+          //    a /vendedores/gestores, todas "pendientes" y con 0 bytes, todas
+          //    iniciadas por workbox. Al bloquear el service worker en una prueba
+          //    con navegador de verdad, esa repeticion DESAPARECE: cada fichero se
+          //    pide una vez. El bucle lo hacia el service worker, no la vista.
+          //
+          // 2. Aunque no se repitiera, cachear respuestas de la API significa
+          //    servir pedidos, clientes o vendedores de hasta una hora antes sin
+          //    que nada lo indique. En una aplicacion donde varias sucursales
+          //    escriben a la vez, eso es enseniar datos que ya no son ciertos.
+          //
+          // Los datos ya no necesitan al service worker: viven en los stores (que
+          // los conservan al navegar) y se actualizan por eventos en vivo.
+          // Aqui se queda solo lo que de verdad no cambia: las imagenes.
         ],
       },
     }),
