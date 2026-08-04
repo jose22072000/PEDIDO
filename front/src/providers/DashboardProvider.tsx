@@ -88,11 +88,11 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     fetchStats();
 
-    // Refresco periódico de respaldo, en silencio: los datos se actualizan sin
-    // que la pantalla parpadee ni vuelva a los skeletons.
-    const interval = setInterval(() => fetchStats(undefined, true), 900000);
-
-    return () => clearInterval(interval);
+    // NO hay refresco periódico. Antes había uno cada 15 minutos "por si acaso",
+    // pero eso es polling: pedir por si algo cambió. Para eso está el SSE, que
+    // avisa cuando cambia de verdad — y si la conexión se cae, el hook la
+    // reabre solo. Un temporizador encima solo añade peticiones que no hacen
+    // falta y que en enlaces lentos se notan.
   }, []);
 
   // Refetch cuando cambia el año seleccionado

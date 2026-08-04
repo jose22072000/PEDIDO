@@ -628,7 +628,7 @@ router.get('/import-stream', async (req, res) => {
     if (!closed) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
   send('ready', {});
-  const keepAlive = setInterval(() => { if (!closed) res.write(': keep-alive\n\n'); }, 20000);
+  const keepAlive = setInterval(() => { if (!closed) res.write(': keep-alive\n\n'); }, 120000);
 
   if (!redisEnabled()) {
     // Sin Redis no hay cola ni eventos (el front no debería abrir esto).

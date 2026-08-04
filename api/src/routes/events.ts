@@ -33,7 +33,14 @@ router.get('/stream', async (req, res) => {
     if (!closed) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
   send('ready', { since: new Date().toISOString() });
-  const keepAlive = setInterval(() => { if (!closed) res.write(': keep-alive\n\n'); }, 20000);
+  // Latido cada 2 minutos. NO es polling ni despierta a la aplicacion: son 15
+  // bytes de comentario que el navegador descarta. Existe solo porque los
+  // intermediarios (Traefik, NAT, proxies) cierran las conexiones que llevan
+  // rato calladas, y una reconexion cuesta miles de veces mas que esto.
+  //
+  // 120s se elige contra el limite real: Traefik cierra a los 180s de silencio.
+  // Antes estaba en 20s, que era innecesariamente frecuente.
+  const keepAlive = setInterval(() => { if (!closed) res.write(': keep-alive\n\n'); }, 120000);
 
   if (!redisEnabled()) {
     // Sin Redis no hay pub/sub: la conexión queda viva (keep-alive) pero no emite. Las
