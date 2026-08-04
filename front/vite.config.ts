@@ -54,6 +54,26 @@ export default defineConfig({
     tsconfigPaths(),
     tailwindcss(),
     VitePWA({
+      // selfDestroying: el sw.js que se genera NO cachea nada — borra todas las
+      // caches, se da de baja solo y recarga la pestania una vez.
+      //
+      // El 04/08/2026 el service worker dejo la aplicacion inutilizable: un bucle
+      // de recarga hacia que se pidiera /sw.js y todos los ficheros cada segundo,
+      // la pantalla quedaba en blanco y las peticiones de datos se amontonaban de
+      // a cientos sin completarse. Y no se podia arreglar desde la aplicacion,
+      // porque el propio service worker servia la version rota desde su cache: el
+      // arreglo nuevo no llegaba a los navegadores.
+      //
+      // Esto es una herramienta de trabajo que se usa SIEMPRE con conexion —
+      // ocho sucursales escribiendo a la vez—, asi que del service worker no
+      // sacabamos nada: ni hacia falta trabajar sin red, ni conviene servir
+      // pedidos guardados de hace rato. Lo que si daba era una forma de dejar a
+      // todo el mundo tirado sin poder arreglarlo en caliente.
+      //
+      // Si algun dia se quiere PWA de verdad, se vuelve a activar CON un plan
+      // para actualizar y para desinstalar, y probandolo con el service worker
+      // puesto — que es como lo tiene la gente, y como no se probo esta vez.
+      selfDestroying: true,
       registerType: "autoUpdate",
       includeAssets: ["*.png", "favicon.ico"],
       manifest: {
