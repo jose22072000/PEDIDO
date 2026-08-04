@@ -7,6 +7,7 @@ import AdminRoute from "@/components/AdminRoute";
 import LoginPage from "@/pages/login";
 import UnauthorizedPage from "@/pages/unauthorized";
 import { useAuthStore } from "@/stores/authStore";
+import { LimiteError } from "@/components/limite-error";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CARGA PEREZOSA por ruta.
@@ -63,7 +64,13 @@ function App() {
   }
 
   return (
-    <Suspense fallback={<Cargando />}>
+    // LimiteError envuelve TODAS las rutas: si una vista falla —o si el
+    // navegador no puede bajar su trozo de codigo, que es lo que pasa con una
+    // pestaña abierta desde antes del ultimo despliegue— se ve un aviso con
+    // "reintentar" y "volver atras" en vez de una pantalla en blanco de la que
+    // no se puede salir.
+    <LimiteError nombre="esta pantalla">
+      <Suspense fallback={<Cargando />}>
       <Routes>
         {/* Rutas públicas (autenticación) */}
         <Route element={<LoginPage />} path="/" />
@@ -161,7 +168,8 @@ function App() {
           </Route>
         </Route>
       </Routes>
-    </Suspense>
+      </Suspense>
+    </LimiteError>
   );
 }
 
