@@ -101,15 +101,27 @@ window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
       : input instanceof URL
         ? input.href
         : (input as Request)?.url || "";
-  const sinTimeout =
-    /\/events\/stream|\/import-stream|\/orders\/bulk|\/import|\/upload/.test(reqUrl);
+  // NADA es ilimitado salvo los streams. Antes las subidas e importaciones se
+  // dejaban pasar SIN tope ninguno "porque son largas": largo no es infinito, y
+  // una subida colgada dejaba el boton girando para siempre sin decir nada.
+  // Ahora hay dos niveles.
+  //
+  //  - Streams (SSE): sin tope de verdad. Estan abiertos a proposito mientras
+  //    dure la sesion; cortarlos seria romperlos.
+  //  - Subidas e importaciones: tope LARGO. Un CSV grande por un enlace lento
+  //    tarda minutos, y cortarlo a los 25 s seria imposible trabajar. Pero a los
+  //    10 minutos ya no esta tardando: esta colgado.
+  //  - Todo lo demas: 25 s.
+  const esStream = /\/events\/stream|\/import-stream/.test(reqUrl);
 
-  if (sinTimeout) {
+  if (esStream) {
     return _origFetch(input, init);
   }
 
+  const esSubida = /\/orders\/bulk|\/import|\/upload/.test(reqUrl);
+
   init = init || {};
-  const { signal, limpiar } = senalConTope(init.signal, 25000);
+  const { signal, limpiar } = senalConTope(init.signal, esSubida ? 10 * 60_000 : 25_000);
 
   init.signal = signal;
 

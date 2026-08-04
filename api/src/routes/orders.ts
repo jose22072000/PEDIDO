@@ -609,6 +609,44 @@ router.post('/bulk', ingestaAuth, async (req, res) => {
 // worker publica en Redis por cada job. El front abre esto cuando /bulk devolvió 202
 // (IMPORT_USE_QUEUE=true) y espera el evento de SU jobId. Sin Redis no hay 202, así que
 // no se usa. (Nada de polling: es push por pub/sub, igual que /orders/stream.)
+// Estado de un job de importacion, para PREGUNTAR en vez de esperar a ciegas.
+//
+// El SSE es el camino rapido, pero un stream se puede caer a mitad (un microcorte,
+// un proxy que corta la conexion) y entonces el aviso de "listo" no llega nunca. Sin
+// esto, la pantalla solo podia esperar a que venciera su tope y decir "tiempo
+// agotado" — aunque la importacion hubiera terminado BIEN hace rato, que es lo peor
+// que puede pasar: el usuario la repite y duplica trabajo.
+//
+// Se scopea por sucursal igual que el stream: los conteos de una sucursal no se
+// devuelven a otra.
+router.get('/import-status/:jobId', async (req, res) => {
+  const { sucursalId, error } = resolveSucursalFilter(req);
+  if (error) return res.status(400).json({ error });
+
+  const q = importQueue();
+  if (!q) return res.status(503).json({ error: 'La cola de importación no está activa' });
+
+  const job = await q.getJob(String(req.params.jobId));
+  if (!job) {
+    // Bull borra los jobs viejos (removeOnComplete). Que no aparezca NO es un fallo:
+    // lo mas probable es que terminara bien hace tiempo. Se dice tal cual en vez de
+    // inventar un estado.
+    return res.json({ estado: 'desconocido', nota: 'El trabajo ya no está en la cola (suele significar que terminó).' });
+  }
+
+  const suyo = (job.data as { uploaderSucursalId?: string | null } | undefined)?.uploaderSucursalId ?? null;
+  if (sucursalId && suyo !== sucursalId) {
+    return res.status(404).json({ error: 'Trabajo no encontrado' });
+  }
+
+  const estado = await job.getState();
+  return res.json({
+    estado,                                   // completed | failed | active | waiting | delayed
+    resultado: estado === 'completed' ? job.returnvalue : undefined,
+    error: estado === 'failed' ? job.failedReason : undefined,
+  });
+});
+
 router.get('/import-stream', async (req, res) => {
   // Auth por TICKET efímero (no token en la URL). El ticket lleva el scope de sucursal
   // ya resuelto, y abajo se filtran los eventos por esa sucursal: sin esto, cualquier

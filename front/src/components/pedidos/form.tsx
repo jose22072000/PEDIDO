@@ -22,6 +22,17 @@ const fileTypes: string[] = ["CSV"];
 // (push del worker vía Redis) — NADA de polling. Abrimos UN stream y esperamos el
 // evento done/failed de cada jobId. `buffered` cubre la carrera de que el evento
 // llegue antes de que empecemos a esperarlo.
+/** Pregunta al servidor como acabo un trabajo de importacion. */
+async function preguntarEstado(
+  jobId: string,
+): Promise<{ estado: string; error?: string }> {
+  const r = await fetch(`${getApiBaseUrl()}/orders/import-status/${encodeURIComponent(jobId)}`);
+
+  if (!r.ok) throw new Error("No se pudo consultar el estado");
+
+  return r.json();
+}
+
 async function openImportStream() {
   // Auth por TICKET efímero (no token en la URL): pedimos el ticket con el Bearer normal
   // (el wrapper de fetch en main.tsx añade Authorization + x-sucursal-id) y abrimos el
@@ -114,15 +125,31 @@ async function openImportStream() {
 
           return;
         }
-        // Red de seguridad: si el evento nunca llega (SSE caído/perdido), no colgar
-        // la subida para siempre.
-        const timer = setTimeout(
-          () => {
-            waiters.delete(jobId);
-            reject(new Error(`Tiempo de espera agotado importando ${fileName}`));
-          },
-          5 * 60 * 1000,
-        );
+        // Red de seguridad: si el aviso no llega (canal caído, microcorte), NO se
+        // da por fallida la importación sin más. Se PREGUNTA por el estado real
+        // del trabajo antes de decir nada.
+        //
+        // Dar por fallido algo que terminó bien es el peor de los errores
+        // posibles aquí: el usuario lo repite y sube los pedidos dos veces.
+        const timer = setTimeout(() => {
+          waiters.delete(jobId);
+          preguntarEstado(jobId)
+            .then((r) => {
+              if (r.estado === "completed" || r.estado === "desconocido") resolve();
+              else if (r.estado === "failed")
+                reject(new Error(r.error || `Falló la importación de ${fileName}`));
+              else
+                reject(
+                  new Error(
+                    `La importación de ${fileName} sigue en curso (${r.estado}). ` +
+                      `Se está procesando en el servidor: revisa la lista de pedidos en unos minutos.`,
+                  ),
+                );
+            })
+            .catch(() =>
+              reject(new Error(`Tiempo de espera agotado importando ${fileName}`)),
+            );
+        }, 5 * 60 * 1000);
 
         waiters.set(jobId, {
           resolve: () => {
@@ -221,10 +248,29 @@ export default function CrearPedidoForm() {
     setIsSending(true);
     setProgress(0);
 
-    // Stream SSE de la cola de importación (se abre solo si el backend encola: 202).
+    // Canal SSE de la cola de importación. Se abre ANTES de mandar nada.
+    //
+    // Antes se abría al recibir el primer 202, o sea DESPUÉS de encolar: el worker
+    // ya estaba procesando cuando aún no había nadie escuchando, y si terminaba
+    // rápido el aviso de "listo" se publicaba al vacío y se perdía. La pantalla
+    // entonces esperaba en balde hasta agotar el tope. Con el canal abierto y
+    // confirmado (`ready`) antes del primer envío, ese hueco no existe.
+    //
+    // Cuesta una conexión aunque el backend acabe procesando en línea (200 en vez
+    // de 202) y no haga falta. Es un precio ridículo comparado con dejar a alguien
+    // mirando un botón que gira.
     let importStream: Awaited<ReturnType<typeof openImportStream>> | null = null;
 
     try {
+      try {
+        importStream = await openImportStream();
+      } catch {
+        // Sin canal se sigue igual: si el backend procesa en línea (200) no hace
+        // falta para nada, y si encola, `wait` tiene su propio tope y avisa. Peor
+        // seria abortar una subida que quizá no lo necesita.
+        importStream = null;
+      }
+
       const totalFiles = files.length;
       let processedFiles = 0;
       const batchSize = 50; // Procesar 50 registros por request
