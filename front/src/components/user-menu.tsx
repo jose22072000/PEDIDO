@@ -17,6 +17,7 @@ import { useNavigate } from "react-router-dom";
 import Icons from "@/components/icons/iconify";
 import { useAuthStore } from "@/stores/authStore";
 import { getApiBaseUrl } from "@/config";
+import { mostrarUsuario } from "@/lib/nombre-usuario";
 
 /**
  * Menú de perfil (avatar): muestra QUIÉN eres y con qué cuenta entraste, deja
@@ -34,7 +35,7 @@ export const UserMenu = () => {
   const [ok, setOk] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const username = user?.username || "usuario";
+  const username = mostrarUsuario(user?.username) || "usuario";
   const rol = user?.role || session?.rol || "";
 
   const cerrarSesion = async () => {

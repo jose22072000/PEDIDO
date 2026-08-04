@@ -5,6 +5,7 @@ import { KPICard } from "@/components/dashboard/KPICard";
 import { useAuthStore } from "@/stores/authStore";
 import { getApiBaseUrl } from "@/config";
 import { useLiveEvents } from "@/hooks/use-live-events";
+import { mostrarUsuario } from "@/lib/nombre-usuario";
 
 type Stats = {
   totalPedidos: number;
@@ -42,7 +43,7 @@ export default function MiPerfilPage() {
   // En vivo: al entrar/completar pedidos, las métricas se refrescan solas.
   useLiveEvents(["pedido"], () => fetchStats());
 
-  const username = user?.username || "";
+  const username = mostrarUsuario(user?.username) || "";
   const rol = user?.role || "";
   const sucursal = user?.sucursal || "";
 

@@ -27,6 +27,7 @@ import { getApiBaseUrl } from "@/config";
 import { aplicarLote } from "@/hooks/aplicar-eventos";
 import { getSucursalActiva } from "@/components/sucursal-selector";
 import { useAuthStore } from "@/stores/authStore";
+import { mostrarUsuario } from "@/lib/nombre-usuario";
 import {
   usarVendedores,
   type Vendedor,
@@ -394,7 +395,7 @@ export const VendedoresList = () => {
                         <div className="flex flex-wrap items-center gap-1.5 mt-1">
                           {vendedor.gestorId ? (
                             <Chip color="success" size="sm" variant="flat">
-                              Gestor: {vendedor.gestor?.username}
+                              Gestor: {mostrarUsuario(vendedor.gestor?.username)}
                               {vendedor.sucursal?.codigo
                                 ? ` · ${vendedor.sucursal.codigo}`
                                 : ""}
@@ -440,7 +441,7 @@ export const VendedoresList = () => {
                           <SelectItem key={SIN_ASIGNAR}>Sin asignar</SelectItem>,
                           ...gestores.map((g) => (
                             <SelectItem key={g.id}>
-                              {`${g.username}${g.sucursal?.codigo ? ` · ${g.sucursal.codigo}` : ""}`}
+                              {`${mostrarUsuario(g.username)}${g.sucursal?.codigo ? ` · ${g.sucursal.codigo}` : ""}`}
                             </SelectItem>
                           )),
                         ]}
@@ -555,7 +556,7 @@ export const VendedoresList = () => {
                       <span className="text-sm font-semibold">Gestor:</span>
                       {detalle?.gestorId ? (
                         <Chip color="success" size="sm" variant="flat">
-                          {detalle.gestor?.username}
+                          {mostrarUsuario(detalle.gestor?.username)}
                           {detalle.sucursal?.codigo
                             ? ` · ${detalle.sucursal.codigo}`
                             : ""}
@@ -603,7 +604,7 @@ export const VendedoresList = () => {
                           <SelectItem key={SIN_ASIGNAR}>Sin asignar</SelectItem>,
                           ...gestores.map((g) => (
                             <SelectItem key={g.id}>
-                              {`${g.username}${g.sucursal?.codigo ? ` · ${g.sucursal.codigo}` : ""}`}
+                              {`${mostrarUsuario(g.username)}${g.sucursal?.codigo ? ` · ${g.sucursal.codigo}` : ""}`}
                             </SelectItem>
                           )),
                         ]}

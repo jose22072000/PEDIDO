@@ -20,7 +20,25 @@ import prisma from '../prismaClient';
  * cuando el alta viene del panel.
  */
 export function normalizarUsuario(valor: unknown): string {
-  return typeof valor === 'string' ? valor.normalize('NFC').trim() : '';
+  if (typeof valor !== 'string') return '';
+
+  // Los ESPACIOS se guardan como "_". Un nombre de usuario con espacios de verdad
+  // da problemas en todas partes: no se ven al final de la cadena, se pierden al
+  // copiar y pegar, y dos espacios seguidos son indistinguibles de uno. Con "_" el
+  // nombre es siempre una sola palabra y lo que se ve es lo que hay.
+  //
+  // Se aplica IGUAL al crear y al entrar, asi que quien teclee "liannet rodriguez"
+  // con espacio entra igual que quien teclee "liannet_rodriguez".
+  return valor.normalize('NFC').trim().replace(/\s+/g, '_');
+}
+
+/**
+ * Como se ENSENA un nombre de usuario: el "_" vuelve a ser el espacio que era.
+ * Guardar y mostrar son cosas distintas — por dentro conviene una sola palabra,
+ * y a la vista conviene leerse como un nombre.
+ */
+export function mostrarUsuario(username: string | null | undefined): string {
+  return (username ?? '').replace(/_/g, ' ');
 }
 
 /**

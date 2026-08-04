@@ -8,6 +8,7 @@ import { useNavigate } from "react-router-dom";
 import Icons from "@/components/icons/iconify";
 import { useAuthStore } from "@/stores/authStore";
 import DefaultLayout from "@/layouts/default";
+import { mostrarUsuario } from "@/lib/nombre-usuario";
 
 // Zod schema for login validation
 const loginSchema = z.object({
@@ -83,7 +84,7 @@ export default function LoginPage() {
                 size="lg"
               />
               <div className="flex flex-col gap-1">
-                <h2 className="text-2xl font-bold">{auth.user.username}</h2>
+                <h2 className="text-2xl font-bold">{mostrarUsuario(auth.user.username)}</h2>
                 <Chip color="primary" size="sm" variant="bordered">
                   {auth.user.role || "Usuario"}
                 </Chip>

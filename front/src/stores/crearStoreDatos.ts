@@ -70,6 +70,34 @@ export type OpcionesUso<T> = {
  *
  * @param tiposPorDefecto entidades del SSE que refrescan esta entidad
  */
+/**
+ * Peticiones en vuelo POR CLAVE (no por componente).
+ *
+ * La bandera `cargando` vive en el store, que es compartido, pero antes solo se
+ * bajaba si el componente que la subio seguia siendo el ultimo en pedir. Al
+ * cambiar de filtro, la peticion vieja se cancelaba cuando otra ya habia tomado
+ * el relevo, y entonces NADIE bajaba la bandera de la clave vieja: quedaba en
+ * "cargando" para siempre. Si luego se volvia a esa clave con el dato aun fresco
+ * —que no vuelve a pedir nada, para eso esta la cache— la pantalla se quedaba
+ * girando encima de datos que ya tenia.
+ *
+ * Contando por clave, la bandera baja cuando se acaba la ULTIMA peticion de esa
+ * clave, sin importar quien la lanzo.
+ */
+const enVuelo = new Map<string, number>();
+
+const sumarEnVuelo = (clave: string, n: number) => {
+  const v = (enVuelo.get(clave) ?? 0) + n;
+
+  if (v > 0) enVuelo.set(clave, v);
+  else enVuelo.delete(clave);
+
+  return v;
+};
+
+/** Solo para las pruebas: deja mirar el contador de peticiones vivas. */
+export const _enVueloParaPruebas = enVuelo;
+
 export function crearStoreDatos<T>(tiposPorDefecto: string[] = []) {
   const useStore = create<StoreDatos<T>>((set) => ({
     entradas: {},
@@ -125,17 +153,23 @@ export function crearStoreDatos<T>(tiposPorDefecto: string[] = []) {
 
       // Esqueleto SOLO si no hay nada que enseñar. En recarga de fondo, ni eso.
       fijar(k, { cargando: !hayDatos && !fondo, error: null });
+      sumarEnVuelo(k, 1);
 
       try {
         const datos = await traerRef.current(ctrl.signal);
 
+        sumarEnVuelo(k, -1);
         fijar(k, { datos, cargando: false, error: null, traidoEn: Date.now() });
       } catch (e) {
+        const quedan = sumarEnVuelo(k, -1);
+
         if (ctrl.signal.aborted) {
-          // Cancelada a propósito (cambió el filtro, se desmontó la vista). No
-          // es un error, pero hay que bajar la bandera de "cargando" si nadie
-          // ha tomado el relevo: si no, al volver se ve un esqueleto eterno.
-          if (abortRef.current === ctrl) fijar(k, { cargando: false });
+          // Cancelada a propósito (cambió el filtro, se desmontó la vista). No es
+          // un error. La bandera se baja si no queda NINGUNA petición de esta
+          // clave; antes se miraba si este componente seguía siendo el último en
+          // pedir, y cuando no lo era la clave se quedaba en "cargando" para
+          // siempre — spinner eterno al volver a ella.
+          if (quedan <= 0) fijar(k, { cargando: false });
 
           return;
         }
@@ -152,6 +186,13 @@ export function crearStoreDatos<T>(tiposPorDefecto: string[] = []) {
       if (!activo) return;
       const e = useStore.getState().entradas[clave];
       const fresco = e?.datos != null && Date.now() - (e.traidoEn || 0) < frescoMs;
+
+      // Bandera huérfana: la entrada dice "cargando" pero no hay ninguna petición
+      // viva para esa clave. Es un estado imposible que solo puede venir de un
+      // fallo nuestro, y su síntoma es el peor de todos — la pantalla girando sin
+      // que nada vaya a llegar. Se corrige aquí en vez de confiar en que nunca
+      // pase, porque ya pasó.
+      if (e?.cargando && !(enVuelo.get(clave) ?? 0)) fijar(clave, { cargando: false });
 
       // Dato fresco: se pinta al instante y no se pide nada. Volver a una vista
       // deja de costar una vuelta al servidor.

@@ -488,34 +488,45 @@ class VendedorInactivoError extends Error {
 // La sucursal la decide el GESTOR del vendedor. Quién sube el CSV ya no influye:
 // un vendedor sin gestor entra "Sin asignar", sin sucursal.
 async function resolveSeller(name: string, code: string): Promise<SellerResolution> {
-  const nombre = name.toUpperCase().trim();
+  // NFC ademas de mayusculas y trim. Una tilde puede venir del CSV como caracter
+  // propio o como letra + tilde combinada: se pintan IGUAL y son cadenas
+  // distintas, asi que sin normalizar se crea un vendedor nuevo cada vez que
+  // cambia el equipo que exporta. Los nombres en la base ya estan en NFC.
+  const nombre = name.normalize('NFC').toUpperCase().trim();
+  // El codigo NO se pasa a mayusculas: en la base estan en minuscula y
+  // uppercasearlo dejaria de encontrarlos a todos. Solo se le quitan los bordes.
+  const codigo = (code || '').normalize('NFC').trim();
 
   // 1) Por código (clave nueva). 2) Si no aparece, POR NOMBRE: así seguimos
   //    encontrando a los vendedores creados con la regla de código vieja
   //    ("glenda.melisa") y les corregimos el código al vuelo, sin duplicarlos.
-  let existing = code
-    ? await prisma.vendedor.findUnique({ where: { codigo: code }, include: { gestor: true } })
+  let existing = codigo
+    ? await prisma.vendedor.findUnique({ where: { codigo }, include: { gestor: true } })
     : null;
 
   if (!existing) {
+    // Se busca con el nombre YA NORMALIZADO y sin distinguir mayusculas. Antes se
+    // buscaba con el `name` crudo aunque justo arriba se calculaba `nombre`: un
+    // CSV con la caja distinta no encontraba al vendedor y creaba un DUPLICADO,
+    // con sus pedidos repartidos entre los dos.
     const porNombre = await prisma.vendedor.findFirst({
-      where: { nombre: { equals: name } },
+      where: { nombre: { equals: nombre, mode: 'insensitive' } },
       include: { gestor: true },
     });
     if (porNombre) {
       if (!porNombre.activo) throw new VendedorInactivoError(porNombre.nombre);
-      if (code && porNombre.codigo !== code) {
+      if (codigo && porNombre.codigo !== codigo) {
         try {
           existing = await prisma.vendedor.update({
             where: { id: porNombre.id },
-            data: { codigo: code },
+            data: { codigo },
             include: { gestor: true },
           });
         } catch (e) {
           // El código nuevo ya lo tiene OTRA persona -> colisión real.
           if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-            const dueno = await prisma.vendedor.findUnique({ where: { codigo: code } });
-            throw new VendedorColisionError(code, dueno?.nombre ?? '(otro)', name);
+            const dueno = await prisma.vendedor.findUnique({ where: { codigo } });
+            throw new VendedorColisionError(codigo, dueno?.nombre ?? '(otro)', name);
           }
           throw e;
         }
@@ -623,6 +634,16 @@ router.get('/import-status/:jobId', async (req, res) => {
   const { sucursalId, error } = resolveSucursalFilter(req);
   if (error) return res.status(400).json({ error });
 
+  // Comprobacion CERRADA: solo el admin global puede mirar sin sucursal. Escrito
+  // con un `if (sucursalId && ...)` mas abajo, la comprobacion se saltaba sola en
+  // cuanto sucursalId venia vacio — y "vacio" no siempre significa "es admin":
+  // basta un camino que no la resuelva para que cualquiera vea los conteos de
+  // todas las sucursales. Que falle cerrado y no abierto.
+  const { isGlobalAdmin } = getRequesterContext(req);
+  if (!sucursalId && !isGlobalAdmin) {
+    return res.status(403).json({ error: 'Sin permiso para consultar este trabajo.' });
+  }
+
   const q = importQueue();
   if (!q) return res.status(503).json({ error: 'La cola de importación no está activa' });
 
@@ -635,7 +656,8 @@ router.get('/import-status/:jobId', async (req, res) => {
   }
 
   const suyo = (job.data as { uploaderSucursalId?: string | null } | undefined)?.uploaderSucursalId ?? null;
-  if (sucursalId && suyo !== sucursalId) {
+  // 404 y no 403: quien no puede verlo tampoco debe enterarse de que existe.
+  if (!isGlobalAdmin && suyo !== sucursalId) {
     return res.status(404).json({ error: 'Trabajo no encontrado' });
   }
 

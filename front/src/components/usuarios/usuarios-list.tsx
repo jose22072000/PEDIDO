@@ -32,6 +32,7 @@ import { aplicarLote } from "@/hooks/aplicar-eventos";
 import { usarUsuarios, type Usuario } from "@/stores/datos/usuarios";
 import { getSucursalActiva } from "@/components/sucursal-selector";
 import { useAuthStore } from "@/stores/authStore";
+import { mostrarUsuario } from "@/lib/nombre-usuario";
 
 // El tipo Usuario vive en el store (stores/datos/usuarios), no aquí: lo comparten
 // quien lo pinta y quien lo trae, y así no se separan cuando cambie el api.
@@ -425,7 +426,7 @@ export const UsuariosList = () => {
                     {isSameBranch && (
                       <span className="inline-block size-2 rounded-full bg-success" />
                     )}
-                    {usuario.username}
+                    {mostrarUsuario(usuario.username)}
                   </div>
                 </TableCell>
                 <TableCell>
@@ -600,7 +601,7 @@ export const UsuariosList = () => {
               <ModalBody>
                 <p>
                   ¿Está seguro que desea eliminar al usuario{" "}
-                  <strong>{selectedUsuario?.username}</strong>?
+                  <strong>{mostrarUsuario(selectedUsuario?.username)}</strong>?
                 </p>
                 <p className="text-small text-default-500">
                   Esta acción no se puede deshacer.
