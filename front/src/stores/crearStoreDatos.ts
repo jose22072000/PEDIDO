@@ -146,8 +146,6 @@ export function crearStoreDatos<T>(tiposPorDefecto: string[] = []) {
     const recargar = useRef(async (fondo = false) => {
       const k = claveRef.current;
 
-      // eslint-disable-next-line no-console
-      console.log("[store] recargar", { clave: k, fondo });
 
       // Solo se cancela lo anterior si era de OTRA clave (cambio el filtro o la
       // sucursal). Antes se cancelaba siempre, tambien contra si misma: si el
@@ -173,14 +171,10 @@ export function crearStoreDatos<T>(tiposPorDefecto: string[] = []) {
       try {
         const datos = await traerRef.current(ctrl.signal);
 
-        // eslint-disable-next-line no-console
-        console.log("[store] llegaron datos", { clave: k, datos });
         sumarEnVuelo(k, -1);
         if (claveEnVuelo.current === k) claveEnVuelo.current = null;
         fijar(k, { datos, cargando: false, error: null, traidoEn: Date.now() });
       } catch (e) {
-        // eslint-disable-next-line no-console
-        console.error("[store] FALLO al traer", { clave: k, abortada: ctrl.signal.aborted, e });
         const quedan = sumarEnVuelo(k, -1);
 
         if (claveEnVuelo.current === k) claveEnVuelo.current = null;
@@ -208,8 +202,6 @@ export function crearStoreDatos<T>(tiposPorDefecto: string[] = []) {
       if (!activo) return;
       const e = useStore.getState().entradas[clave];
 
-      // eslint-disable-next-line no-console
-      console.log("[store] efecto", { clave, activo, entrada: e, enVuelo: enVuelo.get(clave) ?? 0 });
       const fresco = e?.datos != null && Date.now() - (e.traidoEn || 0) < frescoMs;
 
       // Bandera huérfana: la entrada dice "cargando" pero no hay ninguna petición
@@ -243,8 +235,6 @@ export function crearStoreDatos<T>(tiposPorDefecto: string[] = []) {
       const fn = aplicarRef.current;
 
       if (fn && actual != null) {
-        // eslint-disable-next-line no-console
-        console.log("[store] aplicar eventos", { clave: k, actual, lote });
         const nuevo = fn(actual, lote);
 
         if (nuevo !== null) {
@@ -255,6 +245,20 @@ export function crearStoreDatos<T>(tiposPorDefecto: string[] = []) {
           return;
         }
       }
+
+      // Hay que releer. Pero SOLO si no hay ya una lectura en marcha para esta
+      // clave: cada evento que no se puede aplicar pedía la lista entera, sin
+      // mirar si la anterior seguía en el aire. Vendedores escucha además los
+      // eventos de "usuario" —el gestor de un vendedor es un usuario— y esos
+      // NUNCA se pueden aplicar en sitio, así que cada uno forzaba una recarga
+      // completa. Con varios seguidos eran cientos de lecturas encadenadas, cada
+      // una repintando la vista, hasta que React cortaba con "Maximum update
+      // depth exceeded" y la pantalla se quedaba sin nada.
+      //
+      // Saltarse la lectura no pierde nada: la que ya está en marcha traerá el
+      // estado actual, que incluye lo que acaba de cambiar.
+      if (enVuelo.get(k) ?? 0) return;
+
       void recargar(true);
     });
 
