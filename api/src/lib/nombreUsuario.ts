@@ -16,8 +16,15 @@ import prisma from '../prismaClient';
  * pantalla y son cadenas distintas. Segun el teclado y el sistema, el navegador
  * manda una u otra. Cuatro usuarios reales tienen tilde en el nombre.
  *
- * NFC junta el caracter y su tilde en uno solo, que es como los guarda Postgres
- * cuando el alta viene del panel.
+ * Por eso el nombre de usuario va SIN TILDES. No es que no se pueda escribir
+ * "gonzalez" con tilde: es que un nombre de usuario se TECLEA, y una letra que
+ * se puede escribir de dos formas distintas —que ademas se pintan igual— es una
+ * trampa. Quien la teclee de la otra forma no entra, y no hay manera de que se
+ * de cuenta mirando la pantalla.
+ *
+ * La tilde va en el NOMBRE de la persona, que es lo que se enseña. En el
+ * identificador con el que entra, no. (05/08/2026: habia 7 usuarios con tilde,
+ * generados a partir del nombre real; se renombraron.)
  */
 export function normalizarUsuario(valor: unknown): string {
   if (typeof valor !== 'string') return '';
@@ -29,7 +36,11 @@ export function normalizarUsuario(valor: unknown): string {
   //
   // Se aplica IGUAL al crear y al entrar, asi que quien teclee "liannet rodriguez"
   // con espacio entra igual que quien teclee "liannet_rodriguez".
-  return valor.normalize('NFC').trim().replace(/\s+/g, '_');
+  return valor
+    .normalize('NFD')            // separa la letra de su tilde
+    .replace(/[\u0300-\u036f]/g, '') // y tira la tilde
+    .trim()
+    .replace(/\s+/g, '_');
 }
 
 /**
