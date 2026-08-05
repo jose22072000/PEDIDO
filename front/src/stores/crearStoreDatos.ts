@@ -144,6 +144,9 @@ export function crearStoreDatos<T>(tiposPorDefecto: string[] = []) {
     const recargar = useRef(async (fondo = false) => {
       const k = claveRef.current;
 
+      // eslint-disable-next-line no-console
+      console.log("[store] recargar", { clave: k, fondo });
+
       abortRef.current?.abort();
       const ctrl = new AbortController();
 
@@ -158,9 +161,13 @@ export function crearStoreDatos<T>(tiposPorDefecto: string[] = []) {
       try {
         const datos = await traerRef.current(ctrl.signal);
 
+        // eslint-disable-next-line no-console
+        console.log("[store] llegaron datos", { clave: k, datos });
         sumarEnVuelo(k, -1);
         fijar(k, { datos, cargando: false, error: null, traidoEn: Date.now() });
       } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error("[store] FALLO al traer", { clave: k, abortada: ctrl.signal.aborted, e });
         const quedan = sumarEnVuelo(k, -1);
 
         if (ctrl.signal.aborted) {
@@ -185,6 +192,9 @@ export function crearStoreDatos<T>(tiposPorDefecto: string[] = []) {
     useEffect(() => {
       if (!activo) return;
       const e = useStore.getState().entradas[clave];
+
+      // eslint-disable-next-line no-console
+      console.log("[store] efecto", { clave, activo, entrada: e, enVuelo: enVuelo.get(clave) ?? 0 });
       const fresco = e?.datos != null && Date.now() - (e.traidoEn || 0) < frescoMs;
 
       // Bandera huérfana: la entrada dice "cargando" pero no hay ninguna petición
@@ -212,6 +222,8 @@ export function crearStoreDatos<T>(tiposPorDefecto: string[] = []) {
       const fn = aplicarRef.current;
 
       if (fn && actual != null) {
+        // eslint-disable-next-line no-console
+        console.log("[store] aplicar eventos", { clave: k, actual, lote });
         const nuevo = fn(actual, lote);
 
         if (nuevo !== null) {

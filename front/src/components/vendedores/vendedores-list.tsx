@@ -1,17 +1,3 @@
-/*
- * OJO: esta vista NO usa el store de datos, a proposito.
- *
- * Es la unica que se ha roto DOS veces al migrarla (ver el revert 5e7100b y el
- * 04/08/2026): quedaba en blanco, sin datos, sin error en consola y sin poder
- * volver atras. Todas las demas vistas SI usan el store y van bien, asi que el
- * store no es el problema — es algo propio de esta pantalla, que es tambien la
- * unica que usa el camino `aplicar` (aplicarLote sobre la lista cacheada).
- *
- * Se vuelve al fetch propio, que es lo que estaba funcionando. Volver a migrarla
- * exige antes REPRODUCIR el fallo con el navegador abierto y la consola
- * delante: las dos veces que se migro se comprobo solo que compilara, y tsc y el
- * build pasan igual con una pantalla que nunca llega a pintarse.
- */
 import {
   Card,
   CardBody,
@@ -38,30 +24,43 @@ import Icons from "../icons/iconify";
 
 import { cn, copyTextToClipboard } from "@/lib/utils";
 import { getApiBaseUrl } from "@/config";
-import { useLiveEvents } from "@/hooks/use-live-events";
+import { aplicarLote } from "@/hooks/aplicar-eventos";
+import { getSucursalActiva } from "@/components/sucursal-selector";
+import { useAuthStore } from "@/stores/authStore";
+import { mostrarUsuario } from "@/lib/nombre-usuario";
+import {
+  usarVendedores,
+  type Vendedor,
+  type Gestor,
+} from "@/stores/datos/vendedores";
 
-interface Vendedor {
-  id: string;
-  nombre: string;
-  codigo: string | null;
-  createdAt: string;
-  // Enlace con su gestor. gestorId null = "Sin asignar": sus pedidos quedan
-  // ocultos en la vista de pedidos hasta que se le enlace un gestor.
-  gestorId: string | null;
-  activo: boolean;
-  gestor?: { id: string; username: string } | null;
-  sucursal?: { nombre: string; codigo: string | null } | null;
-  _count?: { pedidos: number };
-}
-
-interface Gestor {
-  id: string;
-  username: string;
-  sucursalId: string | null;
-  sucursal?: { nombre: string; codigo: string | null } | null;
-}
+// Los tipos Vendedor/Gestor viven en el store: los comparten quien los pinta y
+// quien los trae, y asi no se separan cuando cambie el api.
 
 const SIN_ASIGNAR = "__sin_asignar__";
+
+// Referencias FIJAS para cuando aun no hay datos. Si se pusiera [] en linea, seria
+// un array nuevo en cada render y dispararia efectos y memos sin parar.
+const VACIOS: Vendedor[] = [];
+const SIN_GESTORES: Gestor[] = [];
+
+/**
+ * Trae la lista. Se lee de /vendedores/gestores (NO scopeado por sucursal) porque
+ * los vendedores "sin asignar" todavia no tienen sucursal y con /vendedores no
+ * apareceerian: no habria forma de enlazarlos.
+ */
+const traerVendedores = async (signal: AbortSignal) => {
+  const r = await fetch(`${getApiBaseUrl()}/vendedores/gestores`, { signal });
+
+  if (!r.ok) throw new Error("Error al cargar los vendedores");
+  const d = await r.json();
+
+  return {
+    vendedores: d.vendedores ?? [],
+    gestores: d.gestores ?? [],
+    sinAsignar: d.sinAsignar ?? 0,
+  };
+};
 
 interface VendedorStats {
   totalPedidos: number;
@@ -72,10 +71,14 @@ interface VendedorStats {
 }
 
 export const VendedoresList = () => {
-  const [vendedores, setVendedores] = useState<Vendedor[]>([]);
+  const { session } = useAuthStore();
+  const activeSucursalId = session?.isGlobalAdmin
+    ? getSucursalActiva()
+    : session?.sucursalId;
+
   const [filteredVendedores, setFilteredVendedores] = useState<Vendedor[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // No hay estado de error propio: los fallos de ACCION (enlazar gestor, dar de
+  // baja) se avisan con un toast, y los de CARGA los lleva el store.
   const [searchValue, setSearchValue] = useState<string>("");
   const [selectedVendedor, setSelectedVendedor] = useState<Vendedor | null>(
     null,
@@ -88,39 +91,51 @@ export const VendedoresList = () => {
   );
   const [isLoadingStats, setIsLoadingStats] = useState(false);
   const [copiedVendedorId, setCopiedVendedorId] = useState<string | null>(null);
-  const [gestores, setGestores] = useState<Gestor[]>([]);
-  const [sinAsignar, setSinAsignar] = useState(0);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const rowsPerPage = 10;
   const { isOpen, onOpen, onClose } = useDisclosure();
 
-  // Se lee de /vendedores/gestores (NO scopeado por sucursal) porque los vendedores
-  // "sin asignar" todavía no tienen sucursal y con /vendedores no aparecerían,
-  // así que no habría forma de enlazarlos.
-  const fetchVendedores = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
+  // La lista vive en el store, no en un useState de esta vista: asi sobrevive a la
+  // navegacion y volver aqui es instantaneo en vez de costar otra vuelta al
+  // servidor. La clave incluye la sucursal enfocada porque el servidor filtra por
+  // ella; sin eso, cambiar de sucursal enseniaria la lista de la anterior.
+  //
+  // El SSE se aplica EN SITIO: el evento trae el vendedor completo (con gestor,
+  // sucursal y su conteo de pedidos), asi que la tabla no parpadea. Los eventos de
+  // 'usuario' si obligan a releer —cambian los gestores disponibles, que no viajan
+  // en el evento—, pero de fondo.
+  const {
+    datos,
+    cargando: isLoading,
+    error: errorCarga,
+    recargar: fetchVendedores,
+  } = usarVendedores(`vendedores:${activeSucursalId ?? "todas"}`, traerVendedores, {
+    aplicar: (actual, lote) => {
+      const deVendedor = lote.filter((e) => e.tipo === "vendedor");
 
-    try {
-      const response = await fetch(`${getApiBaseUrl()}/vendedores/gestores`);
+      if (deVendedor.length !== lote.length) return null;
 
-      if (!response.ok) {
-        throw new Error("Error al cargar los vendedores");
-      }
+      const lista = aplicarLote<Vendedor>(actual.vendedores, deVendedor, {
+        alPrincipio: true,
+      });
 
-      const data = await response.json();
+      if (lista === null) return null;
+      if (lista === actual.vendedores) return actual;
 
-      setVendedores(data.vendedores ?? []);
-      setFilteredVendedores(data.vendedores ?? []);
-      setGestores(data.gestores ?? []);
-      setSinAsignar(data.sinAsignar ?? 0);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Error desconocido");
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+      return {
+        ...actual,
+        vendedores: lista,
+        // El contador de "sin asignar" es la razon de ser de esta vista: tiene
+        // que cuadrar con lo que se esta viendo, no con lo que trajo el servidor.
+        sinAsignar: lista.filter((v) => v.activo && !v.gestorId).length,
+      };
+    },
+  });
+
+  const vendedores = datos?.vendedores ?? VACIOS;
+  const gestores = datos?.gestores ?? SIN_GESTORES;
+  const sinAsignar = datos?.sinAsignar ?? 0;
 
   // Enlaza el vendedor a un gestor. El backend rellena la sucursal de sus pedidos
   // y clientes -> dejan de estar ocultos en la vista de pedidos.
@@ -263,9 +278,6 @@ export const VendedoresList = () => {
     setPage(1);
   }, [searchValue]);
 
-  // En vivo (SSE): refresca al cambiar vendedores (vínculo, alta/baja).
-  useLiveEvents(["vendedor"], () => fetchVendedores());
-
   // Filter vendedores by search
   useEffect(() => {
     if (searchValue.trim() === "") {
@@ -329,18 +341,21 @@ export const VendedoresList = () => {
         </CardBody>
       </Card>
 
-      {/* Loading State */}
-      {isLoading && (
+      {/* Cargando. `datos == null` = aun no ha llegado la primera carga; se
+          excluye el caso con error para no pintar el spinner ENCIMA del aviso
+          de fallo, que dejaba la pantalla girando con el error debajo sin que
+          se entendiera que ya no iba a llegar nada. */}
+      {(isLoading || (datos == null && !errorCarga)) && (
         <div className="flex justify-center py-8">
           <Spinner color="primary" size="lg" />
         </div>
       )}
 
       {/* Error State */}
-      {error && (
+      {errorCarga && (
         <Card>
           <CardBody className="text-center py-6">
-            <p className="text-danger">{error}</p>
+            <p className="text-danger">{errorCarga}</p>
             <Button
               className="mt-4"
               color="primary"
@@ -353,7 +368,7 @@ export const VendedoresList = () => {
       )}
 
       {/* Vendedores Table */}
-      {!isLoading && !error && (
+      {!isLoading && !errorCarga && datos != null && (
         <>
           <Card className={cn(cards({ border: "default" }))}>
             <CardHeader>
@@ -380,7 +395,7 @@ export const VendedoresList = () => {
                         <div className="flex flex-wrap items-center gap-1.5 mt-1">
                           {vendedor.gestorId ? (
                             <Chip color="success" size="sm" variant="flat">
-                              Gestor: {vendedor.gestor?.username}
+                              Gestor: {mostrarUsuario(vendedor.gestor?.username)}
                               {vendedor.sucursal?.codigo
                                 ? ` · ${vendedor.sucursal.codigo}`
                                 : ""}
@@ -426,7 +441,7 @@ export const VendedoresList = () => {
                           <SelectItem key={SIN_ASIGNAR}>Sin asignar</SelectItem>,
                           ...gestores.map((g) => (
                             <SelectItem key={g.id}>
-                              {`${g.username}${g.sucursal?.codigo ? ` · ${g.sucursal.codigo}` : ""}`}
+                              {`${mostrarUsuario(g.username)}${g.sucursal?.codigo ? ` · ${g.sucursal.codigo}` : ""}`}
                             </SelectItem>
                           )),
                         ]}
@@ -541,7 +556,7 @@ export const VendedoresList = () => {
                       <span className="text-sm font-semibold">Gestor:</span>
                       {detalle?.gestorId ? (
                         <Chip color="success" size="sm" variant="flat">
-                          {detalle.gestor?.username}
+                          {mostrarUsuario(detalle.gestor?.username)}
                           {detalle.sucursal?.codigo
                             ? ` · ${detalle.sucursal.codigo}`
                             : ""}
@@ -589,7 +604,7 @@ export const VendedoresList = () => {
                           <SelectItem key={SIN_ASIGNAR}>Sin asignar</SelectItem>,
                           ...gestores.map((g) => (
                             <SelectItem key={g.id}>
-                              {`${g.username}${g.sucursal?.codigo ? ` · ${g.sucursal.codigo}` : ""}`}
+                              {`${mostrarUsuario(g.username)}${g.sucursal?.codigo ? ` · ${g.sucursal.codigo}` : ""}`}
                             </SelectItem>
                           )),
                         ]}
