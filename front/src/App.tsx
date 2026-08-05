@@ -83,11 +83,20 @@ function App() {
           {/* Pedidos */}
           <Route element={<PedidosPanelPage />} path="/panel/panel-pedidos" />
 
-          {/* Vendedores — solo gestión (Super Admin/Administrador/Supervisor). El Gestor NO. */}
+          {/* Vendedores. El OPERADOR tambien entra: es quien factura, y necesita
+              ver los vendedores de SU sucursal para copiar el codigo al
+              portapapeles y pegarlo en el sistema contable. Solo eso — no puede
+              dar de alta/baja ni reasignar gestor (se le ocultan los botones, y
+              el servidor lo rechaza igual). El Gestor sigue sin entrar. */}
           <Route
             element={
               <AdminRoute
-                allowedRoles={["Super Admin", "Administrador", "Supervisor"]}
+                allowedRoles={[
+                  "Super Admin",
+                  "Administrador",
+                  "Supervisor",
+                  "Operador",
+                ]}
               />
             }
           >

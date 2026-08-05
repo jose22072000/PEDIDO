@@ -71,7 +71,13 @@ interface VendedorStats {
 }
 
 export const VendedoresList = () => {
-  const { session } = useAuthStore();
+  const { session, user } = useAuthStore();
+  // El OPERADOR entra a esta vista solo para copiar el codigo del vendedor y
+  // pegarlo en el sistema contable. No gestiona: ni alta/baja, ni reasignar
+  // gestor, ni ver el detalle. Ocultarlo aqui es por comodidad — quien lo
+  // impide de verdad es el servidor, que rechaza esas rutas para su rol.
+  const puedeGestionar =
+    !["operador", "gestor"].includes(String(user?.role || "").toLowerCase());
   const activeSucursalId = session?.isGlobalAdmin
     ? getSucursalActiva()
     : session?.sucursalId;
@@ -321,7 +327,7 @@ export const VendedoresList = () => {
           <h3 className="font-bold text-lg">Filtrar</h3>
         </CardHeader>
         <CardBody className="gap-4">
-          {sinAsignar > 0 && (
+          {puedeGestionar && sinAsignar > 0 && (
             <div className="p-3 text-sm border rounded-lg bg-warning-50 border-warning-200 text-warning-700">
               Hay <b>{sinAsignar}</b> vendedor{sinAsignar > 1 ? "es" : ""} sin
               gestor. Sus pedidos están <b>ocultos</b> hasta que le asignes uno;
@@ -414,6 +420,7 @@ export const VendedoresList = () => {
                       </div>
                     </div>
                     <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
+                      {puedeGestionar && (
                       <Select
                         aria-label="Asignar gestor"
                         className="w-full sm:w-52"
@@ -446,6 +453,7 @@ export const VendedoresList = () => {
                           )),
                         ]}
                       </Select>
+                      )}
                       <div className="flex flex-row gap-2">
                         <Button
                           className="flex-1 md:flex-none"
@@ -462,26 +470,30 @@ export const VendedoresList = () => {
                             ? "Copiado"
                             : "Copiar"}
                         </Button>
-                        <Button
-                          className="flex-1 md:flex-none"
-                          color="primary"
-                          startContent={<Icons.eye className="size-5" />}
-                          variant="ghost"
-                          onPress={() => handleOpenDetails(vendedor)}
-                        >
-                          Ver Detalles
-                        </Button>
-                        <Button
-                          className="flex-1 md:flex-none"
-                          color={vendedor.activo ? "danger" : "success"}
-                          isLoading={savingId === vendedor.id}
-                          variant="ghost"
-                          onPress={() =>
-                            handleSetActivo(vendedor, !vendedor.activo)
-                          }
-                        >
-                          {vendedor.activo ? "Dar de baja" : "Reactivar"}
-                        </Button>
+                        {puedeGestionar && (
+                          <>
+                            <Button
+                              className="flex-1 md:flex-none"
+                              color="primary"
+                              startContent={<Icons.eye className="size-5" />}
+                              variant="ghost"
+                              onPress={() => handleOpenDetails(vendedor)}
+                            >
+                              Ver Detalles
+                            </Button>
+                            <Button
+                              className="flex-1 md:flex-none"
+                              color={vendedor.activo ? "danger" : "success"}
+                              isLoading={savingId === vendedor.id}
+                              variant="ghost"
+                              onPress={() =>
+                                handleSetActivo(vendedor, !vendedor.activo)
+                              }
+                            >
+                              {vendedor.activo ? "Dar de baja" : "Reactivar"}
+                            </Button>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>

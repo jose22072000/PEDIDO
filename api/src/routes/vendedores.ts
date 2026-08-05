@@ -110,8 +110,15 @@ router.get('/gestores', async (req, res) => {
       return res.status(400).json({ error: 'Debes tener una sucursal asignada.' });
     }
 
+    // Los vendedores SIN sucursal se enseñan solo a quien puede enlazarlos: si
+    // no, seria imposible asignarles gestor. A quien solo lee —el Operador, que
+    // entra a copiar el codigo para facturar— se le enseña UNICAMENTE su
+    // sucursal; los sin asignar son de cualquier otra y para el son ruido.
+    const puedeGestionar = getRequesterContext(req).puedeGestionarVendedores;
     const scopeVendedores = sucursalId
-      ? { OR: [{ sucursalId }, { sucursalId: null }] }
+      ? puedeGestionar
+        ? { OR: [{ sucursalId }, { sucursalId: null }] }
+        : { sucursalId }
       : {};
     const scopeGestores = sucursalId ? { sucursalId } : {};
 
@@ -158,6 +165,12 @@ router.get('/gestores', async (req, res) => {
 // las listas, pero se CONSERVA su histórico de pedidos (no se borra nada).
 router.patch('/:id/activo', async (req, res) => {
   try {
+    // El Operador solo LEE esta vista (factura y copia el codigo al
+    // portapapeles). Ocultarle los botones en la pantalla no es proteccion:
+    // la comprobacion de verdad va aqui.
+    if (!getRequesterContext(req).puedeGestionarVendedores) {
+      return res.status(403).json({ error: 'No tienes permiso para modificar vendedores.' });
+    }
     const { id } = req.params;
     const { activo } = req.body as { activo?: boolean };
     if (typeof activo !== 'boolean') {
@@ -199,6 +212,12 @@ router.patch('/:id/activo', async (req, res) => {
 // que quedaron en null mientras estaba "Sin asignar" -> dejan de estar ocultos.
 router.patch('/:id/gestor', async (req, res) => {
   try {
+    // El Operador solo LEE esta vista (factura y copia el codigo al
+    // portapapeles). Ocultarle los botones en la pantalla no es proteccion:
+    // la comprobacion de verdad va aqui.
+    if (!getRequesterContext(req).puedeGestionarVendedores) {
+      return res.status(403).json({ error: 'No tienes permiso para modificar vendedores.' });
+    }
     const { id } = req.params;
     const { gestorId } = req.body as { gestorId?: string | null };
 

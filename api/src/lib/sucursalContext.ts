@@ -21,6 +21,8 @@ interface RequesterContext {
   sucursalId?: string | null;
   /** Ve TODAS las sucursales. Solo el Super Admin. */
   isGlobalAdmin: boolean;
+  /** Puede dar de alta/baja vendedores y enlazarlos a un gestor. */
+  puedeGestionarVendedores: boolean;
   isSuperAdmin: boolean;
   /** Puede entrar a Usuarios (Super Admin o Administrador). */
   canManageUsers: boolean;
@@ -102,6 +104,7 @@ export function getRequesterContext(req: Request): RequesterContext {
       isSuperAdmin: false,
       canManageUsers: false,
       isGestor: false,
+      puedeGestionarVendedores: false,
     };
   }
 
@@ -121,6 +124,12 @@ export function getRequesterContext(req: Request): RequesterContext {
   const isGlobalAdmin = isSuperAdmin;
   const canManageUsers = isSuperAdmin || role === 'ADMINISTRADOR';
   const isGestor = role === 'GESTOR';
+  // Quien puede TOCAR vendedores: darlos de alta/baja y enlazarlos a un gestor.
+  // El Operador NO: factura, y para eso solo necesita LEER la lista y copiar el
+  // codigo al portapapeles. Dejarle escribir seria darle de baja a un vendedor
+  // por un mal clic mientras trabaja.
+  const puedeGestionarVendedores =
+    isSuperAdmin || role === 'ADMINISTRADOR' || role === 'SUPERVISOR';
 
   return {
     userId: payload?.userId,
@@ -131,6 +140,7 @@ export function getRequesterContext(req: Request): RequesterContext {
     isSuperAdmin,
     canManageUsers,
     isGestor,
+    puedeGestionarVendedores,
   };
 }
 
