@@ -137,6 +137,8 @@ export function crearStoreDatos<T>(tiposPorDefecto: string[] = []) {
     aplicarRef.current = aplicar;
 
     const abortRef = useRef<AbortController | null>(null);
+    // De que clave es la peticion viva. Sirve para no cancelarse a si misma.
+    const claveEnVuelo = useRef<string | null>(null);
     const claveRef = useRef(clave);
 
     claveRef.current = clave;
@@ -147,10 +149,20 @@ export function crearStoreDatos<T>(tiposPorDefecto: string[] = []) {
       // eslint-disable-next-line no-console
       console.log("[store] recargar", { clave: k, fondo });
 
-      abortRef.current?.abort();
+      // Solo se cancela lo anterior si era de OTRA clave (cambio el filtro o la
+      // sucursal). Antes se cancelaba siempre, tambien contra si misma: si el
+      // efecto se volvia a ejecutar por cualquier motivo, la peticion en curso
+      // moria y empezaba otra, que moria igual. En el navegador se veia
+      // "recargar" cientos de veces por segundo y un AbortError detras de cada
+      // una, sin que ninguna llegara a traer nada: pantalla en blanco para
+      // siempre.
+      if (claveEnVuelo.current !== null && claveEnVuelo.current !== k) {
+        abortRef.current?.abort();
+      }
       const ctrl = new AbortController();
 
       abortRef.current = ctrl;
+      claveEnVuelo.current = k;
 
       const hayDatos = useStore.getState().entradas[k]?.datos != null;
 
@@ -164,11 +176,14 @@ export function crearStoreDatos<T>(tiposPorDefecto: string[] = []) {
         // eslint-disable-next-line no-console
         console.log("[store] llegaron datos", { clave: k, datos });
         sumarEnVuelo(k, -1);
+        if (claveEnVuelo.current === k) claveEnVuelo.current = null;
         fijar(k, { datos, cargando: false, error: null, traidoEn: Date.now() });
       } catch (e) {
         // eslint-disable-next-line no-console
         console.error("[store] FALLO al traer", { clave: k, abortada: ctrl.signal.aborted, e });
         const quedan = sumarEnVuelo(k, -1);
+
+        if (claveEnVuelo.current === k) claveEnVuelo.current = null;
 
         if (ctrl.signal.aborted) {
           // Cancelada a propósito (cambió el filtro, se desmontó la vista). No es
@@ -206,7 +221,13 @@ export function crearStoreDatos<T>(tiposPorDefecto: string[] = []) {
 
       // Dato fresco: se pinta al instante y no se pide nada. Volver a una vista
       // deja de costar una vuelta al servidor.
-      if (!fresco) void recargar(e?.datos != null);
+      //
+      // Y si YA hay una peticion viva para esta clave, no se lanza otra. Sin
+      // esta comprobacion, cada vez que el efecto se vuelve a ejecutar —y se
+      // ejecuta mas veces de las que uno espera— se disparaba una peticion
+      // nueva que mataba a la que estaba a punto de responder. Nunca llegaba
+      // ninguna.
+      if (!fresco && !(enVuelo.get(clave) ?? 0)) void recargar(e?.datos != null);
 
       return () => abortRef.current?.abort();
       // eslint-disable-next-line react-hooks/exhaustive-deps
