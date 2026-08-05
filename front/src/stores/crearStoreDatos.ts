@@ -198,6 +198,15 @@ export function crearStoreDatos<T>(tiposPorDefecto: string[] = []) {
       }
     }).current;
 
+    // Estable por el mismo motivo que `recargar`: si cambiara de identidad en
+    // cada render, cualquier efecto que dependa de ella entraria en bucle.
+    const actualizarRef = useRef((fn: (actual: T | null) => T | null) => {
+      const k = claveRef.current;
+      const actual = useStore.getState().entradas[k]?.datos ?? null;
+
+      fijar(k, { datos: fn(actual) });
+    }).current;
+
     useEffect(() => {
       if (!activo) return;
       const e = useStore.getState().entradas[clave];
@@ -266,19 +275,26 @@ export function crearStoreDatos<T>(tiposPorDefecto: string[] = []) {
       datos: entrada.datos,
       cargando: entrada.cargando,
       error: entrada.error,
-      /** Recarga manual (botón "reintentar"/"actualizar"). */
-      recargar: (fondo = false) => recargar(fondo),
+      /**
+       * Recarga manual (botón "reintentar"/"actualizar").
+       *
+       * Se devuelve la MISMA función siempre, no una flecha nueva envolviéndola.
+       * Parece un detalle y no lo es: quien la reciba puede ponerla como
+       * dependencia de un efecto —`useEffect(() => { recargar(); },
+       * [recargar])`, que es lo natural para "cargar al montar"— y con una
+       * función nueva en cada render ese efecto se vuelve a ejecutar SIEMPRE.
+       * Pide datos, llegan, se repinta, vuelve a haber función nueva, vuelve a
+       * pedir... hasta que React corta con "Maximum update depth exceeded" y la
+       * pantalla se queda sin nada. Es exactamente lo que le pasaba a la vista
+       * de vendedores.
+       */
+      recargar,
       /**
        * Modifica lo cacheado SIN pedir nada al servidor. Para cambios que hace
        * la propia vista (borrar una fila, marcar completado) y que ya sabe el
        * resultado: se refleja al instante en vez de esperar una vuelta.
        */
-      actualizar: (fn: (actual: T | null) => T | null) => {
-        const k = claveRef.current;
-        const actual = useStore.getState().entradas[k]?.datos ?? null;
-
-        fijar(k, { datos: fn(actual) });
-      },
+      actualizar: actualizarRef,
     };
   }
 
