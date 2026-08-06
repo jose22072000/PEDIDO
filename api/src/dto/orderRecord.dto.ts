@@ -14,9 +14,14 @@ export interface ClientDto {
 // DTO for order item data
 export interface OrderItemDto {
   producto: string;
+  codigo?: string | null;
   unidades: number;
   packs?: number | null;
   descripcion?: string | null;
+  /** Hectolitros de esta linea. Lo manda Parranda desde el 06/08/2026. */
+  hl?: number | null;
+  /** Importe de esta linea. Lo manda Parranda desde el 06/08/2026. */
+  precio_linea?: number | null;
 }
 
 // DTO for order data
@@ -37,6 +42,15 @@ export interface OrderRecordDto {
   client: ClientDto;
   order: OrderDto;
   item: OrderItemDto;
+}
+
+/** Numero de una celda que puede venir vacia. Vacio o ilegible = null, no 0. */
+function numeroOpcional(v: unknown): number | null {
+  if (v === undefined || v === null) return null;
+  const s = String(v).trim().replace(',', '.');
+  if (s === '') return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
 }
 
 // Mapper function to transform CSV records to structured DTO
@@ -121,9 +135,22 @@ export function mapCsvToOrderRecord(csvRecord: any): OrderRecordDto {
     },
     item: {
       producto: producto,
+      // El codigo del producto tal cual lo manda Parranda (ALIM0011...). Venia
+      // en el CSV y se estaba tirando: la columna del modelo existia vacia.
+      codigo: (() => {
+        const raw = csvRecord.codigo_producto || csvRecord.codigoProducto || csvRecord.codigo;
+        const str = raw == null ? '' : String(raw).trim();
+        return str === '' ? null : str;
+      })(),
       unidades: Number(csvRecord.unidades || csvRecord.Unidades || 0),
       packs: csvRecord.packs || csvRecord.Packs ? Number(csvRecord.packs || csvRecord.Packs) : null,
       descripcion: csvRecord.descripcion || csvRecord.Descripcion || null,
+      // hl y precio_linea: los añadio Parranda el 06/08/2026. Vienen VACIOS en
+      // las lineas que no son de bebida (el arroz no tiene hectolitros), asi que
+      // una celda en blanco es null y NO cero: cero significaria "medido y da 0",
+      // y eso al sumar miente. Numero mal formado tambien es null, por lo mismo.
+      hl: numeroOpcional(csvRecord.hl ?? csvRecord.HL),
+      precio_linea: numeroOpcional(csvRecord.precio_linea ?? csvRecord.precioLinea),
     },
   };
 }

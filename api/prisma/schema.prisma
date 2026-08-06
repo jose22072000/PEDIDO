@@ -113,6 +113,16 @@ model PedidoItem {
     packs       Int?    @default(0)
     descripcion String?
 
+    // Campos que empezo a mandar Parranda el 06/08/2026. Van en la LINEA porque
+    // son de la linea: los hectolitros y el importe de ESE producto en ESA
+    // cantidad, no del pedido entero.
+    //
+    // Decimal y no Float: son cantidades e importes. Un Float redondea en
+    // binario y al sumar miles de lineas el total se desvia de lo que dice el
+    // papel — en dinero eso no se puede.
+    hl           Decimal? @db.Decimal(12, 4)
+    precio_linea Decimal? @db.Decimal(14, 2)
+
     // Prisma NO crea indices automaticos sobre las claves foraneas en
     // PostgreSQL. Sin este, cada vez que se traen los items de un pedido se
     // recorre la tabla ENTERA: medido, 43 escaneos completos habian leido
