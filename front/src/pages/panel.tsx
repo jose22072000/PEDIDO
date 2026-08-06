@@ -33,6 +33,14 @@ export default function PanelPage() {
     "operador",
   ].includes(role);
   const canManageUsers = ["administrador", "super admin"].includes(role);
+  // La OPERADORA factura: ve todos los pedidos de SU sucursal, sus vendedores y
+  // sus clientes, y copia los codigos al sistema contable. Lo que no hace es
+  // meter datos ni sacar informes — subir el CSV de Parranda y los reportes no
+  // son suyos. Ocultar la tarjeta es comodidad; quien lo impide de verdad es la
+  // ruta y el servidor.
+  const esOperador = role === "operador";
+  const puedeImportar = !esOperador && !isGestor;
+  const puedeVerReportes = !esOperador && !isGestor;
 
   // El provider ya pide las estadísticas al montarse: volver a pedirlas aquí
   // duplicaba la petición en cada entrada al panel. Con enlaces lentos eso es
@@ -68,13 +76,15 @@ export default function PanelPage() {
               icon="pedido"
               title="Pedidos"
             />
-            <ActionCard
-              color="primary"
-              description="Archivo csv de parranda"
-              href="/panel/panel-pedidos/nuevo"
-              icon="add"
-              title="Importar Pedido"
-            />
+            {puedeImportar && (
+              <ActionCard
+                color="primary"
+                description="Archivo csv de parranda"
+                href="/panel/panel-pedidos/nuevo"
+                icon="add"
+                title="Importar Pedido"
+              />
+            )}
             {canVerVendedores && (
               <ActionCard
                 color="secondary"
@@ -109,7 +119,7 @@ export default function PanelPage() {
                 title="Usuarios"
               />
             )}
-            {!isGestor && (
+            {puedeVerReportes && (
               <ActionCard
                 color="danger"
                 description="Generar y exportar reportes"

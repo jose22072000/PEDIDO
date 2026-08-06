@@ -120,33 +120,49 @@ function App() {
             {/* Mi perfil: cualquier usuario autenticado ve SUS datos y SUS métricas. */}
             <Route element={<MiPerfilPage />} path="/panel/mi-perfil" />
 
-            {/* Reportes */}
-            <Route element={<ReportesPage />} path="/panel/reportes" />
+            {/* Reportes: NO son para el Operador. Factura con los pedidos que ya
+              están; sacar informes de la sucursal no es cosa suya. El servidor
+              los rechaza igual para su rol. */}
             <Route
-              element={<ReportePedidosFechaPage />}
-              path="/panel/reportes/pedidos-fecha"
-            />
-            <Route
-              element={<ReportePedidosVendedorPage />}
-              path="/panel/reportes/pedidos-vendedor"
-            />
-            <Route
-              element={<ReportePedidosEstadoPage />}
-              path="/panel/reportes/pedidos-estado"
-            />
-            <Route
-              element={<ReporteProductosVendedorPage />}
-              path="/panel/reportes/productos-vendedor"
-            />
-            <Route
-              element={<ReporteCopiasPage />}
-              path="/panel/reportes/copias"
-            />
+              element={
+                <AdminRoute
+                  allowedRoles={[
+                    "Super Admin",
+                    "Administrador",
+                    "Supervisor",
+                    "Gestor",
+                  ]}
+                />
+              }
+            >
+              <Route element={<ReportesPage />} path="/panel/reportes" />
+              <Route
+                element={<ReportePedidosFechaPage />}
+                path="/panel/reportes/pedidos-fecha"
+              />
+              <Route
+                element={<ReportePedidosVendedorPage />}
+                path="/panel/reportes/pedidos-vendedor"
+              />
+              <Route
+                element={<ReportePedidosEstadoPage />}
+                path="/panel/reportes/pedidos-estado"
+              />
+              <Route
+                element={<ReporteProductosVendedorPage />}
+                path="/panel/reportes/productos-vendedor"
+              />
+              <Route
+                element={<ReporteCopiasPage />}
+                path="/panel/reportes/copias"
+              />
+            </Route>
           </Route>
 
           {/* Nuevo Pedido / Importar: roles operativos suben SUS pedidos. El backend scopea
             por sucursal y, para el gestor, restringe a SUS vendedores. Allowlist EXPLÍCITA
-            (no "cualquier autenticado") para que un rol futuro de solo-lectura no importe. */}
+            (no "cualquier autenticado") para que un rol futuro de solo-lectura no importe.
+            El OPERADOR no entra: factura con lo que ya está subido, no mete datos. */}
           <Route element={<ProtectedRoute />}>
             <Route
               element={
@@ -156,7 +172,6 @@ function App() {
                     "Administrador",
                     "Supervisor",
                     "Gestor",
-                    "Operador",
                   ]}
                 />
               }

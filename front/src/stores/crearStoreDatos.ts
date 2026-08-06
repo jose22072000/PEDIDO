@@ -98,6 +98,28 @@ const sumarEnVuelo = (clave: string, n: number) => {
 /** Solo para las pruebas: deja mirar el contador de peticiones vivas. */
 export const _enVueloParaPruebas = enVuelo;
 
+/**
+ * Todos los stores de datos creados, para poder vaciarlos a la vez.
+ *
+ * Al cerrar sesion hay que tirar lo que se trajo: los datos de una sucursal
+ * viven en memoria y una navegacion normal NO recarga la pagina, asi que sin
+ * esto el siguiente que entre en el mismo navegador arranca viendo, durante un
+ * instante, las filas del anterior. Con usuarios de sucursales distintas eso es
+ * enseniar datos que no le tocan.
+ */
+const vaciadores: Array<() => void> = [];
+
+/** Tira TODO lo cacheado. Se llama al entrar y al salir. */
+export function limpiarTodosLosDatos() {
+  for (const vaciar of vaciadores) {
+    try {
+      vaciar();
+    } catch {
+      /* que falle uno no puede impedir vaciar los demas */
+    }
+  }
+}
+
 export function crearStoreDatos<T>(tiposPorDefecto: string[] = []) {
   const useStore = create<StoreDatos<T>>((set) => ({
     entradas: {},
@@ -110,6 +132,8 @@ export function crearStoreDatos<T>(tiposPorDefecto: string[] = []) {
       })),
     invalidar: () => set({ entradas: {} }),
   }));
+
+  vaciadores.push(() => useStore.getState().invalidar());
 
   /**
    * @param clave  identifica la consulta (página + filtros). Cada combinación

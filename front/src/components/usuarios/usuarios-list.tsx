@@ -33,6 +33,7 @@ import { usarUsuarios, type Usuario } from "@/stores/datos/usuarios";
 import { getSucursalActiva } from "@/components/sucursal-selector";
 import { useAuthStore } from "@/stores/authStore";
 import { mostrarUsuario } from "@/lib/nombre-usuario";
+import { useCerrarAlPulsarFuera } from "@/hooks/cerrar-al-pulsar-fuera";
 
 // El tipo Usuario vive en el store (stores/datos/usuarios), no aquí: lo comparten
 // quien lo pinta y quien lo trae, y así no se separan cuando cambie el api.
@@ -74,6 +75,9 @@ export const UsuariosList = () => {
   const [page, setPage] = useState(1);
   const rowsPerPage = 10;
   const { isOpen, onOpen, onClose } = useDisclosure();
+
+  // Pulsar fuera cierra; elegir en un desplegable NO (se dibuja fuera del modal).
+  useCerrarAlPulsarFuera(isOpen, onClose);
 
   // Edición de usuario (modal aparte del de borrar).
   const {
@@ -486,6 +490,7 @@ export const UsuariosList = () => {
 
       {/* Modal EDITAR usuario */}
       <Modal
+        isDismissable={false}
         isOpen={isEditOpen}
         placement="center"
         scrollBehavior="outside"

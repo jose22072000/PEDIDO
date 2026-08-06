@@ -40,6 +40,7 @@ import "@/styles/components/typo.css";
 // Global fetch wrapper: attach Authorization Bearer header from localStorage if present
 // This keeps existing fetch calls working without modifying every file.
 import { senalConTope } from "@/lib/senal-con-tope";
+import { getSucursalActiva } from "@/lib/sucursal-activa";
 
 const _origFetch = window.fetch.bind(window) as (
   input: RequestInfo | URL,
@@ -52,26 +53,33 @@ window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
       typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
     const authStorageRaw =
       typeof window !== "undefined" ? localStorage.getItem("auth-storage") : null;
+    let esGlobal = false;
     let sessionSucursalId: string | undefined;
 
     if (authStorageRaw) {
       try {
         const parsed = JSON.parse(authStorageRaw) as {
-          state?: { session?: { sucursalId?: string } };
+          state?: { session?: { sucursalId?: string; isGlobalAdmin?: boolean } };
         };
+
         sessionSucursalId = parsed?.state?.session?.sucursalId;
+        esGlobal = Boolean(parsed?.state?.session?.isGlobalAdmin);
       } catch {
         // ignore invalid persisted payload
       }
     }
 
-    // El Super Admin no tiene sucursal propia: puede elegir una para enfocarse
-    // ("sucursal_activa"). Si no elige ninguna, no se manda header y ve TODAS.
-    const sucursalActiva =
-      typeof window !== "undefined"
-        ? localStorage.getItem("sucursal_activa")
-        : null;
-    const sucursalId = sucursalActiva || sessionSucursalId;
+    // La sucursal ENFOCADA es cosa del Super Admin: es el unico que no tiene
+    // sucursal propia y puede elegir en cual concentrarse. Los demas van SIEMPRE
+    // a la suya, la que dice su sesion.
+    //
+    // Antes se usaba la guardada para todo el mundo, y ahi estuvo el fallo:
+    // tras entrar como admin enfocado en una sucursal y luego con otra cuenta,
+    // esa eleccion seguia guardada y el navegador mandaba la sucursal de OTRO.
+    // El servidor lo rechazaba con razon -> 400 en pedidos, vendedores, clientes
+    // y en el canal de eventos, todo a la vez. Ahora el valor guardado ni se
+    // mira si el que pide no es global: no hay forma de que vuelva a pasar.
+    const sucursalId = esGlobal ? getSucursalActiva() : sessionSucursalId;
 
     init = init || {};
     init.headers = Object.assign(

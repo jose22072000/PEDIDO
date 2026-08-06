@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Icons from "@/components/icons/iconify";
 import { useAuthStore } from "@/stores/authStore";
 import { getApiBaseUrl } from "@/config";
+import { SUCURSAL_ACTIVA_KEY, TODAS, getSucursalActiva } from "@/lib/sucursal-activa";
 
 /**
  * Sucursal en la que el Super Admin está "enfocado".
@@ -14,27 +15,10 @@ import { getApiBaseUrl } from "@/config";
  *
  * Los demás usuarios no ven el selector: siempre operan en su sucursal.
  */
-export const SUCURSAL_ACTIVA_KEY = "sucursal_activa";
-const TODAS = "__todas__";
-
-export function getSucursalActiva(): string | null {
-  if (typeof window === "undefined") return null;
-
-  const guardado = localStorage.getItem(SUCURSAL_ACTIVA_KEY);
-
-  // "__todas__" NO es un id de sucursal, es el valor del desplegable. Elegir
-  // "Todas" borra la clave, pero los navegadores que la guardaron antes la
-  // siguen mandando en la cabecera x-sucursal-id, y el api la buscaba como si
-  // fuera un id real: no encontraba nada y devolvía cero filas. Se limpia al
-  // leerla para que esos navegadores se arreglen solos.
-  if (!guardado || guardado === TODAS) {
-    if (guardado) localStorage.removeItem(SUCURSAL_ACTIVA_KEY);
-
-    return null;
-  }
-
-  return guardado;
-}
+// La clave y la limpieza viven en `lib/sucursal-activa`: las lee tambien el
+// envoltorio de fetch, y tener dos reglas para el mismo valor fue justo lo que
+// dejo a las operadoras sin ver nada.
+export { SUCURSAL_ACTIVA_KEY, getSucursalActiva } from "@/lib/sucursal-activa";
 
 interface Sucursal {
   id: string;

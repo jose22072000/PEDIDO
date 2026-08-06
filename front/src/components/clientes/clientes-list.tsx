@@ -31,6 +31,7 @@ import {
   type Cliente,
   type RespuestaClientes,
 } from "@/stores/datos/clientes";
+import { useCerrarAlPulsarFuera } from "@/hooks/cerrar-al-pulsar-fuera";
 
 // Los tipos viven en el store: los comparten quien los pinta y quien los trae.
 
@@ -83,6 +84,9 @@ export const ClientesList = () => {
   const [selectedCliente, setSelectedCliente] = useState<Cliente | null>(null);
   const [copiedClienteId, setCopiedClienteId] = useState<string | null>(null);
   const { isOpen, onOpen, onClose } = useDisclosure();
+
+  // Pulsar fuera cierra; elegir en un desplegable NO (se dibuja fuera del modal).
+  useCerrarAlPulsarFuera(isOpen, onClose);
 
   // Cada combinacion de pagina + filtros + sucursal se cachea por separado: la
   // clave TIENE que llevarlas todas, o se enseniarian los datos de otra consulta.
@@ -336,6 +340,7 @@ export const ClientesList = () => {
 
       {/* Cliente Details Modal */}
       <Modal
+        isDismissable={false}
         isOpen={isOpen}
         placement="center"
         scrollBehavior="outside"

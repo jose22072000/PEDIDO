@@ -18,6 +18,7 @@ import Icons from "@/components/icons/iconify";
 import { useAuthStore } from "@/stores/authStore";
 import { getApiBaseUrl } from "@/config";
 import { mostrarUsuario } from "@/lib/nombre-usuario";
+import { useCerrarAlPulsarFuera } from "@/hooks/cerrar-al-pulsar-fuera";
 
 /**
  * Menú de perfil (avatar): muestra QUIÉN eres y con qué cuenta entraste, deja
@@ -28,6 +29,12 @@ export const UserMenu = () => {
   const navigate = useNavigate();
 
   const [open, setOpen] = useState(false);
+
+  
+
+  // Pulsar fuera cierra; elegir en un desplegable NO (se dibuja fuera del modal).
+
+  useCerrarAlPulsarFuera(open, () => setOpen(false));
   const [actual, setActual] = useState("");
   const [nueva, setNueva] = useState("");
   const [confirmar, setConfirmar] = useState("");
@@ -141,7 +148,7 @@ export const UserMenu = () => {
         </DropdownMenu>
       </Dropdown>
 
-      <Modal isOpen={open} placement="center" onClose={() => setOpen(false)}>
+      <Modal isDismissable={false} isOpen={open} placement="center" onClose={() => setOpen(false)}>
         <ModalContent>
           {(onClose) => (
             <>

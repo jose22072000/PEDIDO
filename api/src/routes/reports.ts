@@ -1,9 +1,23 @@
 import { Router, type Response } from 'express';
 import prisma from '../prismaClient';
-import { resolveSucursalFilter } from '../lib/sucursalContext';
+import { getRequesterContext, resolveSucursalFilter } from '../lib/sucursalContext';
 import { parsearFechaConsulta } from '../lib/fechaConsulta';
 
 const router = Router();
+
+/**
+ * Los informes NO son para el Operador: factura con los pedidos que ya están
+ * subidos. Se comprueba UNA vez para todo el router en vez de repetirlo en cada
+ * ruta — asi una ruta nueva nace protegida en lugar de nacer abierta y esperar a
+ * que alguien se acuerde.
+ */
+router.use((req, res, next) => {
+  if (!getRequesterContext(req).puedeImportarYReportar) {
+    return res.status(403).json({ error: 'Tu usuario no puede generar reportes.' });
+  }
+
+  return next();
+});
 
 /**
  * Lee una fecha de la URL y corta la petición si no sirve.

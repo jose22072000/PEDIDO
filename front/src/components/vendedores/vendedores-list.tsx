@@ -36,6 +36,7 @@ import {
   type Vendedor,
   type Gestor,
 } from "@/stores/datos/vendedores";
+import { useCerrarAlPulsarFuera } from "@/hooks/cerrar-al-pulsar-fuera";
 
 // Los tipos Vendedor/Gestor viven en el store: los comparten quien los pinta y
 // quien los trae, y asi no se separan cuando cambie el api.
@@ -116,6 +117,9 @@ export const VendedoresList = () => {
   const rowsPerPage = 10;
   const { isOpen, onOpen, onClose } = useDisclosure();
   const [abrirNuevo, setAbrirNuevo] = useState(false);
+
+  // Pulsar fuera cierra; elegir en un desplegable NO (se dibuja fuera del modal).
+  useCerrarAlPulsarFuera(isOpen, onClose);
 
   // La lista vive en el store, no en un useState de esta vista: asi sobrevive a la
   // navegacion y volver aqui es instantaneo en vez de costar otra vuelta al
@@ -579,6 +583,7 @@ export const VendedoresList = () => {
 
       {/* Vendedor Details Modal */}
       <Modal
+        isDismissable={false}
         isOpen={isOpen}
         placement="center"
         scrollBehavior="outside"

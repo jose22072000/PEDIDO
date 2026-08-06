@@ -16,6 +16,7 @@ import { useCallback, useEffect, useState } from "react";
 import { getApiBaseUrl } from "@/config";
 import { mostrarUsuario } from "@/lib/nombre-usuario";
 import { type Gestor } from "@/stores/datos/vendedores";
+import { useCerrarAlPulsarFuera } from "@/hooks/cerrar-al-pulsar-fuera";
 
 /**
  * Alta manual de un vendedor.
@@ -70,6 +71,10 @@ export const NuevoVendedor = ({
   const [previa, setPrevia] = useState<VistaPrevia | null>(null);
   const [comprobando, setComprobando] = useState(false);
   const [guardando, setGuardando] = useState(false);
+
+  // Pulsar fuera cierra; elegir en el desplegable de Gestor NO: se dibuja
+  // fuera del modal y la libreria lo confunde con un clic de fuera.
+  useCerrarAlPulsarFuera(isOpen, onClose);
 
   // Se limpia al abrir, no al cerrar: si se cierra con un error a medias y se
   // vuelve a abrir, se empieza de cero en vez de heredar lo anterior.
@@ -159,7 +164,13 @@ export const NuevoVendedor = ({
     !!nombre.trim() && !!gestorId && !yaExiste && !comprobando && !guardando;
 
   return (
-    <Modal isOpen={isOpen} scrollBehavior="inside" size="2xl" onClose={onClose}>
+    <Modal
+      isDismissable={false}
+      isOpen={isOpen}
+      scrollBehavior="inside"
+      size="2xl"
+      onClose={onClose}
+    >
       <ModalContent>
         <ModalHeader className="flex flex-col gap-1">
           <span>Nuevo vendedor</span>

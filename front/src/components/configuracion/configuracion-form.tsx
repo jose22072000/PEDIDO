@@ -27,6 +27,7 @@ import { cards } from "@/components/primitives";
 import { MantenimientoPanel } from "./mantenimiento-panel";
 import { ClientesParrandaPanel } from "./clientes-parranda-panel";
 import { getApiBaseUrl } from "@/config";
+import { useCerrarAlPulsarFuera } from "@/hooks/cerrar-al-pulsar-fuera";
 
 export const ConfiguracionForm = () => {
   const [sucursales, setSucursales] = useState<
@@ -68,6 +69,10 @@ export const ConfiguracionForm = () => {
     onOpen: onDeleteOpen,
     onClose: onDeleteClose,
   } = useDisclosure();
+
+  // Pulsar fuera cierra; elegir en un desplegable NO (se dibuja fuera del modal).
+  useCerrarAlPulsarFuera(isCreateOpen, onCreateClose);
+  useCerrarAlPulsarFuera(isEditOpen, onEditClose);
 
   useEffect(() => {
     fetchSucursales();
@@ -462,7 +467,7 @@ export const ConfiguracionForm = () => {
       </Card>
 
       {/* Modal crear sucursal */}
-      <Modal isOpen={isCreateOpen} placement="center" onClose={onCreateClose}>
+      <Modal isDismissable={false} isOpen={isCreateOpen} placement="center" onClose={onCreateClose}>
         <ModalContent>
           <ModalHeader>Crear Sucursal</ModalHeader>
           <ModalBody>
@@ -496,7 +501,7 @@ export const ConfiguracionForm = () => {
       </Modal>
 
       {/* Modal editar sucursal */}
-      <Modal isOpen={isEditOpen} placement="center" onClose={onEditClose}>
+      <Modal isDismissable={false} isOpen={isEditOpen} placement="center" onClose={onEditClose}>
         <ModalContent>
           <ModalHeader>Editar Sucursal</ModalHeader>
           <ModalBody>

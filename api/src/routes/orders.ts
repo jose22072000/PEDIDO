@@ -586,6 +586,13 @@ async function resolveSeller(name: string, code: string): Promise<SellerResoluti
 // Bulk create orders from CSV records
 router.post('/bulk', ingestaAuth, async (req, res) => {
   try {
+    // El Operador no sube datos: factura con lo que ya está. La ingesta
+    // automática (por API-key) sí, y por eso la comprobación mira el rol y no
+    // "estar autenticado".
+    if (!getRequesterContext(req).puedeImportarYReportar) {
+      return res.status(403).json({ error: 'Tu usuario no puede importar pedidos.' });
+    }
+
     const { records } = req.body;
 
     if (!records || !Array.isArray(records)) {

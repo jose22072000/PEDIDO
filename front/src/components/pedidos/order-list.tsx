@@ -37,6 +37,7 @@ import {
   type Order,
   type RespuestaPedidos,
 } from "@/stores/datos/pedidos";
+import { useCerrarAlPulsarFuera } from "@/hooks/cerrar-al-pulsar-fuera";
 
 // Los tipos del listado viven en el store: los comparten quien los pinta y quien
 // los trae, y asi no se separan cuando cambie el api.
@@ -168,6 +169,9 @@ export const OrdersList = () => {
   const live = useLiveStatus(); // estado de la conexión SSE compartida de la app
   const [nuevosPend, setNuevosPend] = useState(0); // pedidos nuevos no mostrados (con filtros/otra página)
   const { isOpen, onOpen, onClose } = useDisclosure();
+
+  // Pulsar fuera cierra; elegir en un desplegable NO (se dibuja fuera del modal).
+  useCerrarAlPulsarFuera(isOpen, onClose);
   const {
     isOpen: isConfirmOpen,
     onOpen: onConfirmOpen,
@@ -763,6 +767,7 @@ export const OrdersList = () => {
 
       {/* Order Details Modal */}
       <Modal
+        isDismissable={false}
         isOpen={isOpen}
         placement="center"
         scrollBehavior="outside"

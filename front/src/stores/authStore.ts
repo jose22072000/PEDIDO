@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 import { getApiBaseUrl } from "@/config";
+import { limpiarSesion } from "@/lib/limpiar-sesion";
 
 interface UserData {
   id: string;
@@ -175,6 +176,11 @@ export const useAuthStore = create<AuthState>()(
           });
 
           if (data.token && typeof window !== 'undefined') {
+            // Se limpia ANTES de guardar la sesion nueva, por si la anterior no
+            // se cerro bien (pestania cerrada, corte de luz, token caducado).
+            // Si no, la sucursal enfocada del usuario anterior sigue puesta y el
+            // nuevo manda la sucursal de otro en cada peticion -> 400 en todo.
+            limpiarSesion();
             localStorage.setItem('auth_token', data.token);
           }
 
@@ -193,9 +199,11 @@ export const useAuthStore = create<AuthState>()(
             // ignore
           });
 
-          if (typeof window !== 'undefined') {
-            localStorage.removeItem('auth_token');
-          }
+          // Se va TODO lo de la sesion anterior, no solo el token: la sucursal
+          // enfocada y los datos cacheados incluidos. Dejar la sucursal del que
+          // sale hacia que el siguiente mandara la sucursal de otro y el
+          // servidor le devolviera 400 en cada peticion.
+          limpiarSesion();
 
           set({
             user: null,

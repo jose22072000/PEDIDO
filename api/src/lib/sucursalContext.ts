@@ -26,6 +26,14 @@ interface RequesterContext {
   isSuperAdmin: boolean;
   /** Puede entrar a Usuarios (Super Admin o Administrador). */
   canManageUsers: boolean;
+  /**
+   * Puede METER datos (subir el CSV) y SACAR informes.
+   *
+   * El Operador no: factura con los pedidos que ya están subidos, y para eso le
+   * basta con leer. Subir un CSV equivocado o sacar informes de la sucursal no
+   * son cosa suya.
+   */
+  puedeImportarYReportar: boolean;
   /** Rol Gestor: SOLO ve SUS datos (sus pedidos/clientes), nada de compañeros. */
   isGestor: boolean;
 }
@@ -105,6 +113,7 @@ export function getRequesterContext(req: Request): RequesterContext {
       canManageUsers: false,
       isGestor: false,
       puedeGestionarVendedores: false,
+      puedeImportarYReportar: true,
     };
   }
 
@@ -131,6 +140,11 @@ export function getRequesterContext(req: Request): RequesterContext {
   const puedeGestionarVendedores =
     isSuperAdmin || role === 'ADMINISTRADOR' || role === 'SUPERVISOR';
 
+  // El Operador queda fuera: entra a leer y a copiar codigos para facturar.
+  // Ocultarle los botones en la pantalla no es proteccion — esta comprobacion,
+  // si.
+  const puedeImportarYReportar = role !== 'OPERADOR';
+
   return {
     userId: payload?.userId,
     username,
@@ -141,6 +155,7 @@ export function getRequesterContext(req: Request): RequesterContext {
     canManageUsers,
     isGestor,
     puedeGestionarVendedores,
+    puedeImportarYReportar,
   };
 }
 
