@@ -1,3 +1,5 @@
+import { codigoDesdeNombre } from '../lib/nombreVendedor';
+
 // DTO for seller data
 export interface SellerDto {
   name: string;
@@ -61,44 +63,17 @@ export function mapCsvToOrderRecord(csvRecord: any): OrderRecordDto {
   const folio = (csvRecord.folio || csvRecord.Folio || '').toUpperCase();
   const producto = (csvRecord.producto || csvRecord.Producto || '').toUpperCase();
   
-  // Código del vendedor = "nombre.primer_apellido" (es la CLAVE ÚNICA GLOBAL con la
-  // que el import ubica al vendedor, ya que el CSV no trae la sucursal).
+  // Codigo del vendedor = "nombre.primer_apellido" (es la CLAVE UNICA GLOBAL con
+  // la que el import ubica al vendedor, ya que el CSV no trae la sucursal).
   //
-  // Los nombres cubanos son: nombre [segundo nombre] apellido1 [apellido2].
-  // Tomar las 2 primeras palabras agarraría el SEGUNDO NOMBRE, no el apellido:
-  //   "GLENDA MELISA BLANCO ÁLVAREZ" -> glenda.melisa  ✗   (y colisiona fácil)
-  // El primer apellido es la penúltima palabra cuando hay 2 apellidos, y la última
-  // cuando solo hay uno. Esto reproduce los nombres de archivo del Drive:
-  //   "GLENDA MELISA BLANCO ÁLVAREZ" -> glenda.blanco   ✓
-  //   "DIANGO DAVID GOLA BLANCO"     -> diango.gola     ✓
-  //   "ALEXANDER PADRON"             -> alexander.padron ✓
-  //
-  // Además se quitan las TILDES: los archivos que exporta Parranda vienen sin ellas
-  // ("alexander.padron.pedidos.csv"), y ese nombre no lo podemos cambiar.
-  // Además de las tildes se quitan los caracteres de CONTROL (C0/C1). Un nombre que
-  // llegó con el encoding roto ("PADRÃN") arrastra un byte invisible (U+0093) que se
-  // colaba en el código y lo volvía imposible de escribir o buscar.
-  const sinTildes = (s: string) =>
-    s
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[\u0000-\u001f\u007f-\u009f]/g, '');
-
-  const generateSellerCode = (name: string): string => {
-    const parts = sinTildes(name.trim()).split(/\s+/).filter(Boolean);
-    if (parts.length >= 3) {
-      return `${parts[0]}.${parts[parts.length - 2]}`.toLowerCase();
-    }
-    if (parts.length === 2) {
-      return `${parts[0]}.${parts[1]}`.toLowerCase();
-    }
-    return sinTildes(name).toLowerCase();
-  };
-  
+  // La regla vive en `lib/nombreVendedor` porque el alta manual desde la
+  // aplicacion tiene que generar EXACTAMENTE el mismo codigo. Aqui estaba
+  // copiada, con un comentario avisando de que habia que cambiar los dos sitios a
+  // la vez: ese aviso era justo la senal de que sobraba tenerla dos veces.
   return {
     seller: {
       name: vendedorName,
-      code: generateSellerCode(vendedorName),
+      code: codigoDesdeNombre(vendedorName),
     },
     client: {
       nombre: clienteNombre,

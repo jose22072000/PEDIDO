@@ -58,6 +58,11 @@ model Vendedor {
     // Baja del vendedor (se fue / lo botaron): deja de aceptarse su CSV y
     // desaparece de las listas, pero se CONSERVA su histórico de pedidos.
     activo    Boolean  @default(true)
+    // Quién lo dio de alta A MANO desde la aplicación (username). VACÍO = nació
+    // solo, al llegar su CSV. Sirve para lo único que importa cuando aparece un
+    // vendedor duplicado o mal escrito: saber si lo tecleó alguien o vino del
+    // archivo, que son dos problemas distintos y se arreglan de forma distinta.
+    creadoPor String?
     createdAt DateTime @default(now())
     pedidos   Pedido[]
 
@@ -89,6 +94,7 @@ model Pedido {
     archivedAt         DateTime?
     completedAt        DateTime?    // cuándo se completó (para archivar unos días después)
     items              PedidoItem[]
+    copias             CopiaPortapapeles[]
 
     @@unique([sucursalId, folio, vendedorId])
     @@index([fecha])
@@ -130,6 +136,47 @@ model PedidoItem {
     // el codigo que incluyen los items.
     @@index([pedidoId])
     @@map("OrderItem")
+}
+
+/// Cada vez que alguien pulsa "copiar al portapapeles".
+///
+/// El puente entre PEDIDO y el sistema contable es MANUAL: la operadora copia
+/// `P-folio; V-vendedor; C-cliente;` y lo pega en la observación de la factura de
+/// AxisPos. De ahí sale todo lo demás — un pedido solo se puede dar por
+/// facturado si ese código aparece en la observación.
+///
+/// Ese paso era el único del circuito del que no se sabía NADA: si alguien no
+/// pegaba el código, el pedido parecía no convertido y no había forma de
+/// distinguir "no se facturó" de "se facturó sin pegar el código". Medido en
+/// julio, la adopción iba del 99% de Camagüey al 0% de Palma Soriano.
+///
+/// Se guarda el evento entero y no un contador porque un número suelto solo dice
+/// "van 8000". Con la fecha, el usuario y la sucursal se puede ver quién lo usa,
+/// desde cuándo, y qué sucursal dejó de hacerlo.
+model CopiaPortapapeles {
+    id         String   @id @default(cuid())
+    /// Qué se copió: 'pedido' (el que se pega en la factura), 'vendedor' o 'cliente'.
+    tipo       String
+    /// Si el pedido se borra, sus copias se van con él: no sirven para nada sueltas.
+    pedidoId   String?
+    pedido     Pedido?  @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+    /// Vendedor y cliente se guardan SUELTOS (sin llave foránea) a propósito: son
+    /// para contar, y no queremos que borrar un cliente arrastre el histórico de
+    /// uso ni que un id viejo impida guardar la copia.
+    vendedorId String?
+    clienteId  String?
+    usuarioId  String?
+    /// El nombre de quien copió, congelado. Si mañana se le renombra o se le da de
+    /// baja, el histórico sigue diciendo quién fue.
+    username   String?
+    sucursalId String?
+    creada     DateTime @default(now())
+
+    @@index([tipo, creada])
+    @@index([sucursalId, creada])
+    @@index([vendedorId])
+    @@index([pedidoId])
+    @@map("ClipboardCopy")
 }
 
 model Cliente {

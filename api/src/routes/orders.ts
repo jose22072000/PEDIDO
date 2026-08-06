@@ -8,6 +8,7 @@ import {
   resolveSucursalScope,
   getRequesterContext,
 } from '../lib/sucursalContext';
+import { nombreComparable, codigoComparable } from '../lib/nombreVendedor';
 import { notifyPedidoCompletado } from '../lib/webhook';
 import { emitEvent } from '../lib/events';
 import { redisEnabled, publishJSON, getSubscriber, CH_IMPORT_DONE, CH_IMPORT_FAILED } from '../lib/redis';
@@ -487,55 +488,14 @@ class VendedorInactivoError extends Error {
 
 // La sucursal la decide el GESTOR del vendedor. Quién sube el CSV ya no influye:
 // un vendedor sin gestor entra "Sin asignar", sin sucursal.
-/**
- * Deja un nombre PLANO. Es la unica forma en que se guarda y con la que se
- * compara — las dos cosas, y por eso no pueden discrepar.
- *
- * Quita:
- *  - las TILDES. No es cosmetica: una tilde se puede escribir como un caracter
- *    propio o como letra + tilde aparte. Se pintan IGUAL y son cadenas
- *    distintas, asi que el mismo vendedor parecia dos personas segun que equipo
- *    hubiera exportado el archivo.
- *  - los caracteres de CONTROL e invisibles. Un CSV que paso por un encoding
- *    roto arrastra bytes que no se ven pegados al nombre.
- *  - los espacios repetidos y los de los bordes.
- *
- * El 06/08/2026 esto tumbo la ingesta de Camaguey: el import rechazaba los
- * archivos con "el codigo 'georlis.cardenas' ya pertenece a GEORLIS MICHEL
- * CARDENAS MORA, pero el archivo trae GEORLIS MICHEL CARDENAS MORA" — los DOS
- * nombres identicos a la vista. Un mensaje asi, con las dos partes iguales, es
- * la firma de que hay algo invisible en medio.
- */
-function nombreComparable(s: string): string {
-  return (s || '')
-    .normalize('NFD')                        // separa la letra de su tilde
-    .replace(/[\u0300-\u036f]/g, '')         // y tira la tilde
-    .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\ufeff]/g, '') // y lo invisible
-    .toUpperCase()
-    .trim()
-    .replace(/\s+/g, ' ');
-}
-
 async function resolveSeller(name: string, code: string): Promise<SellerResolution> {
-  // NFC ademas de mayusculas y trim. Una tilde puede venir del CSV como caracter
-  // propio o como letra + tilde combinada: se pintan IGUAL y son cadenas
-  // distintas, asi que sin normalizar se crea un vendedor nuevo cada vez que
-  // cambia el equipo que exporta. Los nombres en la base ya estan en NFC.
+  // Nombre y codigo se aplanan con `lib/nombreVendedor`, que es EL MISMO modulo
+  // que usa el alta manual desde la aplicacion. Antes estaba aqui suelto, y una
+  // copia es justo lo que no puede haber: si los dos caminos aplanaran distinto,
+  // un vendedor dado de alta a mano no lo encontraria este archivo y se crearia
+  // una SEGUNDA ficha, con sus pedidos partidos entre las dos.
   const nombre = nombreComparable(name);
-  // El codigo, PLANO igual que el nombre. Sin tildes: el codigo lo genera el
-  // propio import a partir del nombre y ya sale sin ellas, pero en la base habia
-  // 4 con tilde ('tomás.manzanares', 'evelyn.charité', 'elena.bolívar',
-  // 'danisley.gámez') que NUNCA podian casar con lo que traia el archivo — esos
-  // cuatro vendedores llevaban desde junio sin que les entrara un pedido. Se
-  // limpiaron; esto impide que vuelva a colarse uno.
-  //
-  // NO se pasa a mayusculas: en la base estan en minuscula y uppercasearlo
-  // dejaria de encontrarlos a todos.
-  const codigo = (code || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\ufeff]/g, '')
-    .trim();
+  const codigo = codigoComparable(code);
 
   // 1) Por código (clave nueva). 2) Si no aparece, POR NOMBRE: así seguimos
   //    encontrando a los vendedores creados con la regla de código vieja

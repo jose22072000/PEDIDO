@@ -1,6 +1,12 @@
 import express from 'express';
+import { Prisma } from '@prisma/client';
 import prisma from '../prismaClient';
 import { emitEvent } from '../lib/events';
+import {
+  nombreComparable,
+  codigoDesdeNombre,
+  normalizarCodigoManual,
+} from '../lib/nombreVendedor';
 import {
   getRequesterContext,
   resolveSucursalFilter,
@@ -157,6 +163,199 @@ router.get('/gestores', async (req, res) => {
   } catch (error) {
     console.error('Error fetching gestores:', error);
     res.status(500).json({ error: 'Error al obtener gestores' });
+  }
+});
+
+// GET /vendedores/vista-previa?nombre=...
+//
+// Enseña, ANTES de guardar, cómo va a quedar el vendedor: el nombre ya aplanado,
+// el código que se le va a poner y si choca con alguien que ya existe.
+//
+// Existe por dos razones. La primera es que la regla del código NO se repite en
+// el front: si estuviera copiada allí, sería la cuarta copia y volveríamos justo
+// al problema que este cambio arregla. La segunda es que el choque más caro no
+// es el que da error al guardar, sino el que NO lo da: teclear otra vez a
+// alguien que ya está con el nombre un poco distinto. Verlo antes de darle al
+// botón evita ese duplicado.
+router.get('/vista-previa', async (req, res) => {
+  try {
+    if (!getRequesterContext(req).puedeGestionarVendedores) {
+      return res.status(403).json({ error: 'No tienes permiso.' });
+    }
+
+    const nombre = nombreComparable(String(req.query.nombre ?? ''));
+    if (!nombre) return res.json({ nombre: '', codigo: '', existente: null });
+
+    const codigo = normalizarCodigoManual(
+      String(req.query.codigo ?? '').trim() || codigoDesdeNombre(nombre),
+    ).codigo;
+
+    // El mismo par de comprobaciones que hace el alta, para que lo que se avisa
+    // aquí y lo que rechaza el POST no puedan discrepar.
+    const [porCodigo, porNombre] = await Promise.all([
+      codigo
+        ? prisma.vendedor.findUnique({
+            where: { codigo },
+            include: { sucursal: { select: { nombre: true } } },
+          })
+        : null,
+      prisma.vendedor.findFirst({
+        where: { nombre: { equals: nombre, mode: 'insensitive' } },
+        include: { sucursal: { select: { nombre: true } } },
+      }),
+    ]);
+
+    const existente = porCodigo ?? porNombre;
+
+    res.json({
+      nombre,
+      codigo,
+      existente: existente
+        ? {
+            id: existente.id,
+            nombre: existente.nombre,
+            codigo: existente.codigo,
+            sucursal: existente.sucursal?.nombre ?? null,
+            activo: existente.activo,
+            porCodigo: !!porCodigo,
+          }
+        : null,
+    });
+  } catch (error) {
+    console.error('Error en vista previa de vendedor:', error);
+    res.status(500).json({ error: 'Error al comprobar el vendedor' });
+  }
+});
+
+// POST /vendedores   body: { nombre, codigo?, gestorId }
+//
+// Alta MANUAL de un vendedor, para los que no usan tablet: sin esto un vendedor
+// solo podía nacer cuando llegaba su CSV, así que quien no exporta desde Parranda
+// no existía en el sistema y sus pedidos no se podían meter en ningún sitio.
+//
+// Es la parte delicada de todo esto, porque escribe en el MISMO espacio de
+// identidad que la ingesta automática. Lo que lo hace seguro:
+//
+//   - el nombre y el código se aplanan con `lib/nombreVendedor`, el mismo módulo
+//     que usa la ingesta, así que el CSV de esta persona —si algún día llega—
+//     cae sobre esta ficha en vez de crear una segunda;
+//   - se busca colisión por código y por nombre en TODO el sistema, no solo en
+//     la sucursal, porque el código es único global y la ingesta busca así;
+//   - la sucursal NO se elige: sale del gestor, exactamente igual que en la
+//     ingesta. Si se pudiera poner a mano, la siguiente importación la
+//     sobrescribiría con la del gestor y quedarían dos verdades.
+router.post('/', async (req, res) => {
+  try {
+    const requester = getRequesterContext(req);
+
+    // Ocultar el botón en la pantalla no es protección: la comprobación va aquí.
+    if (!requester.puedeGestionarVendedores) {
+      return res.status(403).json({ error: 'No tienes permiso para crear vendedores.' });
+    }
+
+    const { nombre: nombreCrudo, codigo: codigoCrudo, gestorId } = req.body as {
+      nombre?: string;
+      codigo?: string;
+      gestorId?: string;
+    };
+
+    const nombre = nombreComparable(typeof nombreCrudo === 'string' ? nombreCrudo : '');
+    if (nombre.length < 3) {
+      return res.status(400).json({ error: 'El nombre del vendedor es obligatorio.' });
+    }
+    // Nombre y apellido: el código se forma con los dos, y con una sola palabra
+    // sale un código que chocará con el primer homónimo que aparezca.
+    if (!/\s/.test(nombre)) {
+      return res.status(400).json({ error: 'Pon el nombre completo (nombre y apellidos).' });
+    }
+
+    // Si no lo escriben, se genera con la MISMA regla que usa el CSV.
+    const { codigo, error: errorCodigo } = normalizarCodigoManual(
+      (typeof codigoCrudo === 'string' && codigoCrudo.trim()) || codigoDesdeNombre(nombre),
+    );
+    if (errorCodigo) return res.status(400).json({ error: errorCodigo });
+
+    // El gestor es obligatorio: de él sale la sucursal. Sin gestor el vendedor
+    // nacería "Sin asignar" y sus pedidos quedarían OCULTOS — que es justo lo
+    // contrario de lo que se busca al darlo de alta a mano.
+    if (!gestorId) {
+      return res.status(400).json({ error: 'Elige el gestor al que pertenece el vendedor.' });
+    }
+
+    const gestor = await prisma.usuario.findUnique({
+      where: { id: gestorId },
+      include: { rol: true },
+    });
+    if (!gestor) return res.status(404).json({ error: 'Gestor no encontrado' });
+    if (!ROLES_ENLAZABLES.includes(gestor.rol?.nombre ?? '')) {
+      return res.status(400).json({
+        error: `Ese usuario no puede llevar vendedores: se requiere rol ${ROLES_ENLAZABLES.join(' o ')}.`,
+      });
+    }
+    if (!gestor.sucursalId) {
+      return res.status(400).json({ error: 'El gestor no tiene sucursal asignada' });
+    }
+    // Quien no es Super Admin solo da de alta en SU sucursal.
+    if (!requester.isGlobalAdmin && gestor.sucursalId !== requester.sucursalId) {
+      return res.status(403).json({ error: 'Ese gestor es de otra sucursal.' });
+    }
+
+    // Colisión por CÓDIGO (único global) y por NOMBRE (así lo busca la ingesta
+    // cuando el código no aparece). Se mira ANTES de crear para poder decir con
+    // quién choca: el error de la base solo diría "clave duplicada".
+    const [porCodigo, porNombre] = await Promise.all([
+      prisma.vendedor.findUnique({
+        where: { codigo },
+        include: { sucursal: { select: { nombre: true } } },
+      }),
+      prisma.vendedor.findFirst({
+        where: { nombre: { equals: nombre, mode: 'insensitive' } },
+        include: { sucursal: { select: { nombre: true } } },
+      }),
+    ]);
+
+    const choque = porCodigo ?? porNombre;
+    if (choque) {
+      const donde = choque.sucursal?.nombre ? ` en ${choque.sucursal.nombre}` : ' sin sucursal';
+      const motivo = porCodigo
+        ? `El código '${codigo}' ya es de '${choque.nombre}'${donde}.`
+        : `Ya existe '${choque.nombre}'${donde}.`;
+
+      return res.status(409).json({
+        error:
+          `${motivo} No se creó nada: si es la misma persona, enlázala desde esta ` +
+          `misma vista en vez de crearla otra vez. Si es otra, el código tiene que ser distinto.`,
+        vendedorExistente: { id: choque.id, nombre: choque.nombre, codigo: choque.codigo },
+      });
+    }
+
+    let vendedor;
+    try {
+      vendedor = await prisma.vendedor.create({
+        data: {
+          nombre,
+          codigo,
+          gestorId: gestor.id,
+          sucursalId: gestor.sucursalId,
+          activo: true,
+          creadoPor: requester.username ?? null,
+        },
+      });
+    } catch (e) {
+      // Dos altas a la vez con el mismo código: la comprobación de arriba pasó en
+      // las dos y la base para a la segunda. Se traduce a un mensaje entendible
+      // en vez de un 500.
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        return res.status(409).json({ error: 'Ese vendedor acaba de crearse. Recarga la lista.' });
+      }
+      throw e;
+    }
+
+    await emitirVendedor(vendedor.id, 'create');
+    res.status(201).json(vendedor);
+  } catch (error) {
+    console.error('Error creating vendedor:', error);
+    res.status(500).json({ error: 'Error al crear el vendedor' });
   }
 });
 

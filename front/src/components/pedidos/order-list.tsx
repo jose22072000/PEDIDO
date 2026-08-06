@@ -25,6 +25,7 @@ import { cards } from "../primitives";
 import Icons from "../icons/iconify";
 
 import { cn, copyTextToClipboard } from "@/lib/utils";
+import { registrarCopia } from "@/lib/registrar-copia";
 import { getApiBaseUrl } from "@/config";
 import { useAuthStore } from "@/stores/authStore";
 import { useLiveStatus } from "@/hooks/use-live-events";
@@ -61,7 +62,10 @@ const estadoOptions = [
 
 // Formatea el costo de domicilio (USD) a 2 decimales para mostrar.
 const fmtUsd = (v: number) =>
-  v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  v.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 
 const domicilioOptions = [
   { value: "todos", label: "Todos" },
@@ -83,7 +87,12 @@ const POR_PAGINA = 10;
 // Referencias FIJAS para cuando aun no hay datos: en linea serian objetos nuevos
 // en cada render y dispararian efectos y memos sin parar.
 const SIN_PEDIDOS: Order[] = [];
-const PAGINACION_VACIA = { page: 1, limit: POR_PAGINA, total: 0, totalPages: 1 };
+const PAGINACION_VACIA = {
+  page: 1,
+  limit: POR_PAGINA,
+  total: 0,
+  totalPages: 1,
+};
 
 interface FiltrosPedidos {
   page: number;
@@ -223,7 +232,8 @@ export const OrdersList = () => {
         if (!sinFiltros) {
           // Los pedidos nuevos que NO caben en la vista filtrada se cuentan aparte.
           const nuevos = lote.filter(
-            (e) => e.accion === "create" && !actual.data.some((o) => o.id === e.id),
+            (e) =>
+              e.accion === "create" && !actual.data.some((o) => o.id === e.id),
           ).length;
 
           if (nuevos) setNuevosPend((n) => n + nuevos);
@@ -282,6 +292,7 @@ export const OrdersList = () => {
 
         if (!response.ok) {
           const data = await response.json();
+
           throw new Error(data.error || "Error al eliminar el pedido");
         }
 
@@ -344,6 +355,14 @@ export const OrdersList = () => {
     const ok = await copyTextToClipboard(text);
 
     if (ok) {
+      // Esta es la copia que se pega en la observacion de la factura: la que
+      // mide el uso real del puente con el sistema contable.
+      registrarCopia({
+        tipo: "pedido",
+        pedidoId: order.id,
+        vendedorId: order.vendedor?.id,
+        clienteId: order.cliente?.id,
+      });
       setCopiedOrderId(order.id);
       setTimeout(() => setCopiedOrderId(null), 2000);
     } else {
@@ -377,7 +396,15 @@ export const OrdersList = () => {
   // significa nada en la siguiente. El store pide lo que falte al cambiar la clave.
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearch, estadoFilter, domicilioFilter, vendedorFilter, fechaDesde, fechaHasta, incluirArchivados]);
+  }, [
+    debouncedSearch,
+    estadoFilter,
+    domicilioFilter,
+    vendedorFilter,
+    fechaDesde,
+    fechaHasta,
+    incluirArchivados,
+  ]);
 
   // Pedidos en tiempo real: lo lleva el store (opcion `aplicar` de arriba). Va por
   // la conexion SSE UNICA de la app; antes esta vista abria su PROPIO EventSource
@@ -446,7 +473,8 @@ export const OrdersList = () => {
                 <SelectItem key="todos">Todos los vendedores</SelectItem>,
                 ...vendedores.map((v) => (
                   <SelectItem key={v.id}>
-                    {v.nombre}{v.codigo ? ` (${v.codigo})` : ""}
+                    {v.nombre}
+                    {v.codigo ? ` (${v.codigo})` : ""}
                   </SelectItem>
                 )),
               ]}
@@ -508,16 +536,17 @@ export const OrdersList = () => {
         </span>
         {nuevosPend > 0 && (
           <Button
-            size="sm"
             color="primary"
-            variant="flat"
+            size="sm"
             startContent={<Icons.receipt className="size-4" />}
+            variant="flat"
             onPress={() => {
               setNuevosPend(0);
               setPage(1);
             }}
           >
-            {nuevosPend} pedido{nuevosPend > 1 ? "s" : ""} nuevo{nuevosPend > 1 ? "s" : ""} — actualizar
+            {nuevosPend} pedido{nuevosPend > 1 ? "s" : ""} nuevo
+            {nuevosPend > 1 ? "s" : ""} — actualizar
           </Button>
         )}
       </div>
@@ -631,13 +660,13 @@ export const OrdersList = () => {
                     </div>
                     <div className="flex items-center justify-center gap-6 pt-1 md:justify-end">
                       <Tooltip
+                        color={
+                          copiedOrderId === order.id ? "success" : "default"
+                        }
                         content={
                           copiedOrderId === order.id
                             ? "¡Copiado!"
                             : "Copiar Pedido"
-                        }
-                        color={
-                          copiedOrderId === order.id ? "success" : "default"
                         }
                       >
                         <Button
@@ -807,7 +836,9 @@ export const OrdersList = () => {
                       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                         {selectedOrder?.direccion && (
                           <div className="sm:col-span-2">
-                            <p className="mb-1 text-xs text-default-500">Dirección</p>
+                            <p className="mb-1 text-xs text-default-500">
+                              Dirección
+                            </p>
                             <code className="block w-full p-2 text-sm break-all border rounded bg-default-50 select-all">
                               {selectedOrder.direccion}
                             </code>
@@ -815,7 +846,9 @@ export const OrdersList = () => {
                         )}
                         {selectedOrder?.telefono && (
                           <div>
-                            <p className="mb-1 text-xs text-default-500">Teléfono</p>
+                            <p className="mb-1 text-xs text-default-500">
+                              Teléfono
+                            </p>
                             <code className="block w-full p-2 text-sm break-all border rounded bg-default-50 select-all">
                               {selectedOrder.telefono}
                             </code>
@@ -848,7 +881,9 @@ export const OrdersList = () => {
                     </h4>
                     <div className="flex flex-wrap items-center gap-2">
                       <Chip
-                        color={estadoColors[selectedOrder?.estado || "en_proceso"]}
+                        color={
+                          estadoColors[selectedOrder?.estado || "en_proceso"]
+                        }
                         size="sm"
                         variant="flat"
                       >
@@ -856,8 +891,6 @@ export const OrdersList = () => {
                       </Chip>
                       {selectedOrder?.pedido_cobrado != null && (
                         <Chip
-                          size="sm"
-                          variant="flat"
                           color={
                             selectedOrder.pedido_cobrado === "parcial"
                               ? "warning"
@@ -865,6 +898,8 @@ export const OrdersList = () => {
                                 ? "danger"
                                 : "success"
                           }
+                          size="sm"
+                          variant="flat"
                         >
                           {selectedOrder.pedido_cobrado === "parcial"
                             ? "Parcialmente cobrado"
@@ -874,9 +909,13 @@ export const OrdersList = () => {
                         </Chip>
                       )}
                       <Chip
+                        color={
+                          selectedOrder?.requiere_domicilio
+                            ? "primary"
+                            : "default"
+                        }
                         size="sm"
                         variant="flat"
-                        color={selectedOrder?.requiere_domicilio ? "primary" : "default"}
                       >
                         {selectedOrder?.requiere_domicilio
                           ? "Requiere domicilio"
@@ -886,11 +925,15 @@ export const OrdersList = () => {
 
                     {/* Costo del domicilio (copiable, sin el $) */}
                     <div className="flex flex-wrap items-center gap-2 mt-3">
-                      <span className="text-xs text-default-500">Costo domicilio:</span>
+                      <span className="text-xs text-default-500">
+                        Costo domicilio:
+                      </span>
                       {selectedOrder?.costoDomicilio != null ? (
                         <>
                           <code className="px-2 py-1 text-sm border rounded bg-default-50 select-all">
-                            <span className="select-none text-default-400">$</span>
+                            <span className="select-none text-default-400">
+                              $
+                            </span>
                             {fmtUsd(selectedOrder.costoDomicilio)}
                           </code>
                           <Chip color="success" size="sm" variant="flat">
@@ -964,8 +1007,8 @@ export const OrdersList = () => {
                     {canDeleteOrders && (
                       <Button
                         color="danger"
-                        variant="flat"
                         startContent={<Icons.trash className="size-5" />}
+                        variant="flat"
                         onPress={() =>
                           selectedOrder && handleAskConfirmDelete(selectedOrder)
                         }

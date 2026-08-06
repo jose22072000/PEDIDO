@@ -33,11 +33,22 @@ const ListaUsuariosPage = lazy(() => import("./pages/usuarios/lista-usuarios"));
 const VendedoresPage = lazy(() => import("./pages/vendedores/vendedores"));
 const ClientesPage = lazy(() => import("./pages/clientes/clientes"));
 const MiPerfilPage = lazy(() => import("./pages/perfil/mi-perfil"));
-const ConfiguracionPage = lazy(() => import("./pages/configuracion/configuracion"));
+const ConfiguracionPage = lazy(
+  () => import("./pages/configuracion/configuracion"),
+);
 const ReportesPage = lazy(() => import("./pages/reportes/reportes"));
-const ReportePedidosFechaPage = lazy(() => import("./pages/reportes/pedidos-fecha"));
-const ReportePedidosVendedorPage = lazy(() => import("./pages/reportes/pedidos-vendedor"));
-const ReportePedidosEstadoPage = lazy(() => import("./pages/reportes/pedidos-estado"));
+const ReportePedidosFechaPage = lazy(
+  () => import("./pages/reportes/pedidos-fecha"),
+);
+const ReportePedidosVendedorPage = lazy(
+  () => import("./pages/reportes/pedidos-vendedor"),
+);
+const ReportePedidosEstadoPage = lazy(
+  () => import("./pages/reportes/pedidos-estado"),
+);
+const ReporteCopiasPage = lazy(
+  () => import("./pages/reportes/copias-portapapeles"),
+);
 const ReporteProductosVendedorPage = lazy(
   () => import("./pages/reportes/productos-vendedor"),
 );
@@ -71,112 +82,122 @@ function App() {
     // no se puede salir.
     <LimiteError nombre="esta pantalla">
       <Suspense fallback={<Cargando />}>
-      <Routes>
-        {/* Rutas públicas (autenticación) */}
-        <Route element={<LoginPage />} path="/" />
-        <Route element={<UnauthorizedPage />} path="/unauthorized" />
+        <Routes>
+          {/* Rutas públicas (autenticación) */}
+          <Route element={<LoginPage />} path="/" />
+          <Route element={<UnauthorizedPage />} path="/unauthorized" />
 
-        {/* Rutas protegidas */}
-        <Route element={<ProtectedRoute />}>
-          <Route element={<PanelPageWrapper />} path="/panel" />
+          {/* Rutas protegidas */}
+          <Route element={<ProtectedRoute />}>
+            <Route element={<PanelPageWrapper />} path="/panel" />
 
-          {/* Pedidos */}
-          <Route element={<PedidosPanelPage />} path="/panel/panel-pedidos" />
+            {/* Pedidos */}
+            <Route element={<PedidosPanelPage />} path="/panel/panel-pedidos" />
 
-          {/* Vendedores. El OPERADOR tambien entra: es quien factura, y necesita
+            {/* Vendedores. El OPERADOR tambien entra: es quien factura, y necesita
               ver los vendedores de SU sucursal para copiar el codigo al
               portapapeles y pegarlo en el sistema contable. Solo eso — no puede
               dar de alta/baja ni reasignar gestor (se le ocultan los botones, y
               el servidor lo rechaza igual). El Gestor sigue sin entrar. */}
-          <Route
-            element={
-              <AdminRoute
-                allowedRoles={[
-                  "Super Admin",
-                  "Administrador",
-                  "Supervisor",
-                  "Operador",
-                ]}
-              />
-            }
-          >
-            <Route element={<VendedoresPage />} path="/panel/trabajadores" />
+            <Route
+              element={
+                <AdminRoute
+                  allowedRoles={[
+                    "Super Admin",
+                    "Administrador",
+                    "Supervisor",
+                    "Operador",
+                  ]}
+                />
+              }
+            >
+              <Route element={<VendedoresPage />} path="/panel/trabajadores" />
+            </Route>
+
+            {/* Clientes */}
+            <Route element={<ClientesPage />} path="/panel/clientes" />
+
+            {/* Mi perfil: cualquier usuario autenticado ve SUS datos y SUS métricas. */}
+            <Route element={<MiPerfilPage />} path="/panel/mi-perfil" />
+
+            {/* Reportes */}
+            <Route element={<ReportesPage />} path="/panel/reportes" />
+            <Route
+              element={<ReportePedidosFechaPage />}
+              path="/panel/reportes/pedidos-fecha"
+            />
+            <Route
+              element={<ReportePedidosVendedorPage />}
+              path="/panel/reportes/pedidos-vendedor"
+            />
+            <Route
+              element={<ReportePedidosEstadoPage />}
+              path="/panel/reportes/pedidos-estado"
+            />
+            <Route
+              element={<ReporteProductosVendedorPage />}
+              path="/panel/reportes/productos-vendedor"
+            />
+            <Route
+              element={<ReporteCopiasPage />}
+              path="/panel/reportes/copias"
+            />
           </Route>
 
-          {/* Clientes */}
-          <Route element={<ClientesPage />} path="/panel/clientes" />
-
-          {/* Mi perfil: cualquier usuario autenticado ve SUS datos y SUS métricas. */}
-          <Route element={<MiPerfilPage />} path="/panel/mi-perfil" />
-
-          {/* Reportes */}
-          <Route element={<ReportesPage />} path="/panel/reportes" />
-          <Route
-            element={<ReportePedidosFechaPage />}
-            path="/panel/reportes/pedidos-fecha"
-          />
-          <Route
-            element={<ReportePedidosVendedorPage />}
-            path="/panel/reportes/pedidos-vendedor"
-          />
-          <Route
-            element={<ReportePedidosEstadoPage />}
-            path="/panel/reportes/pedidos-estado"
-          />
-          <Route
-            element={<ReporteProductosVendedorPage />}
-            path="/panel/reportes/productos-vendedor"
-          />
-        </Route>
-
-        {/* Nuevo Pedido / Importar: roles operativos suben SUS pedidos. El backend scopea
+          {/* Nuevo Pedido / Importar: roles operativos suben SUS pedidos. El backend scopea
             por sucursal y, para el gestor, restringe a SUS vendedores. Allowlist EXPLÍCITA
             (no "cualquier autenticado") para que un rol futuro de solo-lectura no importe. */}
-        <Route element={<ProtectedRoute />}>
-          <Route
-            element={
-              <AdminRoute
-                allowedRoles={[
-                  "Super Admin",
-                  "Administrador",
-                  "Supervisor",
-                  "Gestor",
-                  "Operador",
-                ]}
+          <Route element={<ProtectedRoute />}>
+            <Route
+              element={
+                <AdminRoute
+                  allowedRoles={[
+                    "Super Admin",
+                    "Administrador",
+                    "Supervisor",
+                    "Gestor",
+                    "Operador",
+                  ]}
+                />
+              }
+            >
+              <Route
+                element={<NuevoPedidoPage />}
+                path="/panel/panel-pedidos/nuevo"
               />
-            }
-          >
-            <Route
-              element={<NuevoPedidoPage />}
-              path="/panel/panel-pedidos/nuevo"
-            />
+            </Route>
           </Route>
-        </Route>
 
-        {/* Rutas protegidas solo para Administrador */}
-        <Route element={<ProtectedRoute />}>
-          <Route element={<AdminRoute />}>
-            {/* Usuarios */}
-            <Route element={<UsuariosPanelPage />} path="/panel/panel-usuarios" />
-            <Route
-              element={<NuevoUsuarioPage />}
-              path="/panel/panel-usuarios/nuevo"
-            />
-            <Route
-              element={<ListaUsuariosPage />}
-              path="/panel/panel-usuarios/lista"
-            />
+          {/* Rutas protegidas solo para Administrador */}
+          <Route element={<ProtectedRoute />}>
+            <Route element={<AdminRoute />}>
+              {/* Usuarios */}
+              <Route
+                element={<UsuariosPanelPage />}
+                path="/panel/panel-usuarios"
+              />
+              <Route
+                element={<NuevoUsuarioPage />}
+                path="/panel/panel-usuarios/nuevo"
+              />
+              <Route
+                element={<ListaUsuariosPage />}
+                path="/panel/panel-usuarios/lista"
+              />
+            </Route>
           </Route>
-        </Route>
 
-        {/* Configuración (sucursales, parámetros, borrar base): SOLO Super Admin.
+          {/* Configuración (sucursales, parámetros, borrar base): SOLO Super Admin.
             Un Administrador es de una única sucursal y no debe entrar aquí. */}
-        <Route element={<ProtectedRoute />}>
-          <Route element={<AdminRoute allowedRoles={["Super Admin"]} />}>
-            <Route element={<ConfiguracionPage />} path="/panel/configuracion" />
+          <Route element={<ProtectedRoute />}>
+            <Route element={<AdminRoute allowedRoles={["Super Admin"]} />}>
+              <Route
+                element={<ConfiguracionPage />}
+                path="/panel/configuracion"
+              />
+            </Route>
           </Route>
-        </Route>
-      </Routes>
+        </Routes>
       </Suspense>
     </LimiteError>
   );

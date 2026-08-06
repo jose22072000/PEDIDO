@@ -40,6 +40,13 @@ export default function ReportesPage() {
           icon="productos"
           title="Productos por Vendedor"
         />
+        <ActionCard
+          color="danger"
+          description="Veces que se copió el código para pegarlo en la factura"
+          href="/panel/reportes/copias"
+          icon="copy"
+          title="Uso del portapapeles"
+        />
       </div>
     </section>
   );

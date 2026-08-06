@@ -22,7 +22,10 @@ import { useEffect, useState, useCallback } from "react";
 import { cards } from "../primitives";
 import Icons from "../icons/iconify";
 
+import { NuevoVendedor } from "./nuevo-vendedor";
+
 import { cn, copyTextToClipboard } from "@/lib/utils";
+import { registrarCopia } from "@/lib/registrar-copia";
 import { getApiBaseUrl } from "@/config";
 import { aplicarLote } from "@/hooks/aplicar-eventos";
 import { getSucursalActiva } from "@/components/sucursal-selector";
@@ -76,8 +79,9 @@ export const VendedoresList = () => {
   // pegarlo en el sistema contable. No gestiona: ni alta/baja, ni reasignar
   // gestor, ni ver el detalle. Ocultarlo aqui es por comodidad — quien lo
   // impide de verdad es el servidor, que rechaza esas rutas para su rol.
-  const puedeGestionar =
-    !["operador", "gestor"].includes(String(user?.role || "").toLowerCase());
+  const puedeGestionar = !["operador", "gestor"].includes(
+    String(user?.role || "").toLowerCase(),
+  );
   const activeSucursalId = session?.isGlobalAdmin
     ? getSucursalActiva()
     : session?.sucursalId;
@@ -101,6 +105,7 @@ export const VendedoresList = () => {
   const [page, setPage] = useState(1);
   const rowsPerPage = 10;
   const { isOpen, onOpen, onClose } = useDisclosure();
+  const [abrirNuevo, setAbrirNuevo] = useState(false);
 
   // La lista vive en el store, no en un useState de esta vista: asi sobrevive a la
   // navegacion y volver aqui es instantaneo en vez de costar otra vuelta al
@@ -116,28 +121,32 @@ export const VendedoresList = () => {
     cargando: isLoading,
     error: errorCarga,
     recargar: fetchVendedores,
-  } = usarVendedores(`vendedores:${activeSucursalId ?? "todas"}`, traerVendedores, {
-    aplicar: (actual, lote) => {
-      const deVendedor = lote.filter((e) => e.tipo === "vendedor");
+  } = usarVendedores(
+    `vendedores:${activeSucursalId ?? "todas"}`,
+    traerVendedores,
+    {
+      aplicar: (actual, lote) => {
+        const deVendedor = lote.filter((e) => e.tipo === "vendedor");
 
-      if (deVendedor.length !== lote.length) return null;
+        if (deVendedor.length !== lote.length) return null;
 
-      const lista = aplicarLote<Vendedor>(actual.vendedores, deVendedor, {
-        alPrincipio: true,
-      });
+        const lista = aplicarLote<Vendedor>(actual.vendedores, deVendedor, {
+          alPrincipio: true,
+        });
 
-      if (lista === null) return null;
-      if (lista === actual.vendedores) return actual;
+        if (lista === null) return null;
+        if (lista === actual.vendedores) return actual;
 
-      return {
-        ...actual,
-        vendedores: lista,
-        // El contador de "sin asignar" es la razon de ser de esta vista: tiene
-        // que cuadrar con lo que se esta viendo, no con lo que trajo el servidor.
-        sinAsignar: lista.filter((v) => v.activo && !v.gestorId).length,
-      };
+        return {
+          ...actual,
+          vendedores: lista,
+          // El contador de "sin asignar" es la razon de ser de esta vista: tiene
+          // que cuadrar con lo que se esta viendo, no con lo que trajo el servidor.
+          sinAsignar: lista.filter((v) => v.activo && !v.gestorId).length,
+        };
+      },
     },
-  });
+  );
 
   const vendedores = datos?.vendedores ?? VACIOS;
   const gestores = datos?.gestores ?? SIN_GESTORES;
@@ -228,7 +237,7 @@ export const VendedoresList = () => {
       setIsLoadingStats(true);
       try {
         const response = await fetch(
-          `${getApiBaseUrl()}/vendedores/${vendedorId}/stats?year=${year}`
+          `${getApiBaseUrl()}/vendedores/${vendedorId}/stats?year=${year}`,
         );
 
         if (!response.ok) {
@@ -264,6 +273,7 @@ export const VendedoresList = () => {
     const ok = await copyTextToClipboard(text);
 
     if (ok) {
+      registrarCopia({ tipo: "vendedor", vendedorId: vendedor.id });
       setCopiedVendedorId(vendedor.id);
       setTimeout(() => setCopiedVendedorId(null), 2000);
     }
@@ -323,8 +333,22 @@ export const VendedoresList = () => {
     <div className="flex flex-col gap-4 w-full">
       {/* Filters */}
       <Card className={cn(cards({ border: "default" }))}>
-        <CardHeader>
+        <CardHeader className="flex items-center justify-between gap-3">
           <h3 className="font-bold text-lg">Filtrar</h3>
+          {/* Alta manual: solo para el que no usa tablet. Los de tablet entran
+              solos con su archivo, así que el botón está aquí y no como acción
+              principal de la pantalla — crear a mano es la excepción. */}
+          {puedeGestionar && (
+            <Button
+              color="primary"
+              size="sm"
+              startContent={<Icons.add className="size-4" />}
+              variant="flat"
+              onPress={() => setAbrirNuevo(true)}
+            >
+              Nuevo vendedor
+            </Button>
+          )}
         </CardHeader>
         <CardBody className="gap-4">
           {puedeGestionar && sinAsignar > 0 && (
@@ -401,7 +425,8 @@ export const VendedoresList = () => {
                         <div className="flex flex-wrap items-center gap-1.5 mt-1">
                           {vendedor.gestorId ? (
                             <Chip color="success" size="sm" variant="flat">
-                              Gestor: {mostrarUsuario(vendedor.gestor?.username)}
+                              Gestor:{" "}
+                              {mostrarUsuario(vendedor.gestor?.username)}
                               {vendedor.sucursal?.codigo
                                 ? ` · ${vendedor.sucursal.codigo}`
                                 : ""}
@@ -421,38 +446,45 @@ export const VendedoresList = () => {
                     </div>
                     <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
                       {puedeGestionar && (
-                      <Select
-                        aria-label="Asignar gestor"
-                        className="w-full sm:w-52"
-                        isDisabled={
-                          savingId === vendedor.id || gestores.length === 0
-                        }
-                        placeholder="Sin asignar"
-                        selectedKeys={
-                          new Set([vendedor.gestorId ?? SIN_ASIGNAR])
-                        }
-                        size="sm"
-                        variant="bordered"
-                        onSelectionChange={(keys) => {
-                          const key = Array.from(keys)[0] as string | undefined;
+                        <Select
+                          aria-label="Asignar gestor"
+                          className="w-full sm:w-52"
+                          isDisabled={
+                            savingId === vendedor.id || gestores.length === 0
+                          }
+                          placeholder="Sin asignar"
+                          selectedKeys={
+                            new Set([vendedor.gestorId ?? SIN_ASIGNAR])
+                          }
+                          size="sm"
+                          variant="bordered"
+                          onSelectionChange={(keys) => {
+                            const key = Array.from(keys)[0] as
+                              | string
+                              | undefined;
 
-                          if (!key || key === (vendedor.gestorId ?? SIN_ASIGNAR))
-                            return;
-                          handleSetGestor(
-                            vendedor,
-                            key === SIN_ASIGNAR ? null : key,
-                          );
-                        }}
-                      >
-                        {[
-                          <SelectItem key={SIN_ASIGNAR}>Sin asignar</SelectItem>,
-                          ...gestores.map((g) => (
-                            <SelectItem key={g.id}>
-                              {`${mostrarUsuario(g.username)}${g.sucursal?.codigo ? ` · ${g.sucursal.codigo}` : ""}`}
-                            </SelectItem>
-                          )),
-                        ]}
-                      </Select>
+                            if (
+                              !key ||
+                              key === (vendedor.gestorId ?? SIN_ASIGNAR)
+                            )
+                              return;
+                            handleSetGestor(
+                              vendedor,
+                              key === SIN_ASIGNAR ? null : key,
+                            );
+                          }}
+                        >
+                          {[
+                            <SelectItem key={SIN_ASIGNAR}>
+                              Sin asignar
+                            </SelectItem>,
+                            ...gestores.map((g) => (
+                              <SelectItem key={g.id}>
+                                {`${mostrarUsuario(g.username)}${g.sucursal?.codigo ? ` · ${g.sucursal.codigo}` : ""}`}
+                              </SelectItem>
+                            )),
+                          ]}
+                        </Select>
                       )}
                       <div className="flex flex-row gap-2">
                         <Button
@@ -613,7 +645,9 @@ export const VendedoresList = () => {
                         }}
                       >
                         {[
-                          <SelectItem key={SIN_ASIGNAR}>Sin asignar</SelectItem>,
+                          <SelectItem key={SIN_ASIGNAR}>
+                            Sin asignar
+                          </SelectItem>,
                           ...gestores.map((g) => (
                             <SelectItem key={g.id}>
                               {`${mostrarUsuario(g.username)}${g.sucursal?.codigo ? ` · ${g.sucursal.codigo}` : ""}`}
@@ -628,7 +662,9 @@ export const VendedoresList = () => {
                           isLoading={savingId === detalle.id}
                           size="sm"
                           variant="flat"
-                          onPress={() => handleSetActivo(detalle, !detalle.activo)}
+                          onPress={() =>
+                            handleSetActivo(detalle, !detalle.activo)
+                          }
                         >
                           {detalle.activo ? "Dar de baja" : "Reactivar"}
                         </Button>
@@ -732,6 +768,16 @@ export const VendedoresList = () => {
           )}
         </ModalContent>
       </Modal>
+
+      {/* Alta manual. Se le pasan los gestores que ya trajo la lista: son los
+          mismos que se pueden elegir para enlazar, así que no hace falta otra
+          petición ni puede quedar desfasado respecto a lo que se ve. */}
+      <NuevoVendedor
+        gestores={gestores}
+        isOpen={abrirNuevo}
+        onClose={() => setAbrirNuevo(false)}
+        onCreado={fetchVendedores}
+      />
     </div>
   );
 };

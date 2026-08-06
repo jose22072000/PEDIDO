@@ -22,6 +22,7 @@ import { cards } from "../primitives";
 import Icons from "../icons/iconify";
 
 import { cn, copyTextToClipboard } from "@/lib/utils";
+import { registrarCopia } from "@/lib/registrar-copia";
 import { getApiBaseUrl } from "@/config";
 import { getSucursalActiva } from "@/components/sucursal-selector";
 import { useAuthStore } from "@/stores/authStore";
@@ -39,7 +40,12 @@ const POR_PAGINA = 10;
 // Referencias FIJAS para cuando aun no hay datos: si se pusieran en linea serian
 // objetos nuevos en cada render y dispararian efectos y memos sin parar.
 const SIN_CLIENTES: Cliente[] = [];
-const PAGINACION_VACIA = { page: 1, limit: POR_PAGINA, total: 0, totalPages: 1 };
+const PAGINACION_VACIA = {
+  page: 1,
+  limit: POR_PAGINA,
+  total: 0,
+  totalPages: 1,
+};
 
 const traerClientes =
   (page: number, search: string, municipio: string, estadoCompra: string) =>
@@ -118,6 +124,7 @@ export const ClientesList = () => {
     const ok = await copyTextToClipboard(text);
 
     if (ok) {
+      registrarCopia({ tipo: "cliente", clienteId: cliente.id });
       setCopiedClienteId(cliente.id);
       setTimeout(() => setCopiedClienteId(null), 2000);
     }
@@ -159,9 +166,9 @@ export const ClientesList = () => {
           <div className="flex flex-col gap-3 sm:flex-row">
             <Select
               label="Municipio"
+              selectedKeys={municipio ? [municipio] : []}
               size="sm"
               variant="bordered"
-              selectedKeys={municipio ? [municipio] : []}
               onChange={(e) => setMunicipio(e.target.value)}
             >
               {[
@@ -171,9 +178,9 @@ export const ClientesList = () => {
             </Select>
             <Select
               label="Compra"
+              selectedKeys={estadoCompra ? [estadoCompra] : []}
               size="sm"
               variant="bordered"
-              selectedKeys={estadoCompra ? [estadoCompra] : []}
               onChange={(e) => setEstadoCompra(e.target.value)}
             >
               <SelectItem key="">Todos</SelectItem>
@@ -373,7 +380,9 @@ export const ClientesList = () => {
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     {selectedCliente?.direccion && (
                       <div className="p-3 rounded-lg bg-default-50 sm:col-span-2">
-                        <p className="mb-1 text-xs text-default-500">Dirección</p>
+                        <p className="mb-1 text-xs text-default-500">
+                          Dirección
+                        </p>
                         <code className="block w-full p-2 text-sm bg-white border rounded break-all select-all">
                           {selectedCliente.direccion}
                         </code>
@@ -381,8 +390,12 @@ export const ClientesList = () => {
                     )}
                     {selectedCliente?.municipio && (
                       <div className="p-3 rounded-lg bg-default-50">
-                        <p className="mb-1 text-xs text-default-500">Municipio</p>
-                        <p className="font-semibold">{selectedCliente.municipio}</p>
+                        <p className="mb-1 text-xs text-default-500">
+                          Municipio
+                        </p>
+                        <p className="font-semibold">
+                          {selectedCliente.municipio}
+                        </p>
                       </div>
                     )}
                     {selectedCliente?.zona && (
@@ -401,10 +414,13 @@ export const ClientesList = () => {
                     )}
                     {selectedCliente?.estadoCompra && (
                       <div className="p-3 rounded-lg bg-default-50">
-                        <p className="mb-1 text-xs text-default-500">Estado de compra</p>
+                        <p className="mb-1 text-xs text-default-500">
+                          Estado de compra
+                        </p>
                         <Chip
                           color={
-                            selectedCliente.estadoCompra.toLowerCase() === "compra"
+                            selectedCliente.estadoCompra.toLowerCase() ===
+                            "compra"
                               ? "success"
                               : "default"
                           }
@@ -419,7 +435,9 @@ export const ClientesList = () => {
 
                   {/* Geolocalización: sin ella delivery no puede cotizar el domicilio */}
                   <div className="p-3 rounded-lg bg-default-50">
-                    <p className="mb-1 text-xs text-default-500">Geolocalización</p>
+                    <p className="mb-1 text-xs text-default-500">
+                      Geolocalización
+                    </p>
                     {selectedCliente?.latitud != null &&
                     selectedCliente?.longitud != null ? (
                       <div className="flex flex-wrap items-center gap-2">
@@ -432,7 +450,8 @@ export const ClientesList = () => {
                       </div>
                     ) : (
                       <Chip color="warning" size="sm" variant="flat">
-                        Sin geolocalización — no se le puede calcular el domicilio
+                        Sin geolocalización — no se le puede calcular el
+                        domicilio
                       </Chip>
                     )}
                   </div>

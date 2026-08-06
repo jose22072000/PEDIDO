@@ -5,6 +5,7 @@ import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import ordersRouter from './routes/orders';
 import authRouter from './routes/auth';
+import copiasRouter from './routes/copias';
 import usersRouter from './routes/users';
 import rolesRouter from './routes/roles';
 import sucursalesRouter from './routes/sucursales';
@@ -84,6 +85,7 @@ app.use('/geolocalizacion', geolocalizacionRouter);
 app.use('/mantenimiento', mantenimientoRouter);
 app.use('/api-keys', apiKeysRouter);
 app.use('/events', eventsRouter);
+app.use('/copias', copiasRouter);
 
 // Manejador final de errores. VA EL ÚLTIMO: recoge lo que revienta dentro de una
 // ruta y que hasta ahora tumbaba la petición sin dejar rastro identificable.
