@@ -486,7 +486,6 @@ export const UsuariosList = () => {
 
       {/* Modal EDITAR usuario */}
       <Modal
-        isDismissable={false}
         isOpen={isEditOpen}
         placement="center"
         scrollBehavior="outside"

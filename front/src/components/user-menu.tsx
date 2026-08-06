@@ -141,7 +141,7 @@ export const UserMenu = () => {
         </DropdownMenu>
       </Dropdown>
 
-      <Modal isDismissable={false} isOpen={open} placement="center" onClose={() => setOpen(false)}>
+      <Modal isOpen={open} placement="center" onClose={() => setOpen(false)}>
         <ModalContent>
           {(onClose) => (
             <>

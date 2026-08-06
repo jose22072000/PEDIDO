@@ -579,7 +579,6 @@ export const VendedoresList = () => {
 
       {/* Vendedor Details Modal */}
       <Modal
-        isDismissable={false}
         isOpen={isOpen}
         placement="center"
         scrollBehavior="outside"
