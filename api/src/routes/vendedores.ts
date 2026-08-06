@@ -581,12 +581,66 @@ router.get('/:id/stats', async (req, res) => {
         .filter((y): y is number => y !== null)
     )].sort((a, b) => b - a);
 
+    // Uso del portapapeles de ESTE vendedor: el registro que se le lleva.
+    //
+    // Va aparte del filtro de año a propósito. Lo demás son pedidos, que existen
+    // desde siempre; esto se empezó a medir el 06/08/2026, así que partirlo por
+    // años enseñaría ceros en 2025 como si nadie hubiera copiado nada — cuando
+    // lo que pasa es que aún no se contaba. Por eso se devuelve el total y la
+    // fecha desde la que hay medición, para poder decirlo en pantalla.
+    const [uso] = await prisma.$queryRaw<
+      Array<{
+        copias_pedido: bigint;
+        pedidos_copiados: bigint;
+        copias_vendedor: bigint;
+        ultima: Date | null;
+      }>
+    >(Prisma.sql`
+      select count(*) filter (where tipo = 'pedido')                   as copias_pedido,
+             -- DISTINTOS: si a un pedido se le copia el código tres veces
+             -- (porque se reintentó la factura), son 3 copias pero 1 pedido.
+             -- Mezclarlos daría una cobertura mayor que la real.
+             count(distinct "pedidoId") filter (where tipo = 'pedido')  as pedidos_copiados,
+             count(*) filter (where tipo = 'vendedor')                  as copias_vendedor,
+             max((("creada" at time zone 'UTC') at time zone 'America/Havana')) as ultima
+        from "ClipboardCopy"
+       where "vendedorId" = ${id}
+    `);
+
+    // Quién le copia los códigos. Son varias operadoras y cada una factura lo
+    // suyo: sin esto, un número alto no dice si lo lleva una sola persona.
+    const quien = await prisma.$queryRaw<Array<{ username: string | null; copias: bigint }>>(
+      Prisma.sql`
+        select username, count(*) as copias
+          from "ClipboardCopy"
+         where "vendedorId" = ${id}
+         group by 1
+         order by 2 desc
+         limit 5
+      `,
+    );
+
+    const [medicion] = await prisma.$queryRaw<Array<{ desde: Date | null }>>(Prisma.sql`
+      select min((("creada" at time zone 'UTC') at time zone 'America/Havana')) as desde
+        from "ClipboardCopy"
+    `);
+
+    const num = (v: bigint | null | undefined) => Number(v ?? 0);
+
     res.json({
       totalPedidos,
       pedidosCompletados,
       pedidosEnProceso,
       pedidosExpirados,
-      availableYears: years
+      availableYears: years,
+      portapapeles: {
+        copiasPedido: num(uso?.copias_pedido),
+        pedidosCopiados: num(uso?.pedidos_copiados),
+        copiasVendedor: num(uso?.copias_vendedor),
+        ultima: uso?.ultima ?? null,
+        medidoDesde: medicion?.desde ?? null,
+        quien: quien.map((q) => ({ username: q.username ?? '(sin usuario)', copias: num(q.copias) })),
+      },
     });
   } catch (error) {
     console.error('Error fetching vendedor stats:', error);

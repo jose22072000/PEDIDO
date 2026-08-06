@@ -67,6 +67,16 @@ const traerVendedores = async (signal: AbortSignal) => {
 
 interface VendedorStats {
   totalPedidos: number;
+  /** Registro de uso del portapapeles de este vendedor. Las fechas vienen YA en
+      hora de Cuba: se formatean cortando la cadena, sin volver a convertirlas. */
+  portapapeles?: {
+    copiasPedido: number;
+    pedidosCopiados: number;
+    copiasVendedor: number;
+    ultima: string | null;
+    medidoDesde: string | null;
+    quien: Array<{ username: string; copias: number }>;
+  };
   pedidosCompletados: number;
   pedidosEnProceso: number;
   pedidosExpirados: number;
@@ -756,6 +766,90 @@ export const VendedoresList = () => {
                         </CardBody>
                       </Card>
                     </div>
+                  )}
+
+                  {/* El registro de facturación de ESTE vendedor.
+                      Los KPI de arriba se filtran por año; esto no, porque solo
+                      se mide desde el 06/08/2026 — partirlo por años enseñaría
+                      ceros en los anteriores como si nadie hubiera copiado nada,
+                      cuando lo que pasa es que aún no se contaba. */}
+                  {!isLoadingStats && vendedorStats?.portapapeles && (
+                    <Card className={cn(cards({ border: "default" }))}>
+                      <CardHeader className="flex flex-col items-start gap-1">
+                        <h4 className="font-bold">Uso del portapapeles</h4>
+                        <p className="text-xs text-default-500">
+                          Veces que se copió su código para pegarlo en la
+                          factura
+                          {vendedorStats.portapapeles.medidoDesde
+                            ? ` · se mide desde el ${vendedorStats.portapapeles.medidoDesde.slice(8, 10)}/${vendedorStats.portapapeles.medidoDesde.slice(5, 7)}/${vendedorStats.portapapeles.medidoDesde.slice(0, 4)}`
+                            : ""}
+                        </p>
+                      </CardHeader>
+                      <CardBody className="gap-3">
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                          <div className="text-center">
+                            <p className="text-2xl font-bold text-primary">
+                              {vendedorStats.portapapeles.copiasPedido}
+                            </p>
+                            <p className="text-xs text-default-500">
+                              Copias de sus pedidos
+                            </p>
+                          </div>
+                          <div className="text-center">
+                            {/* Pedidos DISTINTOS: si a uno se le copia el código
+                                tres veces son 3 copias pero 1 pedido, y
+                                mezclarlos daría una cobertura mayor que la
+                                real. */}
+                            <p className="text-2xl font-bold">
+                              {vendedorStats.portapapeles.pedidosCopiados}
+                              <span className="text-base font-normal text-default-400">
+                                {" "}
+                                / {vendedorStats.totalPedidos}
+                              </span>
+                            </p>
+                            <p className="text-xs text-default-500">
+                              Pedidos suyos con código copiado
+                            </p>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-2xl font-bold">
+                              {vendedorStats.portapapeles.copiasVendedor}
+                            </p>
+                            <p className="text-xs text-default-500">
+                              Copias de su nombre
+                            </p>
+                          </div>
+                        </div>
+
+                        {vendedorStats.portapapeles.ultima && (
+                          <p className="text-sm text-default-500">
+                            Última vez:{" "}
+                            <span className="font-mono">
+                              {`${vendedorStats.portapapeles.ultima.slice(8, 10)}/${vendedorStats.portapapeles.ultima.slice(5, 7)}/${vendedorStats.portapapeles.ultima.slice(0, 4)} ${vendedorStats.portapapeles.ultima.slice(11, 16)}`}
+                            </span>
+                          </p>
+                        )}
+
+                        {/* Quién se lo copia: son varias operadoras, y un número
+                            alto no dice si lo lleva una sola persona. */}
+                        {vendedorStats.portapapeles.quien.length > 0 && (
+                          <div className="flex flex-wrap gap-2">
+                            {vendedorStats.portapapeles.quien.map((q) => (
+                              <Chip key={q.username} size="sm" variant="flat">
+                                {mostrarUsuario(q.username)} · {q.copias}
+                              </Chip>
+                            ))}
+                          </div>
+                        )}
+
+                        {vendedorStats.portapapeles.copiasPedido === 0 &&
+                          vendedorStats.portapapeles.copiasVendedor === 0 && (
+                            <p className="text-sm text-default-500">
+                              Todavía no se ha copiado ningún código suyo.
+                            </p>
+                          )}
+                      </CardBody>
+                    </Card>
                   )}
                 </div>
               </ModalBody>
