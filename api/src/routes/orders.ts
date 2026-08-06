@@ -522,9 +522,20 @@ async function resolveSeller(name: string, code: string): Promise<SellerResoluti
   // distintas, asi que sin normalizar se crea un vendedor nuevo cada vez que
   // cambia el equipo que exporta. Los nombres en la base ya estan en NFC.
   const nombre = nombreComparable(name);
-  // El codigo NO se pasa a mayusculas: en la base estan en minuscula y
-  // uppercasearlo dejaria de encontrarlos a todos. Solo se le quitan los bordes.
-  const codigo = (code || '').normalize('NFC').trim();
+  // El codigo, PLANO igual que el nombre. Sin tildes: el codigo lo genera el
+  // propio import a partir del nombre y ya sale sin ellas, pero en la base habia
+  // 4 con tilde ('tomás.manzanares', 'evelyn.charité', 'elena.bolívar',
+  // 'danisley.gámez') que NUNCA podian casar con lo que traia el archivo — esos
+  // cuatro vendedores llevaban desde junio sin que les entrara un pedido. Se
+  // limpiaron; esto impide que vuelva a colarse uno.
+  //
+  // NO se pasa a mayusculas: en la base estan en minuscula y uppercasearlo
+  // dejaria de encontrarlos a todos.
+  const codigo = (code || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\ufeff]/g, '')
+    .trim();
 
   // 1) Por código (clave nueva). 2) Si no aparece, POR NOMBRE: así seguimos
   //    encontrando a los vendedores creados con la regla de código vieja
@@ -855,7 +866,14 @@ async function processOrderRecord(
   //
   // El nombre se guarda SIEMPRE en mayúsculas, que es como se busca: si se guardara
   // crudo, la búsqueda no encontraría al cliente y lo duplicaría.
-  const nombreCliente = record.client.nombre.toUpperCase();
+  // El nombre del cliente, PLANO — igual que el del vendedor y con la misma
+  // funcion. Antes solo se pasaba a mayusculas: un cliente cuyo nombre llegara
+  // con la tilde escrita de la otra forma no se encontraba y se creaba OTRA
+  // ficha del mismo negocio. Asi aparecieron cientos de duplicados (335 el
+  // 05/08 y 65 mas el 06/08, todos fusionados). El indice unico es
+  // (nombre, sucursalId), asi que guardarlo plano es lo que hace que el
+  // get-or-create encuentre al que ya esta.
+  const nombreCliente = nombreComparable(record.client.nombre);
   const incomingCode = record.client.codigo?.toString().trim() || null;
 
   const actualizarCliente = (existente: { id: string; codigo: string | null }) => {
