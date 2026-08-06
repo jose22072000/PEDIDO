@@ -26,6 +26,7 @@ import Icons from "../icons/iconify";
 
 import { cn, copyTextToClipboard } from "@/lib/utils";
 import { registrarCopia } from "@/lib/registrar-copia";
+import { esFechaEnviable } from "@/lib/fecha-enviable";
 import { getApiBaseUrl } from "@/config";
 import { useAuthStore } from "@/stores/authStore";
 import { useLiveStatus } from "@/hooks/use-live-events";
@@ -130,8 +131,9 @@ const traerPedidos =
 
     if (f.estado !== "todos") params.append("estado", f.estado);
     if (f.search.length > 0) params.append("search", f.search);
-    if (f.fechaDesde) params.append("fechaDesde", f.fechaDesde);
-    if (f.fechaHasta) params.append("fechaHasta", f.fechaHasta);
+    // Solo si estan COMPLETAS: una fecha a medio teclear tumbaba la consulta.
+    if (esFechaEnviable(f.fechaDesde)) params.append("fechaDesde", f.fechaDesde);
+    if (esFechaEnviable(f.fechaHasta)) params.append("fechaHasta", f.fechaHasta);
     if (f.domicilio !== "todos") params.append("domicilio", f.domicilio);
     if (f.vendedor !== "todos") params.append("vendedorId", f.vendedor);
     // Switch: si esta activo, la busqueda incluye tambien los archivados (se

@@ -1,16 +1,35 @@
-import { Router } from 'express';
+import { Router, type Response } from 'express';
 import prisma from '../prismaClient';
 import { resolveSucursalFilter } from '../lib/sucursalContext';
+import { parsearFechaConsulta } from '../lib/fechaConsulta';
 
 const router = Router();
 
-// Helper function to parse date string as local date (not UTC)
-function parseLocalDate(dateStr: string, endOfDay: boolean = false): Date {
-  const [year, month, day] = dateStr.split('-').map(Number);
-  if (endOfDay) {
-    return new Date(year, month - 1, day, 23, 59, 59, 999);
+/**
+ * Lee una fecha de la URL y corta la petición si no sirve.
+ *
+ * Antes esto era `dateStr.split('-').map(Number)`: con cualquier cosa que no
+ * fuera una fecha salían `NaN` y se construía una `Invalid Date` que Prisma
+ * rechazaba, tumbando el informe entero con un 500 y sin explicación. El mismo
+ * agujero que tenía la lista de pedidos.
+ *
+ * Devuelve la fecha, o null habiendo respondido ya con el error.
+ */
+function leerFecha(
+  res: Response,
+  valor: unknown,
+  campo: string,
+  finDelDia = false,
+): Date | null {
+  const { fecha, error } = parsearFechaConsulta(valor, campo, finDelDia);
+
+  if (error) {
+    res.status(400).json({ error });
+
+    return null;
   }
-  return new Date(year, month - 1, day, 0, 0, 0, 0);
+
+  return fecha;
 }
 
 // Helper function to calculate dynamic estado
@@ -41,8 +60,10 @@ router.get('/pedidos-por-fecha', async (req, res) => {
       return res.status(400).json({ error: 'Se requieren fechaInicio y fechaFin' });
     }
 
-    const startDate = parseLocalDate(fechaInicio as string, false);
-    const endDate = parseLocalDate(fechaFin as string, true);
+    const startDate = leerFecha(res, fechaInicio, 'fechaInicio');
+    if (!startDate) return;
+    const endDate = leerFecha(res, fechaFin, 'fechaFin', true);
+    if (!endDate) return;
 
     const where: any = {
       fecha: {
@@ -102,8 +123,10 @@ router.get('/pedidos-por-vendedor', async (req, res) => {
       return res.status(400).json({ error: 'Se requieren fechaInicio y fechaFin' });
     }
 
-    const startDate = parseLocalDate(fechaInicio as string, false);
-    const endDate = parseLocalDate(fechaFin as string, true);
+    const startDate = leerFecha(res, fechaInicio, 'fechaInicio');
+    if (!startDate) return;
+    const endDate = leerFecha(res, fechaFin, 'fechaFin', true);
+    if (!endDate) return;
 
     const where: any = {
       fecha: {
@@ -189,8 +212,10 @@ router.get('/pedidos-por-estado', async (req, res) => {
       return res.status(400).json({ error: 'Se requieren fechaInicio y fechaFin' });
     }
 
-    const startDate = parseLocalDate(fechaInicio as string, false);
-    const endDate = parseLocalDate(fechaFin as string, true);
+    const startDate = leerFecha(res, fechaInicio, 'fechaInicio');
+    if (!startDate) return;
+    const endDate = leerFecha(res, fechaFin, 'fechaFin', true);
+    if (!endDate) return;
 
     const where: any = {
       fecha: {
@@ -269,8 +294,10 @@ router.get('/productos-por-vendedor', async (req, res) => {
       return res.status(400).json({ error: 'Se requieren fechaInicio y fechaFin' });
     }
 
-    const startDate = parseLocalDate(fechaInicio as string, false);
-    const endDate = parseLocalDate(fechaFin as string, true);
+    const startDate = leerFecha(res, fechaInicio, 'fechaInicio');
+    if (!startDate) return;
+    const endDate = leerFecha(res, fechaFin, 'fechaFin', true);
+    if (!endDate) return;
 
     const where: any = {
       fecha: {

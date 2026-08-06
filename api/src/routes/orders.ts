@@ -9,6 +9,7 @@ import {
   getRequesterContext,
 } from '../lib/sucursalContext';
 import { nombreComparable, codigoComparable } from '../lib/nombreVendedor';
+import { parsearFechaConsulta } from '../lib/fechaConsulta';
 import { notifyPedidoCompletado } from '../lib/webhook';
 import { emitEvent } from '../lib/events';
 import { redisEnabled, publishJSON, getSubscriber, CH_IMPORT_DONE, CH_IMPORT_FAILED } from '../lib/redis';
@@ -199,21 +200,27 @@ router.get('/', async (req, res) => {
       }
     }
 
-    // Filter by date range (on 'fecha' field)
-    // Use noon UTC of each boundary day to safely cover any local-time noon stored date
+    // Filtro por rango de fechas (campo 'fecha').
+    //
+    // Las dos se COMPRUEBAN antes de usarlas. Antes se hacía
+    // `new Date(fechaDesde + 'T00:00:00.000Z')` a pelo, y una fecha ilegible
+    // daba `Invalid Date`: Prisma rechaza la consulta entera y la lista sale en
+    // blanco, sin decir por qué. Pasó el 06/08/2026 — el campo de fecha del
+    // navegador deja teclear un año de más de cuatro cifras ("202026-08-06").
     if (fechaDesde || fechaHasta) {
+      const desde = parsearFechaConsulta(fechaDesde, 'fechaDesde');
+      const hasta = parsearFechaConsulta(fechaHasta, 'fechaHasta', true);
+
+      // Se avisa en vez de ignorar la fecha en silencio: si se ignorara, se
+      // devolverían pedidos de fuera del rango pedido y parecerían del rango.
+      if (desde.error || hasta.error) {
+        return res.status(400).json({ error: desde.error || hasta.error });
+      }
+
       const dateFilter: any = {};
-      if (fechaDesde) {
-        // Start of day: go back one day extra (previous day T12:00:00Z) to catch any TZ edge
-        const from = new Date(fechaDesde + 'T00:00:00.000Z');
-        dateFilter.gte = from;
-      }
-      if (fechaHasta) {
-        // End of day: use next day T11:59:59Z to cover noon stored dates
-        const to = new Date(fechaHasta + 'T23:59:59.999Z');
-        dateFilter.lte = to;
-      }
-      conditions.push({ fecha: dateFilter });
+      if (desde.fecha) dateFilter.gte = desde.fecha;
+      if (hasta.fecha) dateFilter.lte = hasta.fecha;
+      if (Object.keys(dateFilter).length) conditions.push({ fecha: dateFilter });
     }
 
     // Filter por "vendedor" = usuario/gestor vinculado (desde el desplegable, sin teclear

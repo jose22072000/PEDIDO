@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import prisma from '../prismaClient';
 import { authenticateToken } from '../middleware/auth';
 import { getRequesterContext, resolveSucursalFilter } from '../lib/sucursalContext';
+import { parsearFechaConsulta } from '../lib/fechaConsulta';
 
 const router = express.Router();
 
@@ -70,90 +71,157 @@ router.post('/', async (req, res) => {
 /**
  * GET /copias/resumen?desde=&hasta=
  *
- * Cuántas veces se ha usado el portapapeles. El total, partido por tipo, por
- * sucursal, por persona y por día.
+ * Cuántas veces se ha usado el portapapeles: el total, y partido por tipo, por
+ * sucursal, por persona, por día y POR PERSONA Y DÍA.
  *
  * El número que se busca es el de tipo `pedido`: es el que se pega en la
- * observación de la factura, o sea el uso real en el sistema de facturación. Los
- * otros dos se cuentan aparte para no inflarlo.
+ * observación de la factura, o sea el uso real en el sistema contable. Los otros
+ * dos se cuentan aparte para no inflarlo.
+ *
+ * **Por qué el cruce persona × día.** Esto no lo usa una persona: lo usan varias
+ * operadoras, cada una en su sucursal. Un total suelto ("van 8000") no dice si
+ * lo usan todas o solo una, ni si alguien dejó de usarlo el martes. Con el cruce
+ * se ve quién lo usa, desde cuándo y quién lo dejó.
+ *
+ * **Todo va en hora de Cuba.** El servidor y Postgres están en UTC, y Cuba va
+ * cuatro horas por detrás: agrupando por día en UTC, todo lo copiado a partir de
+ * las 8 de la noche se contaría en el día SIGUIENTE. Un informe de "cuándo" con
+ * los días corridos no vale para nada, y el error no se ve — solo mueve trabajo
+ * de un día al otro. Por eso los días y las horas se calculan con
+ * `America/Havana`, que además arregla solo el cambio de horario.
  */
+const ZONA = 'America/Havana';
+
+// El instante guardado (UTC) llevado a la hora de Cuba. Se repite en cada
+// consulta, así que se escribe una vez.
+const DIA_CUBA = Prisma.sql`(("creada" at time zone 'UTC') at time zone ${ZONA})`;
+
 router.get('/resumen', async (req, res) => {
   try {
     const { sucursalId, error } = resolveSucursalFilter(req);
     if (error) return res.status(400).json({ error });
 
-    const desde = req.query.desde ? new Date(String(req.query.desde)) : null;
-    const hasta = req.query.hasta ? new Date(String(req.query.hasta)) : null;
+    // Las mismas comprobaciones que el resto de la aplicación: una fecha
+    // ilegible tiene que dar un mensaje claro, no una consulta rota.
+    const desde = parsearFechaConsulta(req.query.desde, 'desde');
+    const hasta = parsearFechaConsulta(req.query.hasta, 'hasta');
 
-    if ((desde && isNaN(desde.getTime())) || (hasta && isNaN(hasta.getTime()))) {
-      return res.status(400).json({ error: 'Fechas inválidas.' });
+    if (desde.error || hasta.error) {
+      return res.status(400).json({ error: desde.error || hasta.error });
     }
 
-    // El Super Admin sin sucursal enfocada ve TODO (sucursalId undefined ->
-    // Prisma ignora el filtro), igual que en el resto de las vistas.
-    const where = {
-      ...(sucursalId ? { sucursalId } : {}),
-      ...(desde || hasta
-        ? {
-            creada: {
-              ...(desde ? { gte: desde } : {}),
-              // `hasta` se entiende como el día COMPLETO: sin esto, pedir hasta
-              // el día 5 dejaría fuera todo lo copiado ese día salvo lo de las
-              // 00:00, que es un error que no se ve, solo da de menos.
-              ...(hasta ? { lt: new Date(hasta.getTime() + 24 * 60 * 60 * 1000) } : {}),
-            },
-          }
-        : {}),
-    };
-
-    const [total, porTipo, porUsuario, porSucursal] = await Promise.all([
-      prisma.copiaPortapapeles.count({ where }),
-      prisma.copiaPortapapeles.groupBy({ by: ['tipo'], where, _count: { _all: true } }),
-      prisma.copiaPortapapeles.groupBy({
-        by: ['username'],
-        where,
-        _count: { _all: true },
-        orderBy: { _count: { username: 'desc' } },
-        take: 25,
-      }),
-      prisma.copiaPortapapeles.groupBy({ by: ['sucursalId'], where, _count: { _all: true } }),
-    ]);
-
-    // Por día: en SQL, porque agrupar por FECHA (no por instante) no se puede
-    // expresar con el groupBy de Prisma. Los filtros se componen con Prisma.sql
-    // para que sigan siendo parámetros y no texto pegado a la consulta.
+    // Los límites se comparan contra el DÍA de Cuba, no contra el instante: así
+    // "desde el 6" es el día 6 en Cuba, que es lo que espera quien lo pide.
     const condiciones = [
       sucursalId ? Prisma.sql`"sucursalId" = ${sucursalId}` : null,
-      desde ? Prisma.sql`"creada" >= ${desde}` : null,
-      hasta ? Prisma.sql`"creada" < ${new Date(hasta.getTime() + 24 * 60 * 60 * 1000)}` : null,
+      desde.fecha ? Prisma.sql`${DIA_CUBA}::date >= ${desde.fecha}::date` : null,
+      hasta.fecha ? Prisma.sql`${DIA_CUBA}::date <= ${hasta.fecha}::date` : null,
     ].filter((c): c is Prisma.Sql => c !== null);
 
-    const porDia = await prisma.$queryRaw<Array<{ dia: Date; copias: bigint }>>(Prisma.sql`
-      select date_trunc('day', "creada") as dia, count(*) as copias
-        from "ClipboardCopy"
-       ${condiciones.length ? Prisma.sql`where ${Prisma.join(condiciones, ' and ')}` : Prisma.empty}
-       group by 1
-       order by 1 desc
-       limit 60
-    `);
+    const filtro = condiciones.length
+      ? Prisma.sql`where ${Prisma.join(condiciones, ' and ')}`
+      : Prisma.empty;
+
+    const [porTipo, porSucursal, porUsuario, porDia, porUsuarioDia, porHora] = await Promise.all([
+      prisma.$queryRaw<Array<{ tipo: string; copias: bigint }>>(Prisma.sql`
+        select tipo, count(*) as copias from "ClipboardCopy" ${filtro} group by 1
+      `),
+
+      prisma.$queryRaw<Array<{ sucursalId: string | null; copias: bigint }>>(Prisma.sql`
+        select "sucursalId", count(*) as copias from "ClipboardCopy" ${filtro} group by 1
+      `),
+
+      // Por persona: cuántas lleva, cuántas de ellas son códigos de pedido (las
+      // que cuentan como uso real), en cuántos días distintos y cuándo fue la
+      // última. "Cuántos días" separa a quien lo usa a diario de quien lo probó
+      // una tarde y no volvió — dos casos que en un total suelto se ven igual.
+      prisma.$queryRaw<
+        Array<{
+          username: string | null;
+          copias: bigint;
+          pedidos: bigint;
+          dias: bigint;
+          ultima: Date | null;
+        }>
+      >(Prisma.sql`
+        select username,
+               count(*)                                    as copias,
+               count(*) filter (where tipo = 'pedido')     as pedidos,
+               count(distinct ${DIA_CUBA}::date)           as dias,
+               max(${DIA_CUBA})                            as ultima
+          from "ClipboardCopy"
+          ${filtro}
+         group by 1
+         order by 2 desc
+      `),
+
+      prisma.$queryRaw<Array<{ dia: Date; copias: bigint; pedidos: bigint }>>(Prisma.sql`
+        select ${DIA_CUBA}::date                       as dia,
+               count(*)                                as copias,
+               count(*) filter (where tipo = 'pedido') as pedidos
+          from "ClipboardCopy"
+          ${filtro}
+         group by 1
+         order by 1 desc
+         limit 90
+      `),
+
+      // El cruce: qué día hizo cuántas cada persona.
+      prisma.$queryRaw<Array<{ dia: Date; username: string | null; copias: bigint }>>(Prisma.sql`
+        select ${DIA_CUBA}::date as dia, username, count(*) as copias
+          from "ClipboardCopy"
+          ${filtro}
+         group by 1, 2
+         order by 1 desc
+         limit 1000
+      `),
+
+      // A qué hora del día se usa. Contesta literalmente "cuándo lo hace": si el
+      // trabajo se concentra en la mañana, si hay quien factura de noche.
+      prisma.$queryRaw<Array<{ hora: number; copias: bigint }>>(Prisma.sql`
+        select extract(hour from ${DIA_CUBA})::int as hora, count(*) as copias
+          from "ClipboardCopy"
+          ${filtro}
+         group by 1
+         order by 1
+      `),
+    ]);
 
     const nombres = await prisma.sucursal.findMany({ select: { id: true, nombre: true } });
     const nombrePorId = new Map(nombres.map((s) => [s.id, s.nombre]));
 
+    const n = (v: bigint | null) => Number(v ?? 0);
+    const tipos = Object.fromEntries(porTipo.map((t) => [t.tipo, n(t.copias)]));
+
     res.json({
-      total,
+      zona: ZONA,
+      total: porTipo.reduce((s, t) => s + n(t.copias), 0),
       // El que de verdad mide el uso en facturación.
-      pedidos: porTipo.find((t) => t.tipo === 'pedido')?._count._all ?? 0,
-      porTipo: Object.fromEntries(porTipo.map((t) => [t.tipo, t._count._all])),
-      porUsuario: porUsuario
-        .filter((u) => u.username)
-        .map((u) => ({ username: u.username, copias: u._count._all })),
+      pedidos: tipos.pedido ?? 0,
+      porTipo: tipos,
       porSucursal: porSucursal.map((s) => ({
         sucursalId: s.sucursalId,
         nombre: s.sucursalId ? (nombrePorId.get(s.sucursalId) ?? 'Desconocida') : 'Sin sucursal',
-        copias: s._count._all,
+        copias: n(s.copias),
       })),
-      porDia: porDia.map((d) => ({ dia: d.dia, copias: Number(d.copias) })),
+      porUsuario: porUsuario.map((u) => ({
+        username: u.username ?? '(sin usuario)',
+        copias: n(u.copias),
+        pedidos: n(u.pedidos),
+        dias: n(u.dias),
+        ultima: u.ultima,
+      })),
+      porDia: porDia.map((d) => ({
+        dia: d.dia,
+        copias: n(d.copias),
+        pedidos: n(d.pedidos),
+      })),
+      porUsuarioDia: porUsuarioDia.map((x) => ({
+        dia: x.dia,
+        username: x.username ?? '(sin usuario)',
+        copias: n(x.copias),
+      })),
+      porHora: porHora.map((h) => ({ hora: h.hora, copias: n(h.copias) })),
     });
   } catch (error) {
     console.error('Error en el resumen de copias:', error);

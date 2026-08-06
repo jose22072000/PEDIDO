@@ -24,6 +24,7 @@ import { FRESCO_LARGO_MS } from "@/stores/crearStoreDatos";
 import Icons from "@/components/icons/iconify";
 import { exportToExcel } from "@/utils/excelExport";
 import { useAuthStore } from "@/stores/authStore";
+import { esFechaEnviable } from "@/lib/fecha-enviable";
 
 interface PedidoItem {
   id: string;
@@ -80,6 +81,9 @@ const EMPTY_Q: Peticion = { inicio: "", fin: "", sucursal: "" };
 const traerReporte =
   (q: Peticion, global: boolean) =>
   async (signal: AbortSignal): Promise<RespuestaReporte> => {
+    if (!esFechaEnviable(q.inicio) || !esFechaEnviable(q.fin)) {
+      throw new Error("Revisa las fechas: tienen que ser AAAA-MM-DD.");
+    }
     const params = new URLSearchParams({ fechaInicio: q.inicio, fechaFin: q.fin });
 
     if (global) params.append("sucursalId", q.sucursal || "all");
