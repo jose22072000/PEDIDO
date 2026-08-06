@@ -1,9 +1,16 @@
 import express from 'express';
 import { Prisma } from '@prisma/client';
 import prisma from '../prismaClient';
+import { authenticateToken } from '../middleware/auth';
 import { getRequesterContext, resolveSucursalFilter } from '../lib/sucursalContext';
 
 const router = express.Router();
+
+// TODO el router exige sesión. Sin esto, cualquiera desde fuera podría meter
+// filas: el contador es un NÚMERO QUE SE VA A MIRAR para decidir si una sucursal
+// está usando el sistema o no, así que uno inflado es peor que no tenerlo —
+// llevaría a dar por bueno un trabajo que no se está haciendo.
+router.use(authenticateToken);
 
 const TIPOS = ['pedido', 'vendedor', 'cliente'] as const;
 type Tipo = (typeof TIPOS)[number];
