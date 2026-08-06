@@ -16,7 +16,22 @@ export default function PanelPage() {
   // su perfil con sus métricas). No ve Vendedores/Usuarios/Reportes (datos ajenos).
   const role = String(user?.role || "").toLowerCase();
   const isGestor = role === "gestor";
-  const canVerVendedores = ["administrador", "supervisor", "super admin"].includes(role);
+  // El OPERADOR entra aquí a diario: es quien factura, y para facturar necesita
+  // copiar el nombre del vendedor de esta vista y pegarlo en el sistema
+  // contable. Es, de hecho, quien más la usa. Se quedó fuera de esta lista
+  // cuando se le dio acceso a la vista (la ruta y el api ya se lo permitían):
+  // el resultado era un Operador con permiso para entrar pero sin ninguna
+  // puerta por la que hacerlo.
+  //
+  // Lo que NO puede hacer —dar de alta o de baja, reasignar el gestor, ver el
+  // detalle— se lo quita la propia vista, y el servidor rechaza esas rutas para
+  // su rol. Entrar a leer y copiar es justo para lo que está.
+  const canVerVendedores = [
+    "administrador",
+    "supervisor",
+    "super admin",
+    "operador",
+  ].includes(role);
   const canManageUsers = ["administrador", "super admin"].includes(role);
 
   // El provider ya pide las estadísticas al montarse: volver a pedirlas aquí
