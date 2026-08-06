@@ -28,6 +28,34 @@ import { useEffect, useRef } from "react";
  * dentro del modal y soltar fuera no cierra nada — con `click` tampoco cerraría,
  * pero con `mousedown` la respuesta es inmediata, que es como se siente bien.
  */
+
+/** Lo unico que se necesita del elemento pulsado. Asi la regla se puede probar. */
+export interface ElementoConClosest {
+  closest(selector: string): unknown;
+}
+
+/**
+ * ¿Ese clic es "pulsar fuera del modal"?
+ *
+ * Se saca aparte para poder probarla: es la unica parte que puede equivocarse, y
+ * equivocarse aqui significa cerrarle el modal a alguien en mitad de la edicion.
+ */
+export function esPulsacionFuera(destino: ElementoConClosest | null): boolean {
+  if (!destino || typeof destino.closest !== "function") return false;
+
+  // Fuera del marco del modal: o es otro modal, o es un desplegable, o es un
+  // aviso flotante. No es "pulsar fuera de ESTE modal".
+  if (!destino.closest('[data-slot="wrapper"]')) return false;
+
+  // Dentro del modal: se esta usando.
+  if (destino.closest('[role="dialog"]')) return false;
+
+  // Un desplegable abierto dentro del marco tampoco cuenta.
+  if (destino.closest('[role="listbox"],[role="menu"],[role="option"]')) return false;
+
+  return true;
+}
+
 export function useCerrarAlPulsarFuera(
   estaAbierto: boolean,
   cerrar: () => void,
@@ -45,21 +73,7 @@ export function useCerrarAlPulsarFuera(
     if (!estaAbierto) return;
 
     const alPulsar = (e: MouseEvent) => {
-      const destino = e.target as HTMLElement | null;
-
-      if (!destino || !destino.closest) return;
-
-      // Fuera del marco del modal: o es otro modal, o es un desplegable, o es
-      // un aviso flotante. No es "pulsar fuera de ESTE modal".
-      if (!destino.closest('[data-slot="wrapper"]')) return;
-
-      // Dentro del modal: se está usando.
-      if (destino.closest('[role="dialog"]')) return;
-
-      // Un desplegable abierto dentro del marco tampoco cuenta.
-      if (destino.closest('[role="listbox"],[role="menu"],[role="option"]')) return;
-
-      alCerrar.current();
+      if (esPulsacionFuera(e.target as ElementoConClosest | null)) alCerrar.current();
     };
 
     document.addEventListener("mousedown", alPulsar);
