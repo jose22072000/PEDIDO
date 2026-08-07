@@ -48,6 +48,18 @@ export interface ParrandaCliente {
 }
 
 /** Trae una página de clientes de Parranda. Lanza si falta la API key o si responde !2xx. */
+/**
+ * ¿Son la misma coordenada? Se comparan con margen porque son decimales y el
+ * ultimo digito puede bailar entre lecturas sin que el punto haya cambiado. Sin
+ * esto, ese baile bastaria para reescribir miles de filas en cada pasada.
+ */
+function mismoNumero(a: number | null | undefined, b: number | null | undefined): boolean {
+  if (a == null && b == null) return true;
+  if (a == null || b == null) return false;
+
+  return Math.abs(a - b) < 0.0000001;
+}
+
 export async function fetchParrandaPage(offset: number): Promise<ParrandaCliente[]> {
   if (!PARRANDA_KEY) throw new Error('PARRANDA_API_KEY no configurado (.env)');
   const res = await fetch(PARRANDA_URL, {
@@ -80,6 +92,8 @@ export interface ParrandaSyncResult {
   total: number;
   creados: number;
   actualizados: number;
+  /** Encontrados en Parranda pero SIN nada que cambiar. */
+  sinCambios: number;
   conGeo: number;
   sinGeo: number;
   sinSucursal: number;
@@ -101,12 +115,28 @@ export async function processParrandaSync(
 
   // Precarga clientes existentes para matchear por nombre normalizado (rápido y preciso,
   // igual que el import del Consolidado). Clave: `${sucursalId}|${norm(nombre)}`.
-  const existentes = await prisma.cliente.findMany({ select: { id: true, nombre: true, sucursalId: true } });
-  const idByKey = new Map<string, string>();
-  for (const c of existentes) if (c.sucursalId) idByKey.set(`${c.sucursalId}|${norm(c.nombre)}`, c.id);
+  // Se traen TAMBIEN los campos que este sync escribe, para poder comparar antes
+  // de tocar nada. Antes solo se traia el id y se hacia un `update` a ciegas:
+  // 6127 escrituras en cada pasada aunque no hubiera cambiado ni un dato.
+  //
+  // Y eso no era solo derroche. Cada `update` pisa `updatedAt`, que es la columna
+  // que dice "cuando se sincronizo este cliente por ultima vez": si se toca a
+  // todos, todos parecen recien actualizados y esa fecha deja de significar
+  // nada. Ahora solo se escribe lo que de verdad cambio.
+  const existentes = await prisma.cliente.findMany({
+    select: {
+      id: true, nombre: true, sucursalId: true,
+      codigo: true, direccion: true, municipio: true,
+      latitud: true, longitud: true, geolocalizacion: true,
+    },
+  });
+  type Actual = (typeof existentes)[number];
+  const porClave = new Map<string, Actual>();
+
+  for (const c of existentes) if (c.sucursalId) porClave.set(`${c.sucursalId}|${norm(c.nombre)}`, c);
 
   const r: ParrandaSyncResult = {
-    paginas: 0, total: 0, creados: 0, actualizados: 0, conGeo: 0, sinGeo: 0, sinSucursal: 0, errores: 0,
+    paginas: 0, total: 0, creados: 0, actualizados: 0, sinCambios: 0, conGeo: 0, sinGeo: 0, sinSucursal: 0, errores: 0,
   };
 
   let offset = 0;
@@ -138,10 +168,26 @@ export async function processParrandaSync(
         };
 
         const key = `${sucursalId}|${norm(nombre)}`;
-        const existingId = idByKey.get(key);
-        if (existingId) {
-          await prisma.cliente.update({ where: { id: existingId }, data: geoData });
-          r.actualizados++;
+        const actual = porClave.get(key);
+
+        if (actual) {
+          // Solo se escribe si algo CAMBIO de verdad. Las coordenadas se comparan
+          // con margen: son decimales y una diferencia en el ultimo digito no es
+          // un cambio real, pero bastaria para escribir las 6127 filas otra vez.
+          const cambio =
+            (geoData.codigo ?? null) !== (actual.codigo ?? null) ||
+            (geoData.direccion ?? null) !== (actual.direccion ?? null) ||
+            (geoData.municipio ?? null) !== (actual.municipio ?? null) ||
+            (geoData.geolocalizacion ?? null) !== (actual.geolocalizacion ?? null) ||
+            !mismoNumero(geoData.latitud, actual.latitud) ||
+            !mismoNumero(geoData.longitud, actual.longitud);
+
+          if (cambio) {
+            await prisma.cliente.update({ where: { id: actual.id }, data: geoData });
+            r.actualizados++;
+          } else {
+            r.sinCambios++;
+          }
         } else {
           // Parranda SOLO enriquece a MIS clientes (los que vienen de los pedidos). Un cliente
           // de Parranda que NO existe aquí se OMITE: no se importa el catálogo entero de Parranda.

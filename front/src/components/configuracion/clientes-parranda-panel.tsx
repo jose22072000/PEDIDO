@@ -48,6 +48,8 @@ interface SyncRun {
     total: number;
     creados: number;
     actualizados: number;
+    /** Encontrados en Parranda pero sin nada que cambiar. */
+    sinCambios?: number;
     conGeo: number;
     sinGeo: number;
     errores: number;
@@ -169,7 +171,7 @@ export const ClientesParrandaPanel = () => {
         const s = await fetch(`${api()}/clientes/sync-parranda/status/${jobId}`).then((x) => x.json());
         if (s.estado === "completado") {
           const r = s.resultado || {};
-          addToast({ title: "Sincronización completa", description: `${r.creados ?? 0} nuevos · ${r.actualizados ?? 0} actualizados · ${r.conGeo ?? 0} con geo`, color: "success" });
+          addToast({ title: "Sincronización completa", description: `${r.actualizados ?? 0} cambiaron · ${r.sinCambios ?? 0} ya estaban al día · ${r.conGeo ?? 0} con geo`, color: "success" });
           break;
         }
         if (s.estado === "error") {
@@ -242,7 +244,16 @@ export const ClientesParrandaPanel = () => {
                     <span className="text-default-500">{fmtFecha(s.cuando)}</span>
                     {s.resultado && (
                       <span>
-                        {s.resultado.creados} nuevos · {s.resultado.actualizados} act · {s.resultado.conGeo} geo · {s.resultado.errores} err
+                        {/* "cambiaron" es lo que de verdad se escribió. Antes
+                            decía "act" y contaba TODOS los encontrados, así que
+                            marcaba 6127 en cada pasada aunque no hubiera
+                            cambiado un solo dato. */}
+                        {s.resultado.actualizados} cambiaron
+                        {s.resultado.sinCambios != null
+                          ? ` · ${s.resultado.sinCambios} ya estaban al día`
+                          : ""}
+                        {" · "}
+                        {s.resultado.conGeo} geo · {s.resultado.errores} err
                       </span>
                     )}
                     {s.error && <span className="text-danger truncate">{s.error}</span>}
