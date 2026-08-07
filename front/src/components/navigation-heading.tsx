@@ -46,22 +46,27 @@ export const NavigationHeading = ({
         </div>
         <p className="block md:hidden text-lg text-default-500">{paragraph}</p>
       </div>
-      <div className="w-full flex flex-col items-center gap-2 md:w-fit md:min-w-fit">
-        {/* Una sola fila: el selector de sucursal (solo Super Admin) a la izquierda y el
-            avatar del perfil a la derecha. En móvil se ve limpio en una línea. */}
-        <div className="w-full flex items-center gap-2">
-          <div className="flex-1 min-w-0">
-            <SucursalSelector />
-          </div>
-          <UserMenu />
-        </div>
+      {/*
+        Los tres controles de la esquina comparten fila, altura y radio.
+        Antes cada uno traía la suya: el selector `sm` (32 px), el menú de
+        usuario por defecto (40 px) y el botón `lg` con el icono forzado a
+        `size-16` — una flecha más alta que el propio botón. Tres alturas
+        distintas pegadas, y el botón centrado debajo sin alinear con nada.
+
+        `items-end` los apoya en la MISMA línea de base que el título de la
+        izquierda, que es lo que hace que la cabecera se lea como una sola pieza
+        y no como tres cosas apiladas.
+      */}
+      <div className="w-full flex flex-col items-stretch gap-2 md:w-auto md:flex-row md:flex-wrap md:items-end md:justify-end">
+        <SucursalSelector />
+        <UserMenu />
         <Button
           as={Link}
-          className="btn w-full max-w-[300px] text-center"
           color="primary"
           href={cta.href}
-          size="lg"
-          startContent={<Icons.back className="size-12! md:size-16!" />}
+          radius="md"
+          size="md"
+          startContent={<Icons.back className="size-5" />}
           variant="shadow"
         >
           {cta.label}

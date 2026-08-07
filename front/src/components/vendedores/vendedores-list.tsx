@@ -402,10 +402,18 @@ export const VendedoresList = () => {
               </Button>
             </div>
           )}
+          {/*
+            Los dos controles miden lo mismo porque ninguno lleva etiqueta
+            DENTRO: la etiqueta es lo que estira la caja de un desplegable y lo
+            deja más alto que el buscador de al lado. Aquí el desplegable se
+            explica solo con el icono y el valor elegido, igual que el buscador
+            se explica con su placeholder.
+          */}
           <div className="flex flex-col md:flex-row gap-3">
             <Input
               isClearable
               className="flex-1"
+              label="Buscar vendedor"
               placeholder="Buscar por nombre, código o gestor..."
               size="lg"
               startContent={<Icons.search className="size-5 text-default-400" />}
@@ -415,10 +423,13 @@ export const VendedoresList = () => {
               onClear={() => setSearchValue("")}
             />
             <Select
-              className="md:max-w-[240px]"
+              className="md:w-64"
               label="Mostrar"
               selectedKeys={[filtroEstado]}
               size="lg"
+              startContent={
+                <Icons.filter className="size-5 text-default-400" />
+              }
               variant="bordered"
               onChange={(e) =>
                 setFiltroEstado(

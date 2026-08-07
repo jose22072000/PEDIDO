@@ -191,8 +191,13 @@ export const ClientesList = () => {
           <h3 className="font-bold text-lg">Filtrar</h3>
         </CardHeader>
         <CardBody className="gap-4">
+          {/* Misma regla que en Vendedores: ningun control lleva etiqueta
+              DENTRO, porque es lo que estira la caja y deja unos mas altos que
+              otros. Todos `lg` y `radius="md"`, asi la fila se lee como una
+              sola pieza. */}
           <Input
             isClearable
+            label="Buscar cliente"
             placeholder="Buscar por nombre o código..."
             size="lg"
             startContent={<Icons.search className="size-5 text-default-400" />}
@@ -204,8 +209,10 @@ export const ClientesList = () => {
           <div className="flex flex-col gap-3 sm:flex-row">
             <Select
               label="Municipio"
+              placeholder="Todos"
               selectedKeys={municipio ? [municipio] : []}
-              size="sm"
+              size="lg"
+              startContent={<Icons.filter className="size-5 text-default-400" />}
               variant="bordered"
               onChange={(e) => setMunicipio(e.target.value)}
             >
@@ -216,8 +223,10 @@ export const ClientesList = () => {
             </Select>
             <Select
               label="Vendedor"
+              placeholder="Todos los vendedores"
               selectedKeys={vendedorId ? [vendedorId] : []}
-              size="sm"
+              size="lg"
+              startContent={<Icons.user className="size-5 text-default-400" />}
               variant="bordered"
               onChange={(e) => setVendedorId(e.target.value)}
             >
@@ -234,8 +243,9 @@ export const ClientesList = () => {
             </Select>
             <Select
               label="Compra"
+              placeholder="Todos"
               selectedKeys={estadoCompra ? [estadoCompra] : []}
-              size="sm"
+              size="lg"
               variant="bordered"
               onChange={(e) => setEstadoCompra(e.target.value)}
             >

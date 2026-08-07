@@ -56,9 +56,13 @@ export const SucursalSelector = () => {
   return (
     <Select
       aria-label="Sucursal activa"
-      className="w-full sm:w-64"
+      // `md` y `radius="md"`, como el menú de usuario y el botón de al lado: los
+      // tres son controles de cabecera y tienen que medir lo mismo. Antes este
+      // era `sm` y quedaba hundido junto a los otros dos.
+      className="w-full md:w-64"
+      radius="md"
       selectedKeys={new Set([valor])}
-      size="sm"
+      size="md"
       startContent={<Icons.building className="size-4 text-default-400" />}
       variant="bordered"
       onSelectionChange={(keys) => cambiar(Array.from(keys)[0] as string)}

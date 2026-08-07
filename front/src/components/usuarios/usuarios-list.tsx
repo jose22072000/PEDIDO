@@ -377,11 +377,15 @@ export const UsuariosList = () => {
             onClear={() => setSearchValue("")}
           />
           <div className="flex flex-col md:flex-row gap-4 mt-4">
+            {/* Sin etiqueta dentro y en `lg`, como el buscador de arriba: es lo
+                que hace que todas las cajas de la fila midan igual. */}
             <Select
               className="md:max-w-xs"
               label="Rol"
               placeholder="Todos los roles"
               selectedKeys={rolFilter ? [rolFilter] : []}
+              size="lg"
+              startContent={<Icons.filter className="size-5 text-default-400" />}
               variant="bordered"
               onChange={(e) =>
                 setRolFilter(e.target.value === "__all__" ? "" : e.target.value)
@@ -399,6 +403,10 @@ export const UsuariosList = () => {
               label="Sucursal"
               placeholder="Todas las sucursales"
               selectedKeys={sucursalFilter ? [sucursalFilter] : []}
+              size="lg"
+              startContent={
+                <Icons.building className="size-5 text-default-400" />
+              }
               variant="bordered"
               onChange={(e) =>
                 setSucursalFilter(
