@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import { Prisma } from '@prisma/client';
 import prisma from '../prismaClient';
 import { mapCsvRecords, type OrderRecordDto } from '../dto/orderRecord.dto';
@@ -387,17 +387,56 @@ router.post('/', async (req, res) => {
   }
 });
 
+/**
+ * El `where` para trabajar sobre UN pedido, con el mismo alcance que la lista.
+ *
+ * Existe por un fallo real: la lista usa `resolveSucursalFilter`, que al Super
+ * Admin le devuelve TODAS las sucursales, mientras que completar y borrar usaban
+ * `requireSucursalId`, que EXIGE una sucursal concreta. El Super Admin no tiene
+ * sucursal propia, asi que veia todos los pedidos y no podia completar ninguno:
+ * "Error al completar el pedido", sin mas. Y solo le pasaba a el, por eso parecia
+ * que a unos usuarios les dejaba y a otros no.
+ *
+ * Leer y escribir tienen que alcanzar LO MISMO. Si se puede ver, se puede tocar;
+ * y si no se puede tocar, no se deberia poder ver.
+ *
+ * Devuelve `where` para buscar el pedido, o `error` con el mensaje ya listo.
+ */
+function alcancePedido(req: Request): { where?: { id: string; sucursalId?: string }; error?: string } {
+  const id = String(req.params.id);
+  const { sucursalId, isGlobalAdmin, error } = resolveSucursalScope(req, {
+    allowAllForAdmin: true,
+    preferUserSucursal: true,
+    defaultAllForAdmin: true,
+  });
+
+  if (error) return { error };
+
+  // El Super Admin sin sucursal enfocada llega a cualquier pedido, igual que los
+  // ve todos en la lista. Los demas, solo a los de la suya.
+  if (!sucursalId) {
+    if (isGlobalAdmin) return { where: { id } };
+
+    return {
+      error:
+        'No hay sucursal disponible para esta solicitud. Inicia sesion con un usuario asignado a sucursal.',
+    };
+  }
+
+  return { where: { id, sucursalId } };
+}
+
 // Update order status to completada
 router.patch('/:id/completar', async (req, res) => {
   try {
     const { id } = req.params;
-    const { sucursalId, error: sucursalError } = requireSucursalId(req);
-    if (sucursalError || !sucursalId) {
+    const { where, error: sucursalError } = alcancePedido(req);
+    if (sucursalError || !where) {
       return res.status(400).json({ error: sucursalError });
     }
 
     const existingOrder = await prisma.pedido.findFirst({
-      where: { id, sucursalId },
+      where,
       select: { id: true },
     });
 
@@ -433,14 +472,14 @@ router.patch('/:id/completar', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { sucursalId, error: sucursalError } = requireSucursalId(req);
-    if (sucursalError || !sucursalId) {
+    const { where, error: sucursalError } = alcancePedido(req);
+    if (sucursalError || !where) {
       return res.status(400).json({ error: sucursalError });
     }
 
     // Check if order exists
     const existingOrder = await prisma.pedido.findFirst({
-      where: { id, sucursalId },
+      where,
       include: { items: true },
     });
 
@@ -457,7 +496,7 @@ router.delete('/:id', async (req, res) => {
     await prisma.pedido.delete({
       where: { id },
     });
-    emitEvent('pedido', { sucursalId, id, accion: 'delete' });
+    emitEvent('pedido', { sucursalId: existingOrder.sucursalId, id, accion: 'delete' });
 
     res.json({ success: true, message: 'Pedido eliminado correctamente' });
   } catch (err) {

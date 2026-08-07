@@ -472,8 +472,22 @@ router.patch('/:id/gestor', async (req, res) => {
         // TODOS sus pedidos, no solo los que estaban en null. Si el vendedor
         // arrastraba pedidos en la sucursal equivocada (heredada del que subió
         // el CSV), enlazar al gestor los recoloca donde de verdad van.
+        //
+        // El `sucursalId: null` va EXPLÍCITO y no se puede quitar. Antes esto
+        // era `NOT: { sucursalId }`, que en SQL se traduce a
+        // `"sucursalId" <> 'X'` — y comparar NULL con algo no da verdadero, da
+        // DESCONOCIDO. Resultado: los pedidos sin sucursal, que son justo los
+        // que este backfill viene a arreglar, eran los únicos que se saltaba.
+        //
+        // No falla ruidosamente: el pedido se queda sin sucursal, invisible en
+        // la vista y IMPOSIBLE de completar, sin que nada avise. Se descubrió el
+        // 07/08/2026 con 3 pedidos de Raúl Salgado que llevaban días así
+        // mientras otros 11 suyos estaban bien.
         const p = await tx.pedido.updateMany({
-          where: { vendedorId: id, NOT: { sucursalId } },
+          where: {
+            vendedorId: id,
+            OR: [{ sucursalId: null }, { sucursalId: { not: sucursalId } }],
+          },
           data: { sucursalId },
         });
         pedidos = p.count;
