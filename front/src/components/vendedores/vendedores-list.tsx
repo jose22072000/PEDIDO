@@ -117,6 +117,11 @@ export const VendedoresList = () => {
   const rowsPerPage = 10;
   const { isOpen, onOpen, onClose } = useDisclosure();
   const [abrirNuevo, setAbrirNuevo] = useState(false);
+  // Qué vendedores se enseñan. Por defecto los de alta, que es la lista de
+  // trabajo; "sin gestor" es la que hace falta cuando salta el aviso amarillo.
+  const [filtroEstado, setFiltroEstado] = useState<
+    "activos" | "sin_gestor" | "asignados" | "baja"
+  >("activos");
 
   // Pulsar fuera cierra; elegir en un desplegable NO (se dibuja fuera del modal).
   useCerrarAlPulsarFuera(isOpen, onClose);
@@ -303,27 +308,39 @@ export const VendedoresList = () => {
     [selectedVendedor, fetchVendedorStats],
   );
 
-  // Volver a la primera página al cambiar la búsqueda.
+  // Volver a la primera página al cambiar la búsqueda o el filtro.
   useEffect(() => {
     setPage(1);
-  }, [searchValue]);
+  }, [searchValue, filtroEstado]);
 
-  // Filter vendedores by search
+  // Búsqueda por texto + filtro por estado.
+  //
+  // El filtro por estado es lo que faltaba: el aviso decía "hay 2 vendedores sin
+  // gestor" pero no había forma de VERLOS — con 79 vendedores paginados de 10 en
+  // 10, encontrarlos era ir página por página mirando cuál no tiene la etiqueta
+  // verde. El aviso señalaba un problema y no daba manera de llegar a él.
   useEffect(() => {
-    if (searchValue.trim() === "") {
-      setFilteredVendedores(vendedores);
-    } else {
-      const search = searchValue.toLowerCase();
-      const filtered = vendedores.filter(
-        (v) =>
-          v.nombre.toLowerCase().includes(search) ||
-          (v.codigo ?? "").toLowerCase().includes(search) ||
-          (v.gestor?.username ?? "").toLowerCase().includes(search),
-      );
+    const search = searchValue.trim().toLowerCase();
 
-      setFilteredVendedores(filtered);
-    }
-  }, [searchValue, vendedores]);
+    const filtered = vendedores.filter((v) => {
+      if (filtroEstado === "sin_gestor" && (v.gestorId || !v.activo)) return false;
+      if (filtroEstado === "asignados" && (!v.gestorId || !v.activo)) return false;
+      if (filtroEstado === "baja" && v.activo) return false;
+      // "activos" (por defecto) enseña a todos los que están de alta, tengan
+      // gestor o no: es la lista de trabajo normal.
+      if (filtroEstado === "activos" && !v.activo) return false;
+
+      if (!search) return true;
+
+      return (
+        v.nombre.toLowerCase().includes(search) ||
+        (v.codigo ?? "").toLowerCase().includes(search) ||
+        (v.gestor?.username ?? "").toLowerCase().includes(search)
+      );
+    });
+
+    setFilteredVendedores(filtered);
+  }, [searchValue, filtroEstado, vendedores]);
 
   // Fetch vendedores on mount
   useEffect(() => {
@@ -366,22 +383,55 @@ export const VendedoresList = () => {
         </CardHeader>
         <CardBody className="gap-4">
           {puedeGestionar && sinAsignar > 0 && (
-            <div className="p-3 text-sm border rounded-lg bg-warning-50 border-warning-200 text-warning-700">
-              Hay <b>{sinAsignar}</b> vendedor{sinAsignar > 1 ? "es" : ""} sin
-              gestor. Sus pedidos están <b>ocultos</b> hasta que le asignes uno;
-              al asignarlo, todos sus pedidos ya subidos se asignan solos.
+            <div className="p-3 text-sm border rounded-lg bg-warning-50 border-warning-200 text-warning-700 flex flex-wrap items-center gap-3">
+              <span>
+                Hay <b>{sinAsignar}</b> vendedor{sinAsignar > 1 ? "es" : ""} sin
+                gestor. Sus pedidos están <b>ocultos</b> hasta que le asignes
+                uno; al asignarlo, todos sus pedidos ya subidos se asignan solos.
+              </span>
+              {/* El aviso ahora LLEVA a ellos. Antes decía cuántos había y no
+                  daba forma de encontrarlos: con 79 vendedores de 10 en 10,
+                  había que ir página por página mirando cuál no tenía gestor. */}
+              <Button
+                color="warning"
+                size="sm"
+                variant="flat"
+                onPress={() => setFiltroEstado("sin_gestor")}
+              >
+                Ver cuáles son
+              </Button>
             </div>
           )}
-          <Input
-            isClearable
-            placeholder="Buscar por nombre, código o gestor..."
-            size="lg"
-            startContent={<Icons.search className="size-5 text-default-400" />}
-            value={searchValue}
-            variant="bordered"
-            onChange={(e) => setSearchValue(e.target.value)}
-            onClear={() => setSearchValue("")}
-          />
+          <div className="flex flex-col md:flex-row gap-3">
+            <Input
+              isClearable
+              className="flex-1"
+              placeholder="Buscar por nombre, código o gestor..."
+              size="lg"
+              startContent={<Icons.search className="size-5 text-default-400" />}
+              value={searchValue}
+              variant="bordered"
+              onChange={(e) => setSearchValue(e.target.value)}
+              onClear={() => setSearchValue("")}
+            />
+            <Select
+              className="md:max-w-[240px]"
+              label="Mostrar"
+              selectedKeys={[filtroEstado]}
+              size="lg"
+              variant="bordered"
+              onChange={(e) =>
+                setFiltroEstado(
+                  (e.target.value || "activos") as typeof filtroEstado,
+                )
+              }
+            >
+              <SelectItem key="activos">De alta (todos)</SelectItem>
+              <SelectItem key="sin_gestor">Sin gestor</SelectItem>
+              <SelectItem key="asignados">Con gestor</SelectItem>
+              <SelectItem key="baja">Dados de baja</SelectItem>
+            </Select>
+          </div>
         </CardBody>
       </Card>
 

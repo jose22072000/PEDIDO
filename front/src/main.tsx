@@ -133,8 +133,36 @@ window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
 
   init.signal = signal;
 
-  return _origFetch(input, init).finally(limpiar);
+  return _origFetch(input, init)
+    .then((r) => {
+      avisarSiCaducoLaSesion(r, reqUrl);
+
+      return r;
+    })
+    .finally(limpiar);
 }) as typeof window.fetch;
+
+/**
+ * Si el servidor contesta 401, la sesion ya no vale: se avisa UNA vez y desde
+ * un solo sitio.
+ *
+ * El token dura 7 dias y las operadoras dejan la pestaña abierta toda la
+ * semana. Cuando caduca, la siguiente accion falla — y cada pantalla enseñaba
+ * su propio texto generico ("Error al completar el pedido"), asi que parecia
+ * que el sistema estaba roto en vez de que habia que volver a entrar. El
+ * 07/08/2026 dos operadoras estuvieron asi sin que nadie supiera por que.
+ *
+ * Va en el envoltorio de `fetch` a proposito: cubre TODAS las pantallas, las de
+ * hoy y las que se hagan mañana, sin que nadie tenga que acordarse.
+ */
+function avisarSiCaducoLaSesion(r: Response, url: string) {
+  // El login contesta 401 cuando la contraseña esta mal: eso NO es una sesion
+  // caducada, y echar a alguien de una pantalla donde todavia no ha entrado no
+  // tendria sentido.
+  if (r.status !== 401 || /\/auth\/(login|me)/.test(url)) return;
+
+  window.dispatchEvent(new CustomEvent("sesion-caducada"));
+}
 
 // El service worker viejo dejo una cache de respuestas de /api en los navegadores
 // que ya lo tenian instalado. Quitar la regla del build evita que se creen nuevas,

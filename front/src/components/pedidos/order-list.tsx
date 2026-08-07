@@ -38,6 +38,7 @@ import {
   type RespuestaPedidos,
 } from "@/stores/datos/pedidos";
 import { useCerrarAlPulsarFuera } from "@/hooks/cerrar-al-pulsar-fuera";
+import { mensajeDeError } from "@/lib/error-del-servidor";
 
 // Los tipos del listado viven en el store: los comparten quien los pinta y quien
 // los trae, y asi no se separan cuando cambie el api.
@@ -269,7 +270,13 @@ export const OrdersList = () => {
         );
 
         if (!response.ok) {
-          throw new Error("Error al completar el pedido");
+          // El mensaje del SERVIDOR, no uno inventado aqui. Antes se tiraba y
+          // siempre se veia "Error al completar el pedido", asi que daba igual
+          // que la sesion hubiera caducado, que el pedido fuera de otra
+          // sucursal o que faltara permiso: nadie podia saber que pasaba.
+          throw new Error(
+            await mensajeDeError(response, "No se pudo completar el pedido"),
+          );
         }
 
         // Refetch current page and close modals
@@ -278,7 +285,12 @@ export const OrdersList = () => {
         onConfirmClose();
         setOrderToComplete(null);
       } catch (err) {
-        alert("Error al completar el pedido");
+        addToast({
+          title: "No se completó",
+          description:
+            err instanceof Error ? err.message : "No se pudo completar el pedido",
+          color: "danger",
+        });
       }
     },
     [fetchOrders, onClose, onConfirmClose],

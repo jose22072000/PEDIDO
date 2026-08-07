@@ -49,7 +49,13 @@ const PAGINACION_VACIA = {
 };
 
 const traerClientes =
-  (page: number, search: string, municipio: string, estadoCompra: string) =>
+  (
+    page: number,
+    search: string,
+    municipio: string,
+    estadoCompra: string,
+    vendedorId: string,
+  ) =>
   async (signal: AbortSignal): Promise<RespuestaClientes> => {
     const params = new URLSearchParams({
       page: String(page),
@@ -59,6 +65,7 @@ const traerClientes =
     if (search.length > 0) params.append("search", search);
     if (municipio) params.append("municipio", municipio);
     if (estadoCompra) params.append("estadoCompra", estadoCompra);
+    if (vendedorId) params.append("vendedorId", vendedorId);
 
     const r = await fetch(`${getApiBaseUrl()}/clientes?${params}`, { signal });
 
@@ -81,6 +88,12 @@ export const ClientesList = () => {
   const [searchValue, setSearchValue] = useState<string>("");
   const [municipio, setMunicipio] = useState<string>("");
   const [estadoCompra, setEstadoCompra] = useState<string>("");
+  // Quien trajo al cliente. Los clientes los traen los vendedores, asi que
+  // filtrar por vendedor es la forma natural de mirar esta lista.
+  const [vendedorId, setVendedorId] = useState<string>("");
+  const [vendedores, setVendedores] = useState<
+    Array<{ id: string; nombre: string; clientes: number }>
+  >([]);
   const [selectedCliente, setSelectedCliente] = useState<Cliente | null>(null);
   const [copiedClienteId, setCopiedClienteId] = useState<string | null>(null);
   const { isOpen, onOpen, onClose } = useDisclosure();
@@ -101,12 +114,33 @@ export const ClientesList = () => {
     error,
     recargar: fetchClientes,
   } = usarClientes(
-    `clientes:${activeSucursalId ?? "todas"}:${page}:${debouncedSearch}:${municipio}:${estadoCompra}`,
-    traerClientes(page, debouncedSearch, municipio, estadoCompra),
+    `clientes:${activeSucursalId ?? "todas"}:${page}:${debouncedSearch}:${municipio}:${estadoCompra}:${vendedorId}`,
+    traerClientes(page, debouncedSearch, municipio, estadoCompra, vendedorId),
   );
 
   const clientes = datos?.data ?? SIN_CLIENTES;
   const pagination = datos?.pagination ?? PAGINACION_VACIA;
+  // Los vendedores de la sucursal, con cuantos clientes trajo cada uno. Se pide
+  // UNA vez por sucursal: es una lista corta y no cambia mientras se filtra.
+  useEffect(() => {
+    const ac = new AbortController();
+
+    fetch(`${getApiBaseUrl()}/clientes/por-vendedor`, { signal: ac.signal })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((v) => setVendedores(Array.isArray(v) ? v : []))
+      .catch(() => {
+        /* sin red o sin permiso: el desplegable se queda vacio y el resto va */
+      });
+
+    return () => ac.abort();
+  }, [activeSucursalId]);
+
+  // Al cambiar de vendedor se vuelve a la primera pagina: si no, se queda en la
+  // 7 de una lista que ahora tiene 2 y parece que no hay clientes.
+  useEffect(() => {
+    setPage(1);
+  }, [vendedorId]);
+
   // El api solo manda la lista de municipios en algunas respuestas: se conserva la
   // ultima que llego para que el desplegable no se vacie al pasar de pagina.
   const [municipios, setMunicipios] = useState<string[]>([]);
@@ -178,6 +212,24 @@ export const ClientesList = () => {
               {[
                 <SelectItem key="">Todos</SelectItem>,
                 ...municipios.map((m) => <SelectItem key={m}>{m}</SelectItem>),
+              ]}
+            </Select>
+            <Select
+              label="Vendedor"
+              selectedKeys={vendedorId ? [vendedorId] : []}
+              size="sm"
+              variant="bordered"
+              onChange={(e) => setVendedorId(e.target.value)}
+            >
+              {[
+                <SelectItem key="">Todos los vendedores</SelectItem>,
+                ...vendedores.map((v) => (
+                  // El numero al lado responde de un vistazo "cuantos clientes
+                  // tiene cada uno", que es para lo que se pidio esto.
+                  <SelectItem key={v.id} textValue={v.nombre}>
+                    {v.nombre} · {v.clientes}
+                  </SelectItem>
+                )),
               ]}
             </Select>
             <Select

@@ -29,7 +29,11 @@ import Icons from "../icons/iconify";
 import { cards } from "@/components/primitives";
 import { getApiBaseUrl } from "@/config";
 import { aplicarLote } from "@/hooks/aplicar-eventos";
-import { usarUsuarios, type Usuario } from "@/stores/datos/usuarios";
+import {
+  usarUsuarios,
+  type Usuario,
+  type RespuestaUsuarios,
+} from "@/stores/datos/usuarios";
 import { getSucursalActiva } from "@/components/sucursal-selector";
 import { useAuthStore } from "@/stores/authStore";
 import { mostrarUsuario } from "@/lib/nombre-usuario";
@@ -42,13 +46,25 @@ import { useCerrarAlPulsarFuera } from "@/hooks/cerrar-al-pulsar-fuera";
  * Trae la lista. Va a nivel de módulo porque no depende de nada de la vista: la
  * sucursal enfocada la añade el envoltorio de fetch (main.tsx) como cabecera.
  */
-const traerUsuarios = async (signal: AbortSignal): Promise<Usuario[]> => {
-  const r = await fetch(`${getApiBaseUrl()}/users`, { signal });
+const traerUsuarios =
+  (page: number, search: string, rol: string) =>
+  async (signal: AbortSignal): Promise<RespuestaUsuarios> => {
+    const params = new URLSearchParams({
+      page: String(page),
+      limit: String(POR_PAGINA),
+    });
 
-  if (!r.ok) throw new Error("Error al cargar los usuarios");
+    if (search) params.append("search", search);
+    if (rol) params.append("rol", rol);
 
-  return r.json();
-};
+    const r = await fetch(`${getApiBaseUrl()}/users?${params}`, { signal });
+
+    if (!r.ok) throw new Error("Error al cargar los usuarios");
+
+    return r.json();
+  };
+
+const POR_PAGINA = 10;
 
 interface Rol {
   id: string;
@@ -73,7 +89,21 @@ export const UsuariosList = () => {
   const [rolFilter, setRolFilter] = useState("");
   const [sucursalFilter, setSucursalFilter] = useState("");
   const [page, setPage] = useState(1);
-  const rowsPerPage = 10;
+  // Freno de la busqueda: ahora la hace el SERVIDOR, asi que sin esto seria una
+  // peticion por cada tecla.
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchValue.trim()), 350);
+
+    return () => clearTimeout(t);
+  }, [searchValue]);
+
+  // Al cambiar de filtro se vuelve a la primera pagina: si no, se queda en la 7
+  // de una lista que ahora tiene 2 y parece que no hay nadie.
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch, rolFilter, sucursalFilter]);
   const { isOpen, onOpen, onClose } = useDisclosure();
 
   // Pulsar fuera cierra; elegir en un desplegable NO (se dibuja fuera del modal).
@@ -130,49 +160,50 @@ export const UsuariosList = () => {
     cargando: isLoading,
     error: errorCarga,
     recargar: recargarUsuarios,
-  } = usarUsuarios(`usuarios:${activeSucursalId ?? "todas"}`, traerUsuarios, {
+  } = usarUsuarios(
+    // La pagina y los filtros van en la CLAVE: cada combinacion se cachea
+    // aparte, asi volver a la pagina anterior es instantaneo.
+    `usuarios:${activeSucursalId ?? "todas"}:${page}:${debouncedSearch}:${rolFilter}`,
+    traerUsuarios(page, debouncedSearch, rolFilter),
+    {
     aplicar: (actual, lote) => {
       const deUsuario = lote.filter((e) => e.tipo === "usuario");
 
       // Hay eventos de vendedor en la ráfaga: no se puede aplicar todo, se relee.
       if (deUsuario.length !== lote.length) return null;
 
-      return aplicarLote<Usuario>(actual, deUsuario, {
+      // El evento se aplica sobre la PAGINA que se esta viendo.
+      const lista = aplicarLote<Usuario>(actual.data, deUsuario, {
         // El Administrador solo ve su sucursal; el Super Admin, todas.
         filtrar: (u) => !activeSucursalId || u.sucursalId === activeSucursalId,
         alPrincipio: true,
       });
+
+      if (lista === null) return null;
+
+      return lista === actual.data ? actual : { ...actual, data: lista };
     },
   });
 
-  // Filtros en cliente (texto + rol + sucursal): /users devuelve la lista completa.
+  // El TEXTO y el ROL los filtra el SERVIDOR: filtrar en el navegador obligaba a
+  // bajarse los 164 usuarios enteros en cada carga (63 KB), que es justo la
+  // espera que se notaba al cambiar a "todas las sucursales".
+  //
+  // El de sucursal se queda aqui porque el servidor ya scopea por la sucursal
+  // ENFOCADA; este es solo para afinar dentro de lo que ya vino.
   const filteredUsuarios = useMemo(() => {
-    const q = searchValue.trim().toLowerCase();
+    const pagina = usuarios?.data ?? [];
 
-    // `usuarios` es null mientras no haya llegado la primera carga.
-    return (usuarios ?? []).filter((u) => {
-      if (rolFilter && (u.rol?.nombre ?? "") !== rolFilter) return false;
-      if (sucursalFilter && (u.sucursal?.nombre ?? "") !== sucursalFilter) return false;
-      if (
-        q &&
-        !(
-          u.username.toLowerCase().includes(q) ||
-          (u.rol?.nombre ?? "").toLowerCase().includes(q) ||
-          (u.sucursal?.nombre ?? "").toLowerCase().includes(q)
-        )
-      )
-        return false;
+    if (!sucursalFilter) return pagina;
 
-      return true;
-    });
-  }, [usuarios, searchValue, rolFilter, sucursalFilter]);
+    return pagina.filter((u) => (u.sucursal?.nombre ?? "") === sucursalFilter);
+  }, [usuarios, sucursalFilter]);
 
-  const totalPages = Math.ceil(filteredUsuarios.length / rowsPerPage) || 1;
+  const totalPages = usuarios?.totalPages ?? 1;
 
   const paginatedUsuarios = useMemo(() => {
-    const start = (page - 1) * rowsPerPage;
-
-    return filteredUsuarios.slice(start, start + rowsPerPage);
+    // Ya viene cortada del servidor: aqui no se recorta nada mas.
+    return filteredUsuarios;
   }, [filteredUsuarios, page]);
 
   // Volver a la primera página al cambiar la búsqueda.

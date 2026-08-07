@@ -10,9 +10,17 @@ export interface Usuario {
   createdAt: string;
 }
 
+/** Lo que devuelve /users: una PAGINA, no la lista entera. */
+export interface RespuestaUsuarios {
+  data: Usuario[];
+  total: number;
+  page: number;
+  totalPages: number;
+}
+
 /**
  * Store de usuarios. Escucha "usuario" y "vendedor": un gestor es un usuario
  * enlazado a vendedores, y al cambiar esos enlaces la lista cambia.
  */
 export const { useStore: useUsuariosStore, usar: usarUsuarios } =
-  crearStoreDatos<Usuario[]>(["usuario", "vendedor"]);
+  crearStoreDatos<RespuestaUsuarios>(["usuario", "vendedor"]);

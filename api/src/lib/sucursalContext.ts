@@ -262,3 +262,122 @@ export function resolveSucursalScope(
 
   return { sucursalId: selectedSucursalId, isGlobalAdmin: requester.isGlobalAdmin };
 }
+
+/**
+ * A qué datos llega quien pide. UNA sola decisión, para todo.
+ *
+ * # Por qué existe
+ *
+ * Había TRES formas de decidir el alcance (`resolveSucursalFilter`,
+ * `requireSucursalId`, `resolveSucursalScope`) repartidas por nueve ficheros de
+ * rutas, y cada ruta nueva elegía una a ojo. Eso no es un detalle de estilo: es
+ * la causa directa de fallos que se repiten.
+ *
+ * El 07/08/2026 la lista de pedidos usaba una y completar usaba otra. Al Super
+ * Admin la lista le devolvía TODAS las sucursales; completar le exigía una
+ * concreta, y él no tiene sucursal propia. Resultado: **seis personas** (`admin`,
+ * `amado`, `claudia.hab`, `julian`, `rene`, `shanel`) veían todos los pedidos y
+ * no podían completar ninguno. El mensaje era "Error al completar el pedido",
+ * así que parecía cosa del pedido y no de quién lo pulsaba.
+ *
+ * # La regla
+ *
+ * **Si se puede ver, se puede tocar. Si no se puede tocar, no se debería poder
+ * ver.** Leer y escribir usan LA MISMA función — no dos funciones parecidas que
+ * alguien tenga que acordarse de mantener iguales. `alcanceDeEscritura` ES
+ * `alcanceDeLectura`; están enlazadas a propósito para que no puedan separarse.
+ *
+ * # Cómo se usa
+ *
+ *   const { where, error } = alcanceDeLectura(req);   // listar
+ *   const { where, error } = alcanceDeEscritura(req); // completar, borrar
+ *   const { sucursalId, error } = sucursalParaCrear(req); // crear algo nuevo
+ *
+ * `where` sale listo para Prisma: `{}` significa "todas las sucursales" y solo
+ * le toca al Super Admin sin ninguna enfocada.
+ */
+
+export interface Alcance {
+  /** Filtro listo para Prisma. `{}` = todas las sucursales. */
+  where: { sucursalId?: string };
+  /** La sucursal enfocada, o null si son todas. */
+  sucursalId: string | null;
+  isGlobalAdmin: boolean;
+  /** Mensaje para el usuario si no se puede resolver. */
+  error?: string;
+}
+
+/**
+ * El alcance de quien pide.
+ *
+ * - Super Admin sin sucursal enfocada -> todas (`where` vacío).
+ * - Super Admin con una elegida -> solo esa.
+ * - Cualquier otro -> SIEMPRE la suya, aunque mande otra en la cabecera.
+ * - Sin sucursal y sin ser global -> error. Nunca "todas": eso sería dejarle
+ *   ver los datos de sucursales que no son suyas.
+ */
+export function alcanceDeLectura(req: Request): Alcance {
+  const { sucursalId, isGlobalAdmin, error } = resolveSucursalScope(req, {
+    allowAllForAdmin: true,
+    preferUserSucursal: true,
+    defaultAllForAdmin: true,
+  });
+
+  if (error) return { where: {}, sucursalId: null, isGlobalAdmin, error };
+
+  if (!sucursalId) {
+    if (isGlobalAdmin) return { where: {}, sucursalId: null, isGlobalAdmin: true };
+
+    return {
+      where: {},
+      sucursalId: null,
+      isGlobalAdmin: false,
+      error:
+        'Tu usuario no tiene sucursal asignada. Pide a un Super Admin que te asigne una.',
+    };
+  }
+
+  return { where: { sucursalId }, sucursalId, isGlobalAdmin };
+}
+
+/**
+ * El alcance para MODIFICAR. Es exactamente el mismo que para leer.
+ *
+ * No es una copia ni una función parecida: es la misma. Si algún día hicieran
+ * falta reglas distintas para escribir, tendrán que escribirse aquí y con una
+ * prueba que diga por qué — porque separarlas en silencio es lo que rompió esto.
+ */
+export const alcanceDeEscritura = alcanceDeLectura;
+
+/**
+ * La sucursal concreta a la que va algo que se CREA.
+ *
+ * Aquí sí hace falta una sola, y "todas" no vale: un pedido nuevo tiene que
+ * nacer en una sucursal. Si el Super Admin no tiene ninguna enfocada, se le dice
+ * qué hacer en vez de darle un error que no explica nada.
+ */
+export function sucursalParaCrear(req: Request): { sucursalId?: string; error?: string } {
+  const { sucursalId, isGlobalAdmin, error } = alcanceDeLectura(req);
+
+  if (error) return { error };
+  if (sucursalId) return { sucursalId };
+
+  return {
+    error: isGlobalAdmin
+      ? 'Elige una sucursal en el selector de arriba antes de crear.'
+      : 'Tu usuario no tiene sucursal asignada. Pide a un Super Admin que te asigne una.',
+  };
+}
+
+/**
+ * ¿Este usuario solo puede ver LO SUYO?
+ *
+ * El rol Gestor ve únicamente los datos de los vendedores que lleva, ni siquiera
+ * los de sus compañeros de sucursal. Va aparte del alcance por sucursal porque
+ * es otra dimensión: una acota el SITIO, esta acota la PERSONA.
+ */
+export function soloLoSuyo(req: Request): { gestorId: string } | null {
+  const ctx = getRequesterContext(req);
+
+  return ctx.isGestor && ctx.userId ? { gestorId: ctx.userId } : null;
+}

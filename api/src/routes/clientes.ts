@@ -1,6 +1,12 @@
 import express from 'express';
+import { Prisma } from '@prisma/client';
 import prisma from '../prismaClient';
-import { resolveSucursalFilter, getRequesterContext } from '../lib/sucursalContext';
+import {
+  resolveSucursalFilter,
+  getRequesterContext,
+  alcanceDeLectura,
+  soloLoSuyo,
+} from '../lib/sucursalContext';
 import { parrandaQueue } from '../lib/queues';
 
 const router = express.Router();
@@ -144,6 +150,87 @@ router.get('/sync-parranda/status/:jobId', async (req, res) => {
 });
 
 // GET /clientes - List clientes with pagination
+/**
+ * GET /clientes/por-vendedor
+ *
+ * Cuantos clientes trajo cada vendedor, para el desplegable de la vista y para
+ * responder de un vistazo "¿cuantos clientes tiene fulano?".
+ *
+ * Un cliente cuenta para un vendedor si tiene AL MENOS UN pedido suyo. Como un
+ * cliente puede haber comprado a varios, **la suma de la columna puede pasar del
+ * total de clientes de la sucursal**. No es un descuadre: es que ese cliente lo
+ * atienden dos.
+ *
+ * Va scopeado por sucursal como todo lo demas, y el Gestor solo ve lo suyo.
+ */
+router.get('/por-vendedor', async (req, res) => {
+  try {
+    const { where, error } = alcanceDeLectura(req);
+
+    if (error) return res.status(400).json({ error });
+
+    const soloSuyo = soloLoSuyo(req);
+
+    const filas = await prisma.vendedor.findMany({
+      where: {
+        ...where,
+        activo: true,
+        ...(soloSuyo ? { gestorId: soloSuyo.gestorId } : {}),
+      },
+      select: {
+        id: true,
+        nombre: true,
+        codigo: true,
+        sucursal: { select: { nombre: true } },
+      },
+      orderBy: { nombre: 'asc' },
+    });
+
+    // Los clientes DISTINTOS de cada vendedor, en UNA consulta para todos. Uno
+    // por vendedor serian decenas de idas y vueltas.
+    const conteos = await prisma.pedido.groupBy({
+      by: ['vendedorId'],
+      where: {
+        ...where,
+        vendedorId: { in: filas.map((v) => v.id) },
+        clienteId: { not: null },
+      },
+      _count: { clienteId: true },
+    });
+
+    // groupBy cuenta PEDIDOS, no clientes distintos: dos pedidos del mismo
+    // cliente contarian dos veces. Por eso los distintos se piden aparte.
+    // El filtro de sucursal va TAMBIEN aqui. Sin el, el conteo saldria de todas
+    // las sucursales y un operador veria numeros que no son los suyos — la
+    // misma fuga que estamos quitando en el resto de la aplicacion.
+    const distintos = await prisma.$queryRaw<Array<{ vendedorId: string; clientes: bigint }>>(
+      Prisma.sql`
+        select "sellerId" as "vendedorId", count(distinct "clientId") as clientes
+          from "Order"
+         where "sellerId" is not null
+           and "clientId" is not null
+           ${where.sucursalId ? Prisma.sql`and "sucursalId" = ${where.sucursalId}` : Prisma.empty}
+         group by 1`,
+    );
+    const porVendedor = new Map(distintos.map((d) => [d.vendedorId, Number(d.clientes)]));
+    const pedidosPorVendedor = new Map(conteos.map((c) => [c.vendedorId, c._count.clienteId]));
+
+    res.json(
+      filas.map((v) => ({
+        id: v.id,
+        nombre: v.nombre,
+        codigo: v.codigo,
+        sucursal: v.sucursal?.nombre ?? null,
+        clientes: porVendedor.get(v.id) ?? 0,
+        pedidos: pedidosPorVendedor.get(v.id) ?? 0,
+      })),
+    );
+  } catch (err) {
+    console.error('Error en clientes por vendedor:', err);
+    res.status(500).json({ error: 'Error al obtener los clientes por vendedor' });
+  }
+});
+
 router.get('/', async (req, res) => {
   try {
     const { sucursalId, error: sucursalError } = resolveSucursalFilter(req);
@@ -169,6 +256,25 @@ router.get('/', async (req, res) => {
     const estadoCompra = (req.query.estadoCompra as string)?.trim();
     if (municipio) where.municipio = municipio;
     if (estadoCompra) where.estadoCompra = estadoCompra;
+
+    // Filtro por VENDEDOR: "los clientes que trajo fulano".
+    //
+    // No hay relacion directa cliente -> vendedor; la union son los pedidos. Un
+    // cliente cuenta como de ese vendedor si tiene AL MENOS UN pedido suyo, que
+    // es como lo entiende quien pregunta ("¿cuantos clientes tiene este
+    // vendedor?"). Ojo: un cliente puede haber comprado a varios, asi que la
+    // suma por vendedor puede pasar del total de clientes — y esta bien, no es
+    // un error de cuentas.
+    //
+    // El scope de sucursal ya esta puesto arriba y NO se toca aqui: filtrar por
+    // un vendedor de otra sucursal no puede enseñar sus clientes.
+    const vendedorId = (req.query.vendedorId as string)?.trim();
+
+    if (vendedorId) {
+      where.pedidos = where.pedidos
+        ? { some: { AND: [where.pedidos.some, { vendedorId }] } }
+        : { some: { vendedorId } };
+    }
     const searchTerm = search?.trim().toUpperCase();
 
     if (searchTerm) {

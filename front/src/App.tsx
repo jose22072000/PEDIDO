@@ -1,4 +1,5 @@
 import { Route, Routes } from "react-router-dom";
+import { addToast } from "@heroui/react";
 import { useEffect, lazy, Suspense } from "react";
 import { Spinner } from "@heroui/react";
 
@@ -60,11 +61,32 @@ const Cargando = () => (
 );
 
 function App() {
-  const { loadSession, isLoading } = useAuthStore();
+  const { loadSession, logout, isLoading } = useAuthStore();
 
   useEffect(() => {
     loadSession();
   }, []);
+
+  // La sesion caduca a los 7 dias, y las operadoras dejan la pestaña abierta
+  // toda la semana. Cuando caduca, lo que veian era el error generico de cada
+  // pantalla ("Error al completar el pedido") y parecia que el sistema estaba
+  // roto, cuando solo habia que volver a entrar. El envoltorio de fetch avisa
+  // desde UN sitio para todas las pantallas.
+  useEffect(() => {
+    const alCaducar = () => {
+      addToast({
+        title: "Tu sesión caducó",
+        description: "Vuelve a entrar para seguir trabajando.",
+        color: "warning",
+        timeout: 8000,
+      });
+      void logout();
+    };
+
+    window.addEventListener("sesion-caducada", alCaducar);
+
+    return () => window.removeEventListener("sesion-caducada", alCaducar);
+  }, [logout]);
 
   if (isLoading) {
     return (

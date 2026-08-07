@@ -26,21 +26,48 @@ router.get('/', async (req, res) => {
       return res.status(400).json({ error: 'Debes tener una sucursal asignada para consultar usuarios.' });
     }
 
-    const users = await prisma.usuario.findMany({
-      where: sucursalId ? { sucursalId } : {},
-      include: {
-        rol: true,
-        sucursal: true,
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
+    // PAGINADO EN EL SERVIDOR. Antes devolvia la lista ENTERA en cada carga:
+    // 164 usuarios con su rol y su sucursal, 63 KB. En el servidor son 70 ms,
+    // pero por un enlace de sucursal —Starlink, ~600 ms de ida y vuelta— eso es
+    // la espera larga que se notaba al cambiar a "todas las sucursales", mas
+    // pintar 164 filas de golpe en un equipo modesto.
+    //
+    // Los filtros tambien van aqui y no en el navegador: filtrar en el cliente
+    // obliga a bajarlo todo primero, que es justo lo que se quiere evitar.
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
+    const search = (req.query.search as string)?.trim();
+    const rol = (req.query.rol as string)?.trim();
+
+    const where: any = sucursalId ? { sucursalId } : {};
+
+    if (rol) where.rol = { nombre: rol };
+    if (search) {
+      // `insensitive` para que buscar "ana" encuentre "Ana". Los nombres de
+      // usuario ya se guardan sin tildes, asi que no hace falta mas.
+      where.username = { contains: search, mode: 'insensitive' };
+    }
+
+    const [users, total] = await Promise.all([
+      prisma.usuario.findMany({
+        where,
+        include: { rol: true, sucursal: true },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      prisma.usuario.count({ where }),
+    ]);
 
     // Remove password from response
     const usersWithoutPassword = users.map(({ password, ...user }) => user);
 
-    res.json(usersWithoutPassword);
+    res.json({
+      data: usersWithoutPassword,
+      total,
+      page,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to fetch users' });
