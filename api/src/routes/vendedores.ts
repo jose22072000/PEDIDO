@@ -392,7 +392,14 @@ router.patch('/:id/activo', async (req, res) => {
       return res.status(403).json({ error: 'Ese vendedor es de otra sucursal.' });
     }
 
-    const updated = await prisma.vendedor.update({ where: { id }, data: { activo } });
+    // Se deja constancia de QUIÉN y CUÁNDO. Al reactivar se limpia: los campos
+    // describen la baja actual, no un histórico de todas las que hubo.
+    const updated = await prisma.vendedor.update({
+      where: { id },
+      data: activo
+        ? { activo: true, bajaPor: null, bajaEn: null }
+        : { activo: false, bajaPor: requester.username ?? null, bajaEn: new Date() },
+    });
 
     await emitirVendedor(updated.id, 'update');
     res.json({

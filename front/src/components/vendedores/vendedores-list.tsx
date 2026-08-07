@@ -513,7 +513,15 @@ export const VendedoresList = () => {
                           )}
                           {!vendedor.activo && (
                             <Chip color="danger" size="sm" variant="flat">
+                              {/* Quien y cuando. Antes solo decia "De baja", y
+                                  cuando aparecieron dos vendedores inactivos con
+                                  97 pedidos ocultos no habia forma de saber si
+                                  fue un error o una decision de alguien. */}
                               De baja
+                              {vendedor.bajaPor ? ` · ${mostrarUsuario(vendedor.bajaPor)}` : ""}
+                              {vendedor.bajaEn
+                                ? ` · ${vendedor.bajaEn.slice(8, 10)}/${vendedor.bajaEn.slice(5, 7)}`
+                                : ""}
                             </Chip>
                           )}
                         </div>

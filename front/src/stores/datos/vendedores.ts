@@ -9,6 +9,9 @@ export interface Vendedor {
   // ocultos en la vista de pedidos hasta que se le enlace un gestor.
   gestorId: string | null;
   activo: boolean;
+  /** Quien lo dio de baja y cuando. Vacios si esta de alta. */
+  bajaPor?: string | null;
+  bajaEn?: string | null;
   gestor?: { id: string; username: string } | null;
   sucursal?: { nombre: string; codigo: string | null } | null;
   _count?: { pedidos: number };

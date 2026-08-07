@@ -58,6 +58,13 @@ model Vendedor {
     // Baja del vendedor (se fue / lo botaron): deja de aceptarse su CSV y
     // desaparece de las listas, pero se CONSERVA su histórico de pedidos.
     activo    Boolean  @default(true)
+    // QUIÉN lo dio de baja y CUÁNDO. Se guardaba solo QUE estaba de baja, así
+    // que cuando aparecieron dos vendedores inactivos con 97 pedidos ocultos no
+    // hubo forma de saber quién los quitó ni en qué momento — y sin eso no se
+    // puede decidir si fue un error o una decisión tomada a propósito. Se
+    // limpian al reactivar: describen la baja ACTUAL, no un histórico.
+    bajaPor   String?
+    bajaEn    DateTime?
     // Quién lo dio de alta A MANO desde la aplicación (username). VACÍO = nació
     // solo, al llegar su CSV. Sirve para lo único que importa cuando aparece un
     // vendedor duplicado o mal escrito: saber si lo tecleó alguien o vino del
