@@ -47,7 +47,7 @@ import { useCerrarAlPulsarFuera } from "@/hooks/cerrar-al-pulsar-fuera";
  * sucursal enfocada la añade el envoltorio de fetch (main.tsx) como cabecera.
  */
 const traerUsuarios =
-  (page: number, search: string, rol: string) =>
+  (page: number, search: string, rol: string, sucursalId: string) =>
   async (signal: AbortSignal): Promise<RespuestaUsuarios> => {
     const params = new URLSearchParams({
       page: String(page),
@@ -56,6 +56,14 @@ const traerUsuarios =
 
     if (search) params.append("search", search);
     if (rol) params.append("rol", rol);
+    // La sucursal va al SERVIDOR, no se filtra aqui. Filtrar en el navegador
+    // solo tocaba la pagina que se estaba viendo: se quedaba 1 fila en pantalla
+    // y el paginador seguia diciendo 16 paginas, porque el total lo da el
+    // servidor y no sabia nada de ese filtro.
+    //
+    // El api usa este mismo parametro para acotar el alcance, asi que ademas es
+    // seguro: quien no es Super Admin no puede pedir otra sucursal que la suya.
+    if (sucursalId) params.append("sucursalId", sucursalId);
 
     const r = await fetch(`${getApiBaseUrl()}/users?${params}`, { signal });
 
@@ -163,8 +171,8 @@ export const UsuariosList = () => {
   } = usarUsuarios(
     // La pagina y los filtros van en la CLAVE: cada combinacion se cachea
     // aparte, asi volver a la pagina anterior es instantaneo.
-    `usuarios:${activeSucursalId ?? "todas"}:${page}:${debouncedSearch}:${rolFilter}`,
-    traerUsuarios(page, debouncedSearch, rolFilter),
+    `usuarios:${activeSucursalId ?? "todas"}:${page}:${debouncedSearch}:${rolFilter}:${sucursalFilter}`,
+    traerUsuarios(page, debouncedSearch, rolFilter, sucursalFilter),
     {
     aplicar: (actual, lote) => {
       const deUsuario = lote.filter((e) => e.tipo === "usuario");
@@ -185,19 +193,15 @@ export const UsuariosList = () => {
     },
   });
 
-  // El TEXTO y el ROL los filtra el SERVIDOR: filtrar en el navegador obligaba a
-  // bajarse los 164 usuarios enteros en cada carga (63 KB), que es justo la
-  // espera que se notaba al cambiar a "todas las sucursales".
+  // TODOS los filtros los aplica el SERVIDOR: texto, rol y sucursal.
   //
-  // El de sucursal se queda aqui porque el servidor ya scopea por la sucursal
-  // ENFOCADA; este es solo para afinar dentro de lo que ya vino.
-  const filteredUsuarios = useMemo(() => {
-    const pagina = usuarios?.data ?? [];
-
-    if (!sucursalFilter) return pagina;
-
-    return pagina.filter((u) => (u.sucursal?.nombre ?? "") === sucursalFilter);
-  }, [usuarios, sucursalFilter]);
+  // Filtrar en el navegador obligaba a bajarse los 164 usuarios enteros en cada
+  // carga (63 KB) — esa era la espera larga al cambiar a "todas las sucursales".
+  // Y al paginar en el servidor pero dejar el filtro de sucursal aqui, el
+  // resultado era peor: filtrar dejaba UNA fila en pantalla y el paginador
+  // seguia diciendo 16 paginas, porque el total lo daba el servidor y no sabia
+  // nada de ese filtro. Los dos tienen que contar lo mismo.
+  const filteredUsuarios = usuarios?.data ?? [];
 
   const totalPages = usuarios?.totalPages ?? 1;
 
@@ -417,7 +421,11 @@ export const UsuariosList = () => {
               {[
                 <SelectItem key="__all__">Todas las sucursales</SelectItem>,
                 ...sucursales.map((s) => (
-                  <SelectItem key={s.nombre}>{s.nombre}</SelectItem>
+                  // La clave es el ID: es lo que entiende el servidor. Antes era
+                  // el nombre, que solo servia para comparar en el navegador.
+                  <SelectItem key={s.id} textValue={s.nombre}>
+                    {s.nombre}
+                  </SelectItem>
                 )),
               ]}
             </Select>
