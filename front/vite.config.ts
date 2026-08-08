@@ -74,7 +74,21 @@ export default defineConfig({
       // para actualizar y para desinstalar, y probandolo con el service worker
       // puesto — que es como lo tiene la gente, y como no se probo esta vez.
       selfDestroying: true,
-      registerType: "autoUpdate",
+      // "prompt" y NO "autoUpdate": con autoUpdate el service worker recarga la
+      // pagina el solo en cuanto cree ver una version nueva. En una conexion
+      // inestable eso se dispara una y otra vez y la app entra en bucle de
+      // recargas.
+      //
+      // Paso el 08/08/2026 en Sancti Spiritus: la aplicacion parpadeaba cada 2
+      // segundos y no se podia trabajar. En los registros de Traefik se veian 93
+      // peticiones a /sw.js en 3 minutos desde esa sucursal (no se veian de "/"
+      // porque el propio service worker servia la pagina desde su cache). Con 100
+      // personas subiendo pedidos a la vez, una recarga forzada a mitad de un
+      // pedido es inaceptable.
+      //
+      // Con "prompt" el service worker nuevo espera y se activa al cerrar y abrir
+      // la app. Nunca interrumpe a nadie a mitad de faena.
+      registerType: "prompt",
       includeAssets: ["*.png", "favicon.ico"],
       manifest: {
         name: "PROCOVAR",
