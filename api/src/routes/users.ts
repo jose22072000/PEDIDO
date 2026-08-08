@@ -4,6 +4,7 @@ import { normalizarUsuario } from '../lib/nombreUsuario';
 import prisma from '../prismaClient';
 import { getRequesterContext, resolveSucursalScope } from '../lib/sucursalContext';
 import { emitEvent } from '../lib/events';
+import { ROLES_ENLAZABLES, backfillSucursalDeVendedor } from '../lib/gestores';
 
 const router = Router();
 
@@ -391,6 +392,35 @@ router.delete('/:id', async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
+    // Un usuario que lleva vendedores NO se puede borrar sin reasignarlos antes.
+    //
+    // La relación Vendedor.gestor es opcional y sin onDelete, así que Prisma usaba
+    // SetNull: al borrar el usuario, sus vendedores quedaban "Sin asignar" EN
+    // SILENCIO. Todo lo que subieran a partir de ese momento se guardaba sin
+    // sucursal y desaparecía de la vista, sin ningún aviso.
+    //
+    // Pasó en Holguín el 08/08/2026: el administrador borró los usuarios que venían
+    // de Parranda y creó otros. Sus vendedores quedaron huérfanos y los pedidos
+    // dejaron de verse. Ahora se bloquea y se dice exactamente a quién afecta.
+    const vendedoresACargo = await prisma.vendedor.findMany({
+      where: { gestorId: id },
+      select: { id: true, nombre: true, codigo: true, _count: { select: { pedidos: true } } },
+      orderBy: { nombre: 'asc' },
+    });
+
+    if (vendedoresACargo.length) {
+      return res.status(409).json({
+        error: `No se puede eliminar: ${existingUser.username} lleva ${vendedoresACargo.length} vendedor(es). Reasígnalos a otro usuario primero.`,
+        codigo: 'VENDEDORES_ASIGNADOS',
+        vendedores: vendedoresACargo.map((v) => ({
+          id: v.id,
+          nombre: v.nombre,
+          codigo: v.codigo,
+          pedidos: v._count.pedidos,
+        })),
+      });
+    }
+
     await prisma.usuario.delete({
       where: { id },
     });
@@ -400,6 +430,133 @@ router.delete('/:id', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to delete user' });
+  }
+});
+
+// GET /users/:id/vendedores
+// Qué bloquea el borrado de este usuario y a quién se le puede pasar.
+// La vista lo pide ANTES de borrar, para enseñar el problema y su solución en la
+// misma pantalla en vez de soltar un error y dejar al usuario sin salida.
+router.get('/:id/vendedores', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const usuario = await prisma.usuario.findUnique({
+      where: { id },
+      select: { id: true, username: true, sucursalId: true },
+    });
+    if (!usuario) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+    const [vendedores, candidatos] = await Promise.all([
+      prisma.vendedor.findMany({
+        where: { gestorId: id },
+        select: { id: true, nombre: true, codigo: true, _count: { select: { pedidos: true } } },
+        orderBy: { nombre: 'asc' },
+      }),
+      // Solo de la MISMA sucursal: pasarle un vendedor a un gestor de otra movería
+      // sus pedidos y clientes de sucursal sin que nadie lo haya pedido.
+      prisma.usuario.findMany({
+        where: {
+          id: { not: id },
+          sucursalId: usuario.sucursalId,
+          rol: { nombre: { in: ROLES_ENLAZABLES } },
+        },
+        select: { id: true, username: true, nombre: true },
+        orderBy: { username: 'asc' },
+      }),
+    ]);
+
+    res.json({
+      usuario,
+      vendedores: vendedores.map((v) => ({
+        id: v.id,
+        nombre: v.nombre,
+        codigo: v.codigo,
+        pedidos: v._count.pedidos,
+      })),
+      candidatos,
+      sePuedeEliminar: vendedores.length === 0,
+    });
+  } catch (err) {
+    console.error('Error listando vendedores del usuario:', err);
+    res.status(500).json({ error: 'Error al consultar los vendedores del usuario' });
+  }
+});
+
+// POST /users/:id/reasignar-vendedores   body: { gestorId }
+// Pasa TODOS los vendedores de este usuario a otro gestor, dejándolo libre para
+// poder borrarse. Va en una sola transacción: o se mueven todos o no se mueve
+// ninguno, para que no queden vendedores a medio camino si algo falla.
+router.post('/:id/reasignar-vendedores', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { gestorId } = req.body as { gestorId?: string };
+
+    if (!getRequesterContext(req).isGlobalAdmin) {
+      const { sucursalId, error } = resolveSucursalScope(req, {
+        allowAllForAdmin: true,
+        preferUserSucursal: false,
+        defaultAllForAdmin: true,
+      });
+      if (error) return res.status(403).json({ error });
+      const propio = await prisma.usuario.findFirst({ where: { id, sucursalId } });
+      if (!propio) return res.status(403).json({ error: 'Ese usuario es de otra sucursal.' });
+    }
+
+    if (!gestorId) return res.status(400).json({ error: 'Falta el gestor destino' });
+    if (gestorId === id) {
+      return res.status(400).json({ error: 'No se puede reasignar al mismo usuario' });
+    }
+
+    const destino = await prisma.usuario.findUnique({
+      where: { id: gestorId },
+      include: { rol: true },
+    });
+    if (!destino) return res.status(404).json({ error: 'El usuario destino no existe' });
+    if (!ROLES_ENLAZABLES.includes(destino.rol?.nombre ?? '')) {
+      return res.status(400).json({
+        error: `Ese usuario no puede llevar vendedores: se requiere rol ${ROLES_ENLAZABLES.join(' o ')}.`,
+      });
+    }
+    if (!destino.sucursalId) {
+      return res.status(400).json({ error: 'El usuario destino no tiene sucursal asignada' });
+    }
+
+    const vendedores = await prisma.vendedor.findMany({
+      where: { gestorId: id },
+      select: { id: true },
+    });
+    if (!vendedores.length) {
+      return res.json({ movidos: 0, backfill: { pedidos: 0, clientes: 0, fusionados: 0 } });
+    }
+
+    const total = { pedidos: 0, clientes: 0, fusionados: 0 };
+
+    await prisma.$transaction(async (tx) => {
+      for (const v of vendedores) {
+        await tx.vendedor.update({
+          where: { id: v.id },
+          data: { gestorId: destino.id, sucursalId: destino.sucursalId },
+        });
+        // Mismo backfill que al enlazar un gestor a mano: los pedidos y clientes
+        // del vendedor tienen que acabar en la sucursal del nuevo gestor.
+        const bf = await backfillSucursalDeVendedor(tx, v.id, destino.sucursalId as string);
+        total.pedidos += bf.pedidos;
+        total.clientes += bf.clientes;
+        total.fusionados += bf.fusionados;
+      }
+    });
+
+    emitEvent('vendedor', { sucursalId: destino.sucursalId, accion: 'reasignar' });
+    if (total.pedidos > 0) emitEvent('pedido', { sucursalId: destino.sucursalId, accion: 'backfill' });
+    if (total.clientes > 0 || total.fusionados > 0) {
+      emitEvent('cliente', { sucursalId: destino.sucursalId, accion: 'backfill' });
+    }
+
+    res.json({ movidos: vendedores.length, backfill: total });
+  } catch (err) {
+    console.error('Error reasignando vendedores:', err);
+    res.status(500).json({ error: 'Error al reasignar los vendedores' });
   }
 });
 

@@ -43,6 +43,20 @@ import { useCerrarAlPulsarFuera } from "@/hooks/cerrar-al-pulsar-fuera";
 // quien lo pinta y quien lo trae, y así no se separan cuando cambie el api.
 
 /**
+ * Lo que devuelve GET /users/:id/vendedores: qué impide borrar a este usuario y a
+ * quién se le pueden pasar sus vendedores.
+ *
+ * Borrar un usuario que lleva vendedores los dejaba "Sin asignar" en silencio, y
+ * todo lo que subieran a partir de ahí se guardaba sin sucursal y desaparecía de
+ * la vista. Ahora la pantalla enseña el problema y su solución a la vez.
+ */
+type DependenciasUsuario = {
+  vendedores: Array<{ id: string; nombre: string; codigo: string | null; pedidos: number }>;
+  candidatos: Array<{ id: string; username: string; nombre: string | null }>;
+  sePuedeEliminar: boolean;
+};
+
+/**
  * Trae la lista. Va a nivel de módulo porque no depende de nada de la vista: la
  * sucursal enfocada la añade el envoltorio de fetch (main.tsx) como cabecera.
  */
@@ -93,6 +107,13 @@ export const UsuariosList = () => {
   const [success, setSuccess] = useState<string | null>(null);
   const [selectedUsuario, setSelectedUsuario] = useState<Usuario | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Lo que bloquea el borrado del usuario seleccionado (sus vendedores) y a quién
+  // se le pueden pasar. Null mientras no se haya consultado.
+  const [dependencias, setDependencias] = useState<DependenciasUsuario | null>(null);
+  const [cargandoDependencias, setCargandoDependencias] = useState(false);
+  const [nuevoGestor, setNuevoGestor] = useState("");
+  const [reasignando, setReasignando] = useState(false);
   const [searchValue, setSearchValue] = useState("");
   const [rolFilter, setRolFilter] = useState("");
   const [sucursalFilter, setSucursalFilter] = useState("");
@@ -245,7 +266,16 @@ export const UsuariosList = () => {
       });
 
       if (!response.ok) {
-        throw new Error("Error al eliminar usuario");
+        const cuerpo = await response.json().catch(() => ({}));
+
+        // El api bloquea el borrado si el usuario lleva vendedores. En vez de
+        // enseñar un error sin salida, se recarga la lista y el modal pasa a
+        // ofrecer la reasignación.
+        if (response.status === 409 && cuerpo.codigo === "VENDEDORES_ASIGNADOS") {
+          await cargarDependencias(id);
+          throw new Error(cuerpo.error ?? "El usuario tiene vendedores asignados");
+        }
+        throw new Error(cuerpo.error ?? "Error al eliminar usuario");
       }
 
       setSuccess("Usuario eliminado correctamente");
@@ -259,9 +289,65 @@ export const UsuariosList = () => {
     }
   };
 
+  // Qué impide borrar a este usuario y a quién se le pueden pasar sus vendedores.
+  // Se pide al abrir el modal para poder enseñar el problema Y su solución juntos,
+  // en vez de dejar que el usuario descubra el bloqueo al pulsar Eliminar.
+  const cargarDependencias = async (id: string) => {
+    setCargandoDependencias(true);
+    setNuevoGestor("");
+    try {
+      const r = await fetch(`${getApiBaseUrl()}/users/${id}/vendedores`);
+
+      setDependencias(r.ok ? await r.json() : null);
+    } catch {
+      setDependencias(null);
+    } finally {
+      setCargandoDependencias(false);
+    }
+  };
+
+  const handleReasignar = async () => {
+    if (!selectedUsuario || !nuevoGestor) return;
+    setReasignando(true);
+    setError(null);
+
+    try {
+      const r = await fetch(
+        `${getApiBaseUrl()}/users/${selectedUsuario.id}/reasignar-vendedores`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ gestorId: nuevoGestor }),
+        },
+      );
+      const cuerpo = await r.json().catch(() => ({}));
+
+      if (!r.ok) throw new Error(cuerpo.error ?? "No se pudo reasignar");
+
+      const f = cuerpo.backfill?.fusionados ?? 0;
+
+      setSuccess(
+        `${cuerpo.movidos} vendedor(es) reasignado(s)` +
+          (f > 0 ? ` · ${f} cliente(s) duplicado(s) unificado(s)` : ""),
+      );
+      setTimeout(() => setSuccess(null), 5000);
+      // Se recargan las dependencias: si ya no queda ninguno, el botón de
+      // eliminar se habilita solo.
+      await cargarDependencias(selectedUsuario.id);
+      void recargarUsuarios(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error desconocido");
+    } finally {
+      setReasignando(false);
+    }
+  };
+
   const openDeleteModal = (usuario: Usuario) => {
     setSelectedUsuario(usuario);
+    setError(null);
+    setDependencias(null);
     onOpen();
+    void cargarDependencias(usuario.id);
   };
 
   // Abre el modal de edición. El rol/sucursal viene por nombre en la lista, así que se
@@ -654,14 +740,93 @@ export const UsuariosList = () => {
                   ¿Está seguro que desea eliminar al usuario{" "}
                   <strong>{mostrarUsuario(selectedUsuario?.username)}</strong>?
                 </p>
-                <p className="text-small text-default-500">
-                  Esta acción no se puede deshacer.
-                </p>
+
+                {cargandoDependencias && (
+                  <div className="flex items-center gap-2 text-small text-default-500">
+                    <Spinner size="sm" />
+                    Comprobando si lleva vendedores…
+                  </div>
+                )}
+
+                {!cargandoDependencias && dependencias && !dependencias.sePuedeEliminar && (
+                  <div className="flex flex-col gap-3 rounded-large border border-warning-200 bg-warning-50 p-3">
+                    <div className="flex items-start gap-2">
+                      <Icons.empty className="mt-0.5 size-5 shrink-0 text-warning-600" />
+                      <div className="text-small">
+                        <p className="font-semibold text-warning-700">
+                          No se puede eliminar todavía
+                        </p>
+                        <p className="text-warning-700/80">
+                          Lleva {dependencias.vendedores.length} vendedor(es). Si lo
+                          borras, quedan sin gestor y sus pedidos dejan de verse.
+                          Pásaselos a otro usuario primero.
+                        </p>
+                      </div>
+                    </div>
+
+                    <ul className="flex max-h-40 flex-col gap-1 overflow-y-auto">
+                      {dependencias.vendedores.map((v) => (
+                        <li
+                          key={v.id}
+                          className="flex items-center justify-between gap-2 rounded-medium bg-white/60 px-2 py-1.5 text-small"
+                        >
+                          <span className="truncate font-medium" title={v.nombre}>
+                            {v.nombre}
+                          </span>
+                          <Chip color="warning" size="sm" variant="flat">
+                            {v.pedidos} pedido(s)
+                          </Chip>
+                        </li>
+                      ))}
+                    </ul>
+
+                    {dependencias.candidatos.length > 0 ? (
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                        <Select
+                          className="flex-1"
+                          label="Pasárselos a"
+                          placeholder="Elige un usuario"
+                          selectedKeys={nuevoGestor ? [nuevoGestor] : []}
+                          size="sm"
+                          onChange={(e) => setNuevoGestor(e.target.value)}
+                        >
+                          {dependencias.candidatos.map((c) => (
+                            <SelectItem key={c.id}>
+                              {c.nombre
+                                ? `${c.nombre} (${mostrarUsuario(c.username)})`
+                                : mostrarUsuario(c.username)}
+                            </SelectItem>
+                          ))}
+                        </Select>
+                        <Button
+                          color="warning"
+                          isDisabled={!nuevoGestor}
+                          isLoading={reasignando}
+                          size="sm"
+                          onPress={handleReasignar}
+                        >
+                          Reasignar
+                        </Button>
+                      </div>
+                    ) : (
+                      <p className="text-small text-warning-700/80">
+                        No hay ningún otro usuario en esta sucursal con rol Gestor o
+                        Supervisor. Crea uno antes de poder eliminar este.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {!cargandoDependencias && dependencias?.sePuedeEliminar && (
+                  <p className="text-small text-default-500">
+                    No lleva vendedores. Esta acción no se puede deshacer.
+                  </p>
+                )}
               </ModalBody>
               <ModalFooter>
                 <Button
                   color="default"
-                  isDisabled={isDeleting}
+                  isDisabled={isDeleting || reasignando}
                   variant="light"
                   onPress={onCloseInner}
                 >
@@ -669,6 +834,13 @@ export const UsuariosList = () => {
                 </Button>
                 <Button
                   color="danger"
+                  // Se habilita solo cuando ya no queda nada que lo bloquee. El api
+                  // vuelve a comprobarlo: esconder el botón no es protección.
+                  isDisabled={
+                    cargandoDependencias ||
+                    reasignando ||
+                    !dependencias?.sePuedeEliminar
+                  }
                   isLoading={isDeleting}
                   onPress={() =>
                     selectedUsuario && handleDelete(selectedUsuario.id)

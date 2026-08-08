@@ -12,13 +12,9 @@ import {
   resolveSucursalFilter,
   resolveSucursalScope,
 } from '../lib/sucursalContext';
+import { ROLES_ENLAZABLES, backfillSucursalDeVendedor } from '../lib/gestores';
 
 const router = express.Router();
-
-// Roles que pueden "llevar" vendedores (ser su gestor). Un vendedor SIN enlace queda
-// "sin asignar" y sus pedidos NO aparecen en la vista (que scopea por la sucursal del
-// gestor). El Supervisor también sube pedidos, así que también tiene que poder llevarlos.
-const ROLES_ENLAZABLES = ['Gestor', 'Supervisor'];
 
 // Mismo `include` que la lista de /gestores: el evento SSE tiene que llevar el
 // vendedor con EXACTAMENTE la forma que la vista ya tiene en pantalla, para poder
@@ -473,109 +469,14 @@ router.patch('/:id/gestor', async (req, res) => {
         data: { gestorId: gestorId || null, sucursalId },
       });
 
-      let pedidos = 0;
-      let clientes = 0;
-      let fusionados = 0;
-      if (sucursalId) {
-        // TODOS sus pedidos, no solo los que estaban en null. Si el vendedor
-        // arrastraba pedidos en la sucursal equivocada (heredada del que subió
-        // el CSV), enlazar al gestor los recoloca donde de verdad van.
-        //
-        // El `sucursalId: null` va EXPLÍCITO y no se puede quitar. Antes esto
-        // era `NOT: { sucursalId }`, que en SQL se traduce a
-        // `"sucursalId" <> 'X'` — y comparar NULL con algo no da verdadero, da
-        // DESCONOCIDO. Resultado: los pedidos sin sucursal, que son justo los
-        // que este backfill viene a arreglar, eran los únicos que se saltaba.
-        //
-        // No falla ruidosamente: el pedido se queda sin sucursal, invisible en
-        // la vista y IMPOSIBLE de completar, sin que nada avise. Se descubrió el
-        // 07/08/2026 con 3 pedidos de Raúl Salgado que llevaban días así
-        // mientras otros 11 suyos estaban bien.
-        const p = await tx.pedido.updateMany({
-          where: {
-            vendedorId: id,
-            OR: [{ sucursalId: null }, { sucursalId: { not: sucursalId } }],
-          },
-          data: { sucursalId },
-        });
-        pedidos = p.count;
+      // El backfill vive en lib/gestores.ts porque lo necesita tambien el
+      // reasignar vendedores antes de borrar un usuario. Si estuviera duplicado,
+      // uno de los dos se quedaria atras y volverian los pedidos invisibles.
+      const bf = sucursalId
+        ? await backfillSucursalDeVendedor(tx, id, sucursalId)
+        : { pedidos: 0, clientes: 0, fusionados: 0 };
+      const { pedidos, clientes, fusionados } = bf;
 
-        const clienteIds = (
-          await tx.pedido.findMany({ where: { vendedorId: id }, select: { clienteId: true } })
-        )
-          .map((x) => x.clienteId)
-          .filter((x): x is string => !!x);
-
-        if (clienteIds.length) {
-          // En clientes solo se tocan los huérfanos: un cliente puede comprarle
-          // a vendedores de más de una sucursal, así que no se le pisa la suya.
-          //
-          // Pero rellenarles la sucursal a ciegas NO vale, porque muchos de esos
-          // huérfanos YA existen en la sucursal destino: son la misma persona,
-          // creada por otro vendedor que sí tenía gestor. Al ponerles la misma
-          // sucursal chocan contra los únicos (nombre, sucursalId) y
-          // (sucursalId, codigo), y el enlace entero moría con 500
-          // "Error al enlazar el gestor" sin decir por qué.
-          //
-          // Pasó de verdad el 08/08/2026 en Holguín: al administrador le borraron
-          // los usuarios que venían de Parranda, sus vendedores quedaron sin
-          // gestor, y de los 20 clientes huérfanos de uno de ellos 19 ya estaban
-          // en la sucursal. No se podía asignar gestor de ninguna manera.
-          //
-          // El cliente NO se duplica: si ya está, los pedidos pasan al que existe
-          // y el huérfano se borra. Solo Pedido referencia a Cliente, así que
-          // repuntar y borrar no deja nada colgando.
-          const huerfanos = await tx.cliente.findMany({
-            where: { id: { in: clienteIds }, sucursalId: null },
-            select: { id: true, nombre: true, codigo: true },
-          });
-
-          if (huerfanos.length) {
-            const codigos = huerfanos.map((h) => h.codigo).filter((c): c is string => !!c);
-
-            const condiciones: Array<{ nombre?: { in: string[] }; codigo?: { in: string[] } }> = [
-              { nombre: { in: huerfanos.map((h) => h.nombre) } },
-            ];
-            if (codigos.length) condiciones.push({ codigo: { in: codigos } });
-
-            const enDestino = await tx.cliente.findMany({
-              where: { sucursalId, OR: condiciones },
-              select: { id: true, nombre: true, codigo: true },
-            });
-
-            // Los tipos van explícitos: sin ellos TypeScript infiere string[] en vez
-            // de tupla y el Map no compila.
-            const porNombre = new Map<string, string>();
-            const porCodigo = new Map<string, string>();
-            for (const c of enDestino) {
-              porNombre.set(c.nombre, c.id);
-              if (c.codigo) porCodigo.set(c.codigo, c.id);
-            }
-
-            for (const h of huerfanos) {
-              // El código de Parranda identifica mejor que el nombre (dos clientes
-              // pueden escribirse igual), así que se mira primero.
-              const existente = (h.codigo && porCodigo.get(h.codigo)) || porNombre.get(h.nombre);
-
-              if (existente) {
-                await tx.pedido.updateMany({
-                  where: { clienteId: h.id },
-                  data: { clienteId: existente },
-                });
-                await tx.cliente.delete({ where: { id: h.id } });
-                fusionados++;
-              } else {
-                await tx.cliente.update({ where: { id: h.id }, data: { sucursalId } });
-                clientes++;
-                // Dos huérfanos pueden llamarse igual entre ellos: el segundo tiene
-                // que fusionarse con el primero, no volver a rellenar y chocar.
-                porNombre.set(h.nombre, h.id);
-                if (h.codigo) porCodigo.set(h.codigo, h.id);
-              }
-            }
-          }
-        }
-      }
       return { v, pedidos, clientes, fusionados };
     });
 
