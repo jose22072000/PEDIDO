@@ -52,7 +52,8 @@ import { useCerrarAlPulsarFuera } from "@/hooks/cerrar-al-pulsar-fuera";
  */
 type DependenciasUsuario = {
   vendedores: Array<{ id: string; nombre: string; codigo: string | null; pedidos: number }>;
-  candidatos: Array<{ id: string; username: string; nombre: string | null }>;
+  // El usuario no tiene campo `nombre` en el modelo: se identifica por username.
+  candidatos: Array<{ id: string; username: string }>;
   sePuedeEliminar: boolean;
 };
 
@@ -792,9 +793,7 @@ export const UsuariosList = () => {
                         >
                           {dependencias.candidatos.map((c) => (
                             <SelectItem key={c.id}>
-                              {c.nombre
-                                ? `${c.nombre} (${mostrarUsuario(c.username)})`
-                                : mostrarUsuario(c.username)}
+                              {mostrarUsuario(c.username)}
                             </SelectItem>
                           ))}
                         </Select>

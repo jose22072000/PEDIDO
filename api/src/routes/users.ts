@@ -461,7 +461,8 @@ router.get('/:id/vendedores', async (req, res) => {
           sucursalId: usuario.sucursalId,
           rol: { nombre: { in: ROLES_ENLAZABLES } },
         },
-        select: { id: true, username: true, nombre: true },
+        // Usuario no tiene campo `nombre`: se identifica por username.
+        select: { id: true, username: true },
         orderBy: { username: 'asc' },
       }),
     ]);
