@@ -475,6 +475,7 @@ router.patch('/:id/gestor', async (req, res) => {
 
       let pedidos = 0;
       let clientes = 0;
+      let fusionados = 0;
       if (sucursalId) {
         // TODOS sus pedidos, no solo los que estaban en null. Si el vendedor
         // arrastraba pedidos en la sucursal equivocada (heredada del que subió
@@ -506,16 +507,76 @@ router.patch('/:id/gestor', async (req, res) => {
           .filter((x): x is string => !!x);
 
         if (clienteIds.length) {
-          // En clientes solo se rellenan los huérfanos: un cliente puede comprarle
+          // En clientes solo se tocan los huérfanos: un cliente puede comprarle
           // a vendedores de más de una sucursal, así que no se le pisa la suya.
-          const c = await tx.cliente.updateMany({
+          //
+          // Pero rellenarles la sucursal a ciegas NO vale, porque muchos de esos
+          // huérfanos YA existen en la sucursal destino: son la misma persona,
+          // creada por otro vendedor que sí tenía gestor. Al ponerles la misma
+          // sucursal chocan contra los únicos (nombre, sucursalId) y
+          // (sucursalId, codigo), y el enlace entero moría con 500
+          // "Error al enlazar el gestor" sin decir por qué.
+          //
+          // Pasó de verdad el 08/08/2026 en Holguín: al administrador le borraron
+          // los usuarios que venían de Parranda, sus vendedores quedaron sin
+          // gestor, y de los 20 clientes huérfanos de uno de ellos 19 ya estaban
+          // en la sucursal. No se podía asignar gestor de ninguna manera.
+          //
+          // El cliente NO se duplica: si ya está, los pedidos pasan al que existe
+          // y el huérfano se borra. Solo Pedido referencia a Cliente, así que
+          // repuntar y borrar no deja nada colgando.
+          const huerfanos = await tx.cliente.findMany({
             where: { id: { in: clienteIds }, sucursalId: null },
-            data: { sucursalId },
+            select: { id: true, nombre: true, codigo: true },
           });
-          clientes = c.count;
+
+          if (huerfanos.length) {
+            const codigos = huerfanos.map((h) => h.codigo).filter((c): c is string => !!c);
+
+            const condiciones: Array<{ nombre?: { in: string[] }; codigo?: { in: string[] } }> = [
+              { nombre: { in: huerfanos.map((h) => h.nombre) } },
+            ];
+            if (codigos.length) condiciones.push({ codigo: { in: codigos } });
+
+            const enDestino = await tx.cliente.findMany({
+              where: { sucursalId, OR: condiciones },
+              select: { id: true, nombre: true, codigo: true },
+            });
+
+            // Los tipos van explícitos: sin ellos TypeScript infiere string[] en vez
+            // de tupla y el Map no compila.
+            const porNombre = new Map<string, string>();
+            const porCodigo = new Map<string, string>();
+            for (const c of enDestino) {
+              porNombre.set(c.nombre, c.id);
+              if (c.codigo) porCodigo.set(c.codigo, c.id);
+            }
+
+            for (const h of huerfanos) {
+              // El código de Parranda identifica mejor que el nombre (dos clientes
+              // pueden escribirse igual), así que se mira primero.
+              const existente = (h.codigo && porCodigo.get(h.codigo)) || porNombre.get(h.nombre);
+
+              if (existente) {
+                await tx.pedido.updateMany({
+                  where: { clienteId: h.id },
+                  data: { clienteId: existente },
+                });
+                await tx.cliente.delete({ where: { id: h.id } });
+                fusionados++;
+              } else {
+                await tx.cliente.update({ where: { id: h.id }, data: { sucursalId } });
+                clientes++;
+                // Dos huérfanos pueden llamarse igual entre ellos: el segundo tiene
+                // que fusionarse con el primero, no volver a rellenar y chocar.
+                porNombre.set(h.nombre, h.id);
+                if (h.codigo) porCodigo.set(h.codigo, h.id);
+              }
+            }
+          }
         }
       }
-      return { v, pedidos, clientes };
+      return { v, pedidos, clientes, fusionados };
     });
 
     // En vivo: el vínculo cambia el vendedor y (por backfill) sus pedidos + clientes.
@@ -523,11 +584,18 @@ router.patch('/:id/gestor', async (req, res) => {
     // uno a uno, así que esos sí piden un refresco (de fondo, sin esqueleto).
     await emitirVendedor(result.v.id, 'update', vendedor.sucursalId);
     if (result.pedidos > 0) emitEvent('pedido', { sucursalId: result.v.sucursalId, accion: 'backfill' });
-    if (result.clientes > 0) emitEvent('cliente', { sucursalId: result.v.sucursalId, accion: 'backfill' });
+    if (result.clientes > 0 || result.fusionados > 0)
+      emitEvent('cliente', { sucursalId: result.v.sucursalId, accion: 'backfill' });
 
     res.json({
       vendedor: result.v,
-      backfill: { pedidos: result.pedidos, clientes: result.clientes },
+      backfill: {
+        pedidos: result.pedidos,
+        clientes: result.clientes,
+        // Huérfanos que resultaron ser un cliente que ya existía en la sucursal:
+        // sus pedidos pasaron al que estaba y la fila duplicada se borró.
+        fusionados: result.fusionados,
+      },
     });
   } catch (error) {
     console.error('Error linking gestor:', error);
