@@ -189,6 +189,12 @@ export const OrdersList = () => {
   const canDeleteOrders =
     session?.rol === "ADMINISTRADOR" || session?.rol === "SUPERVISOR";
 
+  // El GESTOR sube los pedidos de SUS vendedores y los ve, pero no los cierra:
+  // completar es decir "esto ya se facturó", y eso lo dice quien factura (el
+  // Operador) o quien lleva la sucursal. El servidor lo rechaza igual — esto
+  // solo evita enseñarle un botón que le va a dar error.
+  const puedeCompletar = session?.rol !== "GESTOR";
+
   const activeSucursalId = session?.isGlobalAdmin
     ? getSucursalActiva()
     : session?.sucursalId;
@@ -716,7 +722,7 @@ export const OrdersList = () => {
                           <Icons.eye className="size-6" />
                         </Button>
                       </Tooltip>
-                      {order.estado !== "completada" && (
+                      {puedeCompletar && order.estado !== "completada" && (
                         <Tooltip content="Completar Pedido">
                           <Button
                             aria-label="Completar Pedido"
@@ -1036,7 +1042,7 @@ export const OrdersList = () => {
                     )}
                   </div>
                   <div>
-                    {selectedOrder?.estado !== "completada" && (
+                    {puedeCompletar && selectedOrder?.estado !== "completada" && (
                       <Button
                         color="primary"
                         startContent={<Icons.check className="size-5" />}

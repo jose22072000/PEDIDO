@@ -36,6 +36,23 @@ interface RequesterContext {
   puedeImportarYReportar: boolean;
   /** Rol Gestor: SOLO ve SUS datos (sus pedidos/clientes), nada de compañeros. */
   isGestor: boolean;
+  /**
+   * Puede marcar un pedido como completado.
+   *
+   * El GESTOR no. Sube los pedidos de SUS vendedores y los sigue, pero completar
+   * es decir "esto ya se facturó", y eso lo sabe quien factura: el Operador. Por
+   * encima, el Supervisor, el Administrador y el Super Admin, que responden de la
+   * sucursal entera. El Gestor mira los suyos y nada más.
+   */
+  puedeCompletarPedidos: boolean;
+  /**
+   * Puede BORRAR un pedido.
+   *
+   * Solo quien responde de la sucursal. Esto no lo comprobaba nadie: la pantalla
+   * escondía el botón a los demás roles, pero el endpoint aceptaba el DELETE de
+   * cualquiera que tuviera sesión. Esconder un botón no es un permiso.
+   */
+  puedeBorrarPedidos: boolean;
 }
 
 interface ResolveScopeOptions {
@@ -114,6 +131,9 @@ export function getRequesterContext(req: Request): RequesterContext {
       isGestor: false,
       puedeGestionarVendedores: false,
       puedeImportarYReportar: true,
+      // La API key es de LECTURA (el middleware solo la acepta en GET/HEAD).
+      puedeCompletarPedidos: false,
+      puedeBorrarPedidos: false,
     };
   }
 
@@ -145,6 +165,16 @@ export function getRequesterContext(req: Request): RequesterContext {
   // si.
   const puedeImportarYReportar = role !== 'OPERADOR';
 
+  // Completar: todos MENOS el Gestor. Él sube los pedidos de sus vendedores y los
+  // ve, pero no los cierra. Quien cierra es quien factura (Operador) y quien
+  // manda en la sucursal (Supervisor, Administrador, Super Admin).
+  const puedeCompletarPedidos = !!role && !isGestor;
+
+  // Borrar: solo quien responde de la sucursal. El Operador tampoco: factura con
+  // lo que hay, y un pedido borrado por un mal clic no vuelve.
+  const puedeBorrarPedidos =
+    isSuperAdmin || role === 'ADMINISTRADOR' || role === 'SUPERVISOR';
+
   return {
     userId: payload?.userId,
     username,
@@ -156,6 +186,8 @@ export function getRequesterContext(req: Request): RequesterContext {
     isGestor,
     puedeGestionarVendedores,
     puedeImportarYReportar,
+    puedeCompletarPedidos,
+    puedeBorrarPedidos,
   };
 }
 

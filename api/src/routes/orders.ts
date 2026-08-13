@@ -430,6 +430,17 @@ function alcancePedido(req: Request): { where?: { id: string; sucursalId?: strin
 router.patch('/:id/completar', async (req, res) => {
   try {
     const { id } = req.params;
+
+    // El GESTOR ve sus pedidos y no los cierra. Completar es decir "esto ya se
+    // facturo", y eso lo dice quien factura (Operador) o quien manda en la
+    // sucursal. La pantalla ya no le ensena el boton; esta comprobacion es la
+    // que de verdad lo impide.
+    if (!getRequesterContext(req).puedeCompletarPedidos) {
+      return res.status(403).json({
+        error: 'Tu rol no puede completar pedidos. Los completa el Operador o quien lleva la sucursal.',
+      });
+    }
+
     const { where, error: sucursalError } = alcancePedido(req);
     if (sucursalError || !where) {
       return res.status(400).json({ error: sucursalError });
@@ -468,10 +479,20 @@ router.patch('/:id/completar', async (req, res) => {
   }
 });
 
-// Delete an order (requires Administrador or Supervisor role)
+// Borrar un pedido: Super Admin, Administrador o Supervisor.
 router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
+
+    // Esto NO se comprobaba. La lista escondia el boton a los demas roles, pero
+    // el endpoint aceptaba el DELETE de cualquiera con sesion: un Gestor o un
+    // Operador podian borrar un pedido llamando a la API a mano.
+    if (!getRequesterContext(req).puedeBorrarPedidos) {
+      return res.status(403).json({
+        error: 'Tu rol no puede borrar pedidos.',
+      });
+    }
+
     const { where, error: sucursalError } = alcancePedido(req);
     if (sucursalError || !where) {
       return res.status(400).json({ error: sucursalError });
