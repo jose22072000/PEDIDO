@@ -149,6 +149,30 @@ const traerPedidos =
     return r.json();
   };
 
+/** Un día, escrito para leerlo: "12 de agosto de 2026". */
+function comoSeLeeElDia(valor?: string | null): string | null {
+  if (!valor) return null;
+  return new Date(valor).toLocaleDateString("es-ES", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+}
+
+/** Un instante, con hora. Para "cuándo entró esto en el sistema" el día solo no
+ *  sirve —dos pedidos del mismo día no se distinguen— y la hora es justo lo que se
+ *  mira cuando alguien pregunta si un pedido llegó antes o después de otro. */
+function comoSeLeeElInstante(valor?: string | null): string | null {
+  if (!valor) return null;
+  return new Date(valor).toLocaleString("es-ES", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 export const OrdersList = () => {
   const [page, setPage] = useState(1);
   const [estadoFilter, setEstadoFilter] = useState<string>("todos");
@@ -669,6 +693,12 @@ export const OrdersList = () => {
                         <span className="text-sm font-bold text-primary">
                           {order.folio}
                         </span>
+                        {/* La fecha del pedido, aquí: en la lista se busca "los de
+                            ayer" o "los que llevan una semana", y sin ella hay que
+                            abrir uno por uno para averiguarlo. */}
+                        <span className="text-xs text-default-500">
+                          {comoSeLeeElDia(order.fecha) ?? ""}
+                        </span>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -860,6 +890,44 @@ export const OrdersList = () => {
                     </div>
                   </div>
 
+                  {/* Las fechas, juntas y en su propio bloque.
+                      Son tres cosas distintas que se confunden si están sueltas:
+                      cuándo se hizo el pedido, para cuándo se comprometió la entrega
+                      y cuándo entró en el sistema. Antes solo se veía la del medio,
+                      así que no había forma de saber si un pedido de hoy era de hoy o
+                      llevaba una semana esperando. */}
+                  <div>
+                    <h4 className="mb-2 text-sm font-semibold text-default-700">
+                      Fechas
+                    </h4>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                      <div>
+                        <p className="mb-1 text-xs text-default-500">
+                          Fecha del pedido
+                        </p>
+                        <p className="text-sm font-medium">
+                          {comoSeLeeElDia(selectedOrder?.fecha) ?? "—"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="mb-1 text-xs text-default-500">
+                          Fecha comprometida
+                        </p>
+                        <p className="text-sm font-medium">
+                          {comoSeLeeElDia(selectedOrder?.fecha_comprometida) ?? "—"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="mb-1 text-xs text-default-500">
+                          Subido al sistema
+                        </p>
+                        <p className="text-sm font-medium">
+                          {comoSeLeeElInstante(selectedOrder?.createdAt) ?? "—"}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
                   {/* Datos de entrega */}
                   {(selectedOrder?.direccion ||
                     selectedOrder?.telefono ||
@@ -887,22 +955,6 @@ export const OrdersList = () => {
                             <code className="block w-full p-2 text-sm break-all border rounded bg-default-50 select-all">
                               {selectedOrder.telefono}
                             </code>
-                          </div>
-                        )}
-                        {selectedOrder?.fecha_comprometida && (
-                          <div>
-                            <p className="mb-1 text-xs text-default-500">
-                              Fecha comprometida
-                            </p>
-                            <p className="text-sm font-medium">
-                              {new Date(
-                                selectedOrder.fecha_comprometida,
-                              ).toLocaleDateString("es-ES", {
-                                year: "numeric",
-                                month: "long",
-                                day: "numeric",
-                              })}
-                            </p>
                           </div>
                         )}
                       </div>
