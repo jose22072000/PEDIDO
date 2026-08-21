@@ -152,6 +152,29 @@ const traerPedidos =
     return r.json();
   };
 
+/**
+ * Parte el nombre de un producto en categoría y lo demás.
+ *
+ * Vienen como "ALIMENTOS ACEITE SOYA 1L" o "CERVEZA CERVEZA SANTIAGO": la categoría
+ * va DELANTE, y en un desplegable estrecho se come el ancho y los recorta a todos por
+ * el mismo sitio — "ALIMENTOS ARROZ ENER...", "ALIMENTOS ARROZ PATE..."—, así que se
+ * ven iguales y no se distingue cuál es cuál, que es justo lo que hay que elegir.
+ *
+ * Separándolos, el nombre de verdad va primero y la categoría queda debajo en pequeño.
+ * Si la categoría se repite ("CERVEZA CERVEZA SANTIAGO") se quita la repetida: es
+ * ruido que ya está dicho.
+ */
+function partirProducto(nombre: string): { categoria: string; producto: string } {
+  const partes = nombre.trim().split(/\s+/);
+  if (partes.length < 2) return { categoria: "", producto: nombre };
+
+  const categoria = partes[0];
+  const resto = partes.slice(1);
+  if (resto[0] === categoria) resto.shift();
+
+  return { categoria, producto: resto.join(" ") || nombre };
+}
+
 /** Un día, escrito para leerlo: "12 de agosto de 2026". */
 function comoSeLeeElDia(valor?: string | null): string | null {
   if (!valor) return null;
@@ -596,17 +619,40 @@ export const OrdersList = () => {
                 no hay opciones que devuelvan cero. */}
             <Select
               isClearable
-              className="w-full sm:w-56"
+              className="w-full sm:w-64"
               label="Producto"
               placeholder="Todos"
+              renderValue={(items) =>
+                items.map((item) => (
+                  <span key={item.key}>
+                    {partirProducto(String(item.key)).producto}
+                  </span>
+                ))
+              }
               selectedKeys={productoFilter ? [productoFilter] : []}
               size="lg"
               variant="bordered"
               onChange={(e) => setProductoFilter(e.target.value)}
             >
-              {productos.map((nombre) => (
-                <SelectItem key={nombre}>{nombre}</SelectItem>
-              ))}
+              {productos.map((nombre) => {
+                const { categoria, producto } = partirProducto(nombre);
+
+                return (
+                  // `textValue` es lo que se teclea para buscar dentro del
+                  // desplegable: va el nombre ENTERO, para que quien escriba
+                  // "alimentos" siga encontrándolo.
+                  <SelectItem key={nombre} textValue={nombre}>
+                    <div className="flex flex-col">
+                      <span className="text-sm">{producto}</span>
+                      {categoria && (
+                        <span className="text-[11px] uppercase tracking-wide text-default-400">
+                          {categoria}
+                        </span>
+                      )}
+                    </div>
+                  </SelectItem>
+                );
+              })}
             </Select>
             <Select
               className="w-full sm:w-56"
