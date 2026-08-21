@@ -187,6 +187,7 @@ export const OrdersList = () => {
   const [incluirArchivados, setIncluirArchivados] = useState(false);
   // Los productos que existen en esta sucursal, para el selector del filtro. Se piden
   // una vez: cambian cuando entran pedidos nuevos, no mientras se mira la lista.
+  const [orderToReabrir, setOrderToReabrir] = useState<Order | null>(null);
   const [productos, setProductos] = useState<string[]>([]);
   const [productoFilter, setProductoFilter] = useState<string>("");
   const [fechaDesde, setFechaDesde] = useState<string>("");
@@ -229,6 +230,11 @@ export const OrdersList = () => {
     isOpen: isDeleteConfirmOpen,
     onOpen: onDeleteConfirmOpen,
     onClose: onDeleteConfirmClose,
+  } = useDisclosure();
+  const {
+    isOpen: isReabrirConfirmOpen,
+    onOpen: onReabrirConfirmOpen,
+    onClose: onReabrirConfirmClose,
   } = useDisclosure();
   const { session } = useAuthStore();
 
@@ -460,6 +466,23 @@ export const OrdersList = () => {
       onConfirmOpen();
     },
     [onConfirmOpen],
+  );
+
+  /**
+   * Devolver un pedido a "en proceso", preguntando antes.
+   *
+   * Se pregunta porque en los EXPIRADOS no es solo cambiar una etiqueta: expirado no
+   * es un estado guardado, sale de que la fecha comprometida ya pasó. Para que deje
+   * de estar vencido hay que quitarle esa fecha, y eso se avisa en el texto en vez de
+   * hacerlo por detrás — enterarse después de que desapareció una fecha es peor que
+   * el problema que venía a resolver.
+   */
+  const handleAskConfirmReabrir = useCallback(
+    (order: Order) => {
+      setOrderToReabrir(order);
+      onReabrirConfirmOpen();
+    },
+    [onReabrirConfirmOpen],
   );
 
   const handleOpenDetails = useCallback(
@@ -846,7 +869,7 @@ export const OrdersList = () => {
                           <Icons.eye className="size-6" />
                         </Button>
                       </Tooltip>
-                      {puedeCompletar && order.estado !== "completada" && (
+                      {puedeCompletar && order.estado === "en_proceso" && (
                         <Tooltip content="Completar Pedido">
                           <Button
                             aria-label="Completar Pedido"
@@ -865,15 +888,15 @@ export const OrdersList = () => {
                           o se completa el de arriba creyendo que era el de abajo, y
                           si deshacerlo obliga a abrir el pedido y buscar el botón
                           dentro, en la práctica nadie lo deshace. */}
-                      {puedeCompletar && order.estado === "completada" && (
-                        <Tooltip content="Reabrir: volver a En proceso">
+                      {puedeCompletar && order.estado !== "en_proceso" && (
+                        <Tooltip content="Volver a En proceso">
                           <Button
-                            aria-label="Reabrir Pedido"
+                            aria-label="Volver a En proceso"
                             className="p-0"
                             color="warning"
                             isIconOnly={true}
                             variant="flat"
-                            onPress={() => handleReabrirOrder(order.id)}
+                            onPress={() => handleAskConfirmReabrir(order)}
                           >
                             <Icons.back className="size-6" />
                           </Button>
@@ -1078,21 +1101,7 @@ export const OrdersList = () => {
                       >
                         {estadoLabels[selectedOrder?.estado || "en_proceso"]}
                       </Chip>
-                      {/* Volver atrás. Solo sale en los completados, que es el único
-                          estado que se pone a mano: "expirado" lo decide la fecha
-                          comprometida y cambiarlo aquí sería mentir sobre una fecha
-                          que está dos líneas más arriba. */}
-                      {selectedOrder?.estado === "completada" &&
-                        puedeCompletar &&
-                        selectedOrder?.id && (
-                          <Button
-                            size="sm"
-                            variant="flat"
-                            onPress={() => handleReabrirOrder(selectedOrder.id)}
-                          >
-                            Reabrir
-                          </Button>
-                        )}
+
                       {selectedOrder?.pedido_cobrado != null && (
                         <Chip
                           color={
@@ -1222,23 +1231,82 @@ export const OrdersList = () => {
                     )}
                   </div>
                   <div>
-                    {puedeCompletar && selectedOrder?.estado !== "completada" && (
-                      <Button
-                        color="primary"
-                        startContent={<Icons.check className="size-5" />}
-                        onPress={() =>
-                          selectedOrder &&
-                          handleAskConfirmComplete(selectedOrder)
-                        }
-                      >
-                        Completar Pedido
-                      </Button>
+                    {/* UN botón que cambia con el estado, no tres apilados.
+                        En proceso se completa; completado o expirado se devuelve a
+                        en proceso. Es la misma casilla de la pantalla y la misma
+                        posición siempre: no hay que buscar dónde apareció el botón
+                        de hoy. */}
+                    {puedeCompletar && selectedOrder && (
+                      selectedOrder.estado === "en_proceso" ? (
+                        <Button
+                          color="primary"
+                          startContent={<Icons.check className="size-5" />}
+                          onPress={() => handleAskConfirmComplete(selectedOrder)}
+                        >
+                          Completar Pedido
+                        </Button>
+                      ) : (
+                        <Button
+                          color="warning"
+                          startContent={<Icons.back className="size-5" />}
+                          variant="flat"
+                          onPress={() => handleAskConfirmReabrir(selectedOrder)}
+                        >
+                          {selectedOrder.estado === "expirada"
+                            ? "Volver a En proceso"
+                            : "Reabrir Pedido"}
+                        </Button>
+                      )
                     )}
                   </div>
                 </div>
               </ModalFooter>
             </>
           )}
+        </ModalContent>
+      </Modal>
+
+      {/* Confirmar que se devuelve a "en proceso" */}
+      <Modal isOpen={isReabrirConfirmOpen} placement="center" onClose={onReabrirConfirmClose}>
+        <ModalContent>
+          <ModalHeader className="flex flex-col gap-1">
+            <span className="text-warning">Volver a En proceso</span>
+          </ModalHeader>
+          <ModalBody>
+            <p>
+              <strong>Folio:</strong> {orderToReabrir?.folio}
+            </p>
+            {orderToReabrir?.estado === "expirada" ? (
+              <p className="text-sm text-default-600">
+                Este pedido sale como expirado porque su fecha comprometida ya pasó
+                {orderToReabrir?.fecha_comprometida
+                  ? ` (${comoSeLeeElDia(orderToReabrir.fecha_comprometida)})`
+                  : ""}
+                . Para que vuelva a estar en proceso hay que quitarle esa fecha, y eso
+                es lo que va a pasar. Si lo que quieres es darle más plazo, mejor
+                cámbiale la fecha comprometida.
+              </p>
+            ) : (
+              <p className="text-sm text-default-600">
+                Vuelve a la lista como en proceso. Si estaba archivado, se desarchiva.
+              </p>
+            )}
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="light" onPress={onReabrirConfirmClose}>
+              Cancelar
+            </Button>
+            <Button
+              color="warning"
+              onPress={() => {
+                if (orderToReabrir) handleReabrirOrder(orderToReabrir.id);
+                onReabrirConfirmClose();
+                setOrderToReabrir(null);
+              }}
+            >
+              Sí, volver a En proceso
+            </Button>
+          </ModalFooter>
         </ModalContent>
       </Modal>
 

@@ -731,17 +731,36 @@ router.patch('/:id/estado', async (req, res) => {
       return res.status(400).json({ error: sucursalError });
     }
 
-    const existente = await prisma.pedido.findFirst({ where, select: { id: true } });
+    const existente = await prisma.pedido.findFirst({
+      where,
+      select: { id: true, fecha_comprometida: true },
+    });
     if (!existente) {
       return res.status(404).json({ error: 'Pedido no encontrado' });
     }
+
+    // Un pedido EXPIRADO no lo está por un campo: lo está porque su fecha comprometida
+    // ya pasó. Devolverlo a "en proceso" sin tocar esa fecha no haría nada — se
+    // volvería a calcular expirado en la siguiente carga y parecería que el botón está
+    // roto. Así que se le quita el plazo vencido.
+    //
+    // Se avisa antes de pulsar, en la ventana de confirmación: enterarse después de
+    // que desapareció una fecha es peor que el problema que venía a resolver.
+    const vencido =
+      existente.fecha_comprometida != null &&
+      new Date(existente.fecha_comprometida) < new Date();
 
     const order = await prisma.pedido.update({
       where: { id },
       data:
         estado === 'completada'
           ? { estado: 'completada', completedAt: new Date() }
-          : { estado: null, completedAt: null, archivedAt: null },
+          : {
+              estado: null,
+              completedAt: null,
+              archivedAt: null,
+              ...(vencido ? { fecha_comprometida: null } : {}),
+            },
       include: { items: true, cliente: true, vendedor: true, sucursal: { select: { codigo: true } } },
     });
 
