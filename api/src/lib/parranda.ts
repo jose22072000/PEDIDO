@@ -100,6 +100,19 @@ export interface ParrandaSyncResult {
   errores: number;
   /** Los primeros motivos distintos, para poder arreglarlos. */
   erroresDetalle: string[];
+  /**
+   * QUÉ cambió, cliente a cliente. Acotado: interesa mirar una muestra y entender qué
+   * pasa, no guardar un diario entero en Redis.
+   *
+   * Sin esto, "198 cambiaron" no se puede ni creer ni desmentir. Y hace falta poder
+   * desmentirlo: si son los MISMOS 198 en cada pasada, no es que cambien —es que algo
+   * los está reescribiendo en círculo.
+   */
+  cambios: Array<{
+    cliente: string;
+    sucursal: string | null;
+    campos: Array<{ campo: string; antes: string | null; despues: string | null }>;
+  }>;
 }
 
 /**
@@ -139,7 +152,7 @@ export async function processParrandaSync(
 
   const r: ParrandaSyncResult = {
     paginas: 0, total: 0, creados: 0, actualizados: 0, sinCambios: 0, conGeo: 0, sinGeo: 0, sinSucursal: 0, errores: 0,
-    erroresDetalle: [],
+    erroresDetalle: [], cambios: [],
   };
 
   let offset = 0;
@@ -177,15 +190,32 @@ export async function processParrandaSync(
           // Solo se escribe si algo CAMBIO de verdad. Las coordenadas se comparan
           // con margen: son decimales y una diferencia en el ultimo digito no es
           // un cambio real, pero bastaria para escribir las 6127 filas otra vez.
-          const cambio =
-            (geoData.codigo ?? null) !== (actual.codigo ?? null) ||
-            (geoData.direccion ?? null) !== (actual.direccion ?? null) ||
-            (geoData.municipio ?? null) !== (actual.municipio ?? null) ||
-            (geoData.geolocalizacion ?? null) !== (actual.geolocalizacion ?? null) ||
-            !mismoNumero(geoData.latitud, actual.latitud) ||
-            !mismoNumero(geoData.longitud, actual.longitud);
+          // Qué campos cambian, uno a uno, en vez de un sí/no. Es lo que hay que
+          // poder MIRAR: "198 cambiaron" no se puede ni creer ni desmentir, y "198
+          // cambiaron el municipio de Camagüey a CAMAGÜEY" se arregla en cinco
+          // minutos.
+          const campos: Array<{ campo: string; antes: string | null; despues: string | null }> = [];
+          const anota = (campo: string, antes: unknown, despues: unknown) => {
+            campos.push({
+              campo,
+              antes: antes == null ? null : String(antes),
+              despues: despues == null ? null : String(despues),
+            });
+          };
+
+          if ((geoData.codigo ?? null) !== (actual.codigo ?? null)) anota('código', actual.codigo, geoData.codigo);
+          if ((geoData.direccion ?? null) !== (actual.direccion ?? null)) anota('dirección', actual.direccion, geoData.direccion);
+          if ((geoData.municipio ?? null) !== (actual.municipio ?? null)) anota('municipio', actual.municipio, geoData.municipio);
+          if ((geoData.geolocalizacion ?? null) !== (actual.geolocalizacion ?? null)) anota('geolocalización', actual.geolocalizacion, geoData.geolocalizacion);
+          if (!mismoNumero(geoData.latitud, actual.latitud)) anota('latitud', actual.latitud, geoData.latitud);
+          if (!mismoNumero(geoData.longitud, actual.longitud)) anota('longitud', actual.longitud, geoData.longitud);
+
+          const cambio = campos.length > 0;
 
           if (cambio) {
+            if (r.cambios.length < 200) {
+              r.cambios.push({ cliente: nombre, sucursal: code ?? null, campos });
+            }
             await prisma.cliente.update({ where: { id: actual.id }, data: geoData });
             r.actualizados++;
 

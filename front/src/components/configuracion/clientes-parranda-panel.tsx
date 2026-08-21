@@ -54,6 +54,14 @@ interface SyncRun {
     sinGeo: number;
     errores: number;
     paginas: number;
+    /** Los primeros motivos distintos de error. */
+    erroresDetalle?: string[];
+    /** Qué cambió, cliente a cliente (muestra acotada). */
+    cambios?: Array<{
+      cliente: string;
+      sucursal: string | null;
+      campos: Array<{ campo: string; antes: string | null; despues: string | null }>;
+    }>;
   };
   error?: string;
   cuando?: number | null;
@@ -91,6 +99,9 @@ export const ClientesParrandaPanel = () => {
   const [sincronizando, setSincronizando] = useState(false);
 
   // Filtros + paginación de la tabla.
+  // Qué sincronización tiene el detalle abierto. Una sola a la vez: son listas de
+  // hasta 200 líneas y varias abiertas convierten el panel en un muro.
+  const [detalleAbierto, setDetalleAbierto] = useState<string | null>(null);
   const [sucursalId, setSucursalId] = useState("");
   const [municipio, setMunicipio] = useState("");
   const [municipios, setMunicipios] = useState<string[]>([]);
@@ -238,9 +249,10 @@ export const ClientesParrandaPanel = () => {
           {resumen && resumen.syncs.length > 0 && (
             <div>
               <p className="text-sm font-medium mb-1">Últimas sincronizaciones</p>
-              <div className="flex flex-col gap-1 max-h-40 overflow-auto rounded-md border border-default-200 p-2">
+              <div className="flex flex-col gap-1 max-h-80 overflow-auto rounded-md border border-default-200 p-2">
                 {resumen.syncs.map((s) => (
-                  <div key={s.jobId} className="flex items-center gap-2 text-xs">
+                  <div key={s.jobId} className="flex flex-col gap-1 text-xs">
+                   <div className="flex items-center gap-2">
                     <Chip
                       size="sm"
                       color={s.estado === "completado" ? "success" : s.estado === "error" ? "danger" : "warning"}
@@ -264,6 +276,51 @@ export const ClientesParrandaPanel = () => {
                       </span>
                     )}
                     {s.error && <span className="text-danger truncate">{s.error}</span>}
+                    {/* Abrir para ver QUÉ cambió. "198 cambiaron" no se puede ni
+                        creer ni desmentir; con la lista delante se ve en un vistazo
+                        si son 198 clientes distintos o los mismos de siempre dando
+                        vueltas. */}
+                    {(s.resultado?.cambios?.length ?? 0) > 0 && (
+                      <button
+                        className="ml-auto underline text-primary shrink-0"
+                        type="button"
+                        onClick={() => setDetalleAbierto(detalleAbierto === s.jobId ? null : s.jobId)}
+                      >
+                        {detalleAbierto === s.jobId ? "ocultar detalle" : "ver qué cambió"}
+                      </button>
+                    )}
+                   </div>
+
+                   {detalleAbierto === s.jobId && (
+                     <div className="ml-2 border-l-2 border-default-200 pl-2 flex flex-col gap-1">
+                       {(s.resultado?.erroresDetalle?.length ?? 0) > 0 && (
+                         <div className="text-danger">
+                           <b>Errores:</b> {s.resultado!.erroresDetalle!.join(" · ")}
+                         </div>
+                       )}
+                       {s.resultado!.cambios!.map((c, i) => (
+                         <div key={`${c.cliente}-${i}`}>
+                           <b>{c.cliente}</b>
+                           {c.sucursal ? ` (${c.sucursal})` : ""}:{" "}
+                           {c.campos.map((f, j) => (
+                             <span key={f.campo}>
+                               {j > 0 ? ", " : ""}
+                               {f.campo}{" "}
+                               <span className="text-default-400">{f.antes ?? "vacío"}</span>
+                               {" → "}
+                               <span className="text-success">{f.despues ?? "vacío"}</span>
+                             </span>
+                           ))}
+                         </div>
+                       ))}
+                       {s.resultado!.actualizados > s.resultado!.cambios!.length && (
+                         <div className="text-default-400">
+                           …y {s.resultado!.actualizados - s.resultado!.cambios!.length} más
+                           (se guardan los primeros 200)
+                         </div>
+                       )}
+                     </div>
+                   )}
                   </div>
                 ))}
               </div>
