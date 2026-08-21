@@ -103,7 +103,7 @@ async function main() {
   // Con upsert por código: la semilla corre en cada despliegue y esto no duplica nada
   // ni pisa el nombre si alguien lo cambió desde la pantalla.
   const sucursalesNuevas = [
-    { nombre: 'Palma Soriano', codigo: 'PAL' },
+    { nombre: 'Palma Soriano', codigo: 'PLS' },
     { nombre: 'Moa', codigo: 'MOA' },
   ];
 

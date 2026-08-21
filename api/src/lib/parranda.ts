@@ -98,6 +98,8 @@ export interface ParrandaSyncResult {
   sinGeo: number;
   sinSucursal: number;
   errores: number;
+  /** Los primeros motivos distintos, para poder arreglarlos. */
+  erroresDetalle: string[];
 }
 
 /**
@@ -137,6 +139,7 @@ export async function processParrandaSync(
 
   const r: ParrandaSyncResult = {
     paginas: 0, total: 0, creados: 0, actualizados: 0, sinCambios: 0, conGeo: 0, sinGeo: 0, sinSucursal: 0, errores: 0,
+    erroresDetalle: [],
   };
 
   let offset = 0;
@@ -185,6 +188,20 @@ export async function processParrandaSync(
           if (cambio) {
             await prisma.cliente.update({ where: { id: actual.id }, data: geoData });
             r.actualizados++;
+
+            // Y la foto se actualiza con lo que se acaba de escribir.
+            //
+            // Sin esto, el mismo cliente repetido en el origen se comparaba SIEMPRE
+            // contra el valor que tenía antes de empezar: la segunda aparición veía
+            // una diferencia que ya se había escrito y volvía a escribir. Parranda
+            // manda 12.049 filas para 8.850 clientes, o sea que repetir es lo normal,
+            // no la excepción.
+            //
+            // Y no era solo contar de más: gana la última aparición, así que si el
+            // orden cambia entre pasadas el valor guardado va y viene, y en la
+            // siguiente "cambia" otra vez. Eso es lo que hacía que el número subiera
+            // solo —5703, 5913, 6127, 6602— sin que nadie tocara nada.
+            porClave.set(key, { ...actual, ...geoData });
           } else {
             r.sinCambios++;
           }
@@ -193,9 +210,17 @@ export async function processParrandaSync(
           // de Parranda que NO existe aquí se OMITE: no se importa el catálogo entero de Parranda.
           r.creados = 0;
         }
-      } catch {
+      } catch (e) {
         // P2002 (codigo/nombre duplicado) u otro: no tumbar el sync, contar y seguir.
+        //
+        // Pero se guardan los primeros motivos. "114 err" a secas no se puede
+        // arreglar: no dice si son 114 veces lo mismo o 114 cosas distintas, y sin
+        // eso nadie sabe por dónde empezar.
         r.errores++;
+        if (r.erroresDetalle.length < 5) {
+          const msg = (e as Error)?.message ?? String(e);
+          if (!r.erroresDetalle.includes(msg)) r.erroresDetalle.push(msg);
+        }
       }
     }
 

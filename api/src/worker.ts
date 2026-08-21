@@ -62,6 +62,53 @@ async function main() {
     });
     pq.on('failed', (job, err) => console.error(`[worker] Parranda job ${job?.id} falló:`, err.message));
     console.log(`[worker] escuchando ${QUEUE_PARRANDA} (concurrency=1)`);
+
+    await programarSyncDiario(pq);
+  }
+}
+
+/**
+ * El sync de clientes, todos los días a las 6 de la tarde.
+ *
+ * La pantalla de Configuración lo prometía —"se sincroniza solo todos los días a las
+ * 6:00 pm"— y no lo hacía NADIE: no había cron en la API, ni aquí, ni un flujo en n8n.
+ * Se veía en el historial: las últimas sincronizaciones eran a las 8:34, a las 11:38,
+ * a las 19:59… horas sueltas, o sea todas a mano. Prometerlo y no hacerlo es peor que
+ * no prometerlo: nadie revisa lo que cree que se hace solo.
+ *
+ * Va en el worker y no en la API porque la API corre con varias instancias detrás del
+ * proxy y cada una habría disparado su propio sync a la misma hora. El worker es uno.
+ *
+ * La hora es de Cuba, no del servidor: "las seis de la tarde" es cuando cierran las
+ * sucursales, y con el servidor en UTC serían las dos.
+ *
+ * Antes de programarlo se borran los repetibles que hubiera. Bull guarda el repetible
+ * con una clave que incluye el cron, así que cambiar la hora sin limpiar deja los DOS
+ * programados y se sincronizaría dos veces al día sin que nadie entienda por qué.
+ */
+async function programarSyncDiario(pq: NonNullable<ReturnType<typeof parrandaQueue>>) {
+  const cron = process.env.PARRANDA_SYNC_CRON || '0 18 * * *';
+  const tz = process.env.PARRANDA_SYNC_TZ || 'America/Havana';
+
+  try {
+    for (const r of await pq.getRepeatableJobs()) {
+      await pq.removeRepeatableByKey(r.key);
+    }
+
+    await pq.add(
+      {},
+      {
+        repeat: { cron, tz },
+        // Sin historial: interesa que se haya hecho, no doscientas copias del job.
+        removeOnComplete: 20,
+        removeOnFail: 50,
+      },
+    );
+    console.log(`[worker] Parranda: sync programado (${cron}, ${tz})`);
+  } catch (e) {
+    // Que no arranque el programador no puede tumbar al worker: sin esto se queda sin
+    // consumir la cola y tampoco funcionaría el sync a mano.
+    console.error('[worker] Parranda: no se pudo programar el sync diario:', (e as Error).message);
   }
 }
 
