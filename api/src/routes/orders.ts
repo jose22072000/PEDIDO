@@ -76,6 +76,11 @@ router.get('/', async (req, res) => {
     const fechaDesde = req.query.fechaDesde as string | undefined;
     const fechaHasta = req.query.fechaHasta as string | undefined;
     const domicilio = req.query.domicilio as string | undefined;
+    // Filtro por PRODUCTO: el nombre exacto que se eligió en el selector. Es distinto
+    // de la búsqueda libre —que busca ese texto en media docena de sitios—: aquí se
+    // pide "enséñame los pedidos que llevan ESTO", que es lo que se necesita cuando
+    // falta mercancía y hay que avisar a quien la pidió.
+    const producto = req.query.producto as string | undefined;
     // Filtro por "vendedor" = el USUARIO/gestor vinculado (ver GET /vendedores). Se
     // filtra por los pedidos de los vendedores que ese usuario gestiona.
     const usuarioId = (req.query.usuarioId || req.query.vendedorId) as string | undefined;
@@ -164,6 +169,10 @@ router.get('/', async (req, res) => {
       const ids = matches.map((m) => m.id);
       // Si no hay match, forzar 0 resultados (id imposible) en vez de ignorar el filtro.
       conditions.push({ id: { in: ids.length ? ids : ['__no_match__'] } });
+    }
+
+    if (producto) {
+      conditions.push({ items: { some: { producto } } });
     }
 
     // Filter by estado
@@ -329,6 +338,35 @@ router.get('/', async (req, res) => {
 // headers, así que en vez de poner el token en la URL, el front pide este ticket con su
 // Bearer normal (header) y abre el stream con ?ticket=. El ticket dura ~30s y lleva el
 // scope ya resuelto; se quema al usarse.
+/**
+ * GET /productos — los productos que aparecen en los pedidos de esta sucursal.
+ *
+ * Es lo que llena el selector del filtro. Se sacan de las líneas reales y no de un
+ * catálogo aparte: así la lista es exactamente lo que se puede encontrar filtrando, y
+ * no hay opciones que no devuelvan nada ni productos que existan y no estén.
+ *
+ * Va por sucursal porque el filtro también: enseñar los de otra sería ofrecer una
+ * búsqueda que siempre sale vacía.
+ */
+router.get('/productos', async (req, res) => {
+  try {
+    const { sucursalId, error } = resolveSucursalFilter(req);
+    if (error) return res.status(400).json({ error });
+
+    const filas = await prisma.pedidoItem.findMany({
+      where: { pedido: { sucursalId } },
+      select: { producto: true },
+      distinct: ['producto'],
+      orderBy: { producto: 'asc' },
+    });
+
+    res.json(filas.map((f) => f.producto).filter(Boolean));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to list productos' });
+  }
+});
+
 router.post('/sse-ticket', async (req, res) => {
   const { sucursalId, error } = resolveSucursalFilter(req);
   if (error) return res.status(400).json({ error });

@@ -105,6 +105,7 @@ interface FiltrosPedidos {
   fechaHasta: string;
   domicilio: string;
   vendedor: string;
+  producto: string;
   incluirArchivados: boolean;
 }
 
@@ -120,6 +121,7 @@ const clavePedidos = (f: FiltrosPedidos, sucursal: string) =>
     f.fechaHasta,
     f.domicilio,
     f.vendedor,
+    f.producto,
     f.incluirArchivados ? "1" : "0",
   ].join(":");
 
@@ -138,6 +140,7 @@ const traerPedidos =
     if (esFechaEnviable(f.fechaHasta)) params.append("fechaHasta", f.fechaHasta);
     if (f.domicilio !== "todos") params.append("domicilio", f.domicilio);
     if (f.vendedor !== "todos") params.append("vendedorId", f.vendedor);
+    if (f.producto) params.append("producto", f.producto);
     // Switch: si esta activo, la busqueda incluye tambien los archivados (se
     // distinguen en la tarjeta con el chip "Archivado"). Si no, solo activos.
     if (f.incluirArchivados) params.append("incluirArchivados", "1");
@@ -182,8 +185,28 @@ export const OrdersList = () => {
   // Incluir archivados en la búsqueda actual (el usuario elige). No aplica cuando el
   // estado ya es "archivados" (ahí se ven solo archivados).
   const [incluirArchivados, setIncluirArchivados] = useState(false);
+  // Los productos que existen en esta sucursal, para el selector del filtro. Se piden
+  // una vez: cambian cuando entran pedidos nuevos, no mientras se mira la lista.
+  const [productos, setProductos] = useState<string[]>([]);
+  const [productoFilter, setProductoFilter] = useState<string>("");
   const [fechaDesde, setFechaDesde] = useState<string>("");
   const [fechaHasta, setFechaHasta] = useState<string>("");
+
+  useEffect(() => {
+    let vivo = true;
+    fetch(`${getApiBaseUrl()}/orders/productos`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((lista) => {
+        if (vivo) setProductos(Array.isArray(lista) ? lista : []);
+      })
+      .catch(() => {
+        // Sin lista, el selector sale vacío y el resto de la pantalla sigue
+        // funcionando: un filtro que no se puede llenar no puede tumbar la lista.
+      });
+    return () => {
+      vivo = false;
+    };
+  }, []);
   const [debouncedSearch, setDebouncedSearch] = useState<string>("");
   const [searchValue, setSearchValue] = useState<string>("");
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
@@ -242,6 +265,7 @@ export const OrdersList = () => {
     fechaHasta,
     domicilio: domicilioFilter,
     vendedor: vendedorFilter,
+    producto: productoFilter,
     incluirArchivados,
   };
 
@@ -521,7 +545,7 @@ export const OrdersList = () => {
               isClearable
               className="flex-1"
               label="Buscar Pedido"
-              placeholder="Buscar por folio, vendedor, cliente, codigo o encargado..."
+              placeholder="Buscar por folio, vendedor, cliente, código, encargado o PRODUCTO..."
               size="lg"
               startContent={
                 <Icons.search className="size-5 text-default-400" />
@@ -541,6 +565,24 @@ export const OrdersList = () => {
             >
               {estadoOptions.map((option) => (
                 <SelectItem key={option.value}>{option.label}</SelectItem>
+              ))}
+            </Select>
+            {/* Filtrar por producto: "enséñame los pedidos que llevan ESTO". Es lo
+                que se necesita cuando falta mercancía y hay que avisar a quien la
+                pidió. La lista sale de las líneas reales de esta sucursal, así que
+                no hay opciones que devuelvan cero. */}
+            <Select
+              isClearable
+              className="w-full sm:w-56"
+              label="Producto"
+              placeholder="Todos"
+              selectedKeys={productoFilter ? [productoFilter] : []}
+              size="lg"
+              variant="bordered"
+              onChange={(e) => setProductoFilter(e.target.value)}
+            >
+              {productos.map((nombre) => (
+                <SelectItem key={nombre}>{nombre}</SelectItem>
               ))}
             </Select>
             <Select
@@ -815,6 +857,25 @@ export const OrdersList = () => {
                             onPress={() => handleAskConfirmComplete(order)}
                           >
                             <Icons.check className="text-white size-6" />
+                          </Button>
+                        </Tooltip>
+                      )}
+                      {/* Volver a ponerlo en proceso, aquí mismo y sin abrirlo.
+                          Completar es un clic en una lista larga: se hace sin querer
+                          o se completa el de arriba creyendo que era el de abajo, y
+                          si deshacerlo obliga a abrir el pedido y buscar el botón
+                          dentro, en la práctica nadie lo deshace. */}
+                      {puedeCompletar && order.estado === "completada" && (
+                        <Tooltip content="Reabrir: volver a En proceso">
+                          <Button
+                            aria-label="Reabrir Pedido"
+                            className="p-0"
+                            color="warning"
+                            isIconOnly={true}
+                            variant="flat"
+                            onPress={() => handleReabrirOrder(order.id)}
+                          >
+                            <Icons.back className="size-6" />
                           </Button>
                         </Tooltip>
                       )}
