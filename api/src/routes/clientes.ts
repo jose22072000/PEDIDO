@@ -51,10 +51,17 @@ router.get('/resumen-parranda', async (req, res) => {
     let syncs: unknown[] = [];
     const q = parrandaQueue();
     if (q) {
-      const [completos, fallidos, activos] = await Promise.all([
+      // Lo APLAZADO va aparte de lo que está esperando turno.
+      //
+      // Desde que el sync diario está programado, Bull deja siempre el de mañana como
+      // job aplazado. Metido en el mismo saco que lo pendiente, la pantalla enseñaría
+      // una "pendiente" que no se va nunca —y eso se lee como que algo se atascó,
+      // justo lo contrario de lo que significa.
+      const [completos, fallidos, activos, programados] = await Promise.all([
         q.getJobs(['completed'], 0, 15),
         q.getJobs(['failed'], 0, 5),
-        q.getJobs(['active', 'waiting', 'delayed'], 0, 5),
+        q.getJobs(['active', 'waiting'], 0, 5),
+        q.getJobs(['delayed'], 0, 3),
       ]);
       const map = (j: any, estado: string) => ({
         jobId: String(j.id), estado,
@@ -67,6 +74,22 @@ router.get('/resumen-parranda', async (req, res) => {
         ...completos.map((j) => map(j, 'completado')),
         ...fallidos.map((j) => map(j, 'error')),
       ].sort((a, b) => Number(b.jobId) - Number(a.jobId)).slice(0, 20);
+
+      // Cuándo toca la próxima, en su propio campo: es la forma de comprobar de un
+      // vistazo que lo automático sigue programado, que era justo lo que no se podía
+      // saber cuando no lo estaba y nadie se enteró.
+      const siguiente = programados
+        .map((j: any) => Number(j.opts?.delay ? j.timestamp + j.opts.delay : 0))
+        .filter((t) => t > 0)
+        .sort((a, b) => a - b)[0];
+      res.json({
+        porSucursal,
+        granTotal: porSucursal.reduce((a, s) => a + s.total, 0),
+        granConGeo: porSucursal.reduce((a, s) => a + s.conGeo, 0),
+        syncs,
+        proximaSync: siguiente ?? null,
+      });
+      return;
     }
     res.json({
       porSucursal,

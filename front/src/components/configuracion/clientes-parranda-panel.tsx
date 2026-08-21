@@ -63,6 +63,8 @@ interface Resumen {
   granTotal: number;
   granConGeo: number;
   syncs: SyncRun[];
+  /** Cuándo toca la próxima automática (milisegundos). null = no hay ninguna. */
+  proximaSync?: number | null;
 }
 interface ClienteRow {
   id: string;
@@ -196,7 +198,12 @@ export const ClientesParrandaPanel = () => {
             <div>
               <h3 className="text-lg font-semibold">Clientes · Parranda</h3>
               <p className="text-sm text-default-500">
-                Se sincroniza solo todos los días a las 6:00 pm. También podés correrlo a mano.
+                {/* Se dice cuándo toca la PRÓXIMA, no solo que "se hace sola".
+                    Estuvo meses prometiéndolo sin que nadie la disparara y no se
+                    notó, porque no había forma de comprobarlo desde aquí. */}
+                {resumen?.proximaSync
+                  ? `Se sincroniza sola todos los días a las 6:00 pm. La próxima: ${new Date(resumen.proximaSync).toLocaleString("es-ES", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}. También podés correrlo a mano.`
+                  : "La sincronización automática no está programada ahora mismo. Podés correrla a mano."}
               </p>
             </div>
             <Button color="primary" isLoading={sincronizando} onPress={sincronizar}>
