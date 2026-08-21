@@ -100,6 +100,8 @@ export interface ParrandaSyncResult {
   errores: number;
   /** Los primeros motivos distintos, para poder arreglarlos. */
   erroresDetalle: string[];
+  /** Códigos que ya tenía otro cliente de la misma sucursal. */
+  choquesDeCodigo: number;
   /**
    * QUÉ cambió, cliente a cliente. Acotado: interesa mirar una muestra y entender qué
    * pasa, no guardar un diario entero en Redis.
@@ -150,9 +152,24 @@ export async function processParrandaSync(
 
   for (const c of existentes) if (c.sucursalId) porClave.set(`${c.sucursalId}|${norm(c.nombre)}`, c);
 
+  // Quién tiene ya cada código, por sucursal.
+  //
+  // `(sucursalId, codigo)` es ÚNICO en la base, y Parranda manda a veces un código que
+  // en esa misma sucursal ya lo lleva otro cliente. El update reventaba con "Unique
+  // constraint failed" —121 de esos en una sola pasada—, no se escribía NADA de ese
+  // cliente (ni la dirección, ni la geo) y en la siguiente pasada se volvía a
+  // intentar. Para siempre.
+  //
+  // Con este mapa se ve venir el choque antes de escribir: se guarda todo lo demás y
+  // se deja el código como está, en vez de perder la fila entera por un campo.
+  const porCodigo = new Map<string, string>();
+  for (const c of existentes) {
+    if (c.sucursalId && c.codigo) porCodigo.set(`${c.sucursalId}|${c.codigo}`, c.id);
+  }
+
   const r: ParrandaSyncResult = {
     paginas: 0, total: 0, creados: 0, actualizados: 0, sinCambios: 0, conGeo: 0, sinGeo: 0, sinSucursal: 0, errores: 0,
-    erroresDetalle: [], cambios: [],
+    erroresDetalle: [], cambios: [], choquesDeCodigo: 0,
   };
 
   let offset = 0;
@@ -210,6 +227,27 @@ export async function processParrandaSync(
           if (!mismoNumero(geoData.latitud, actual.latitud)) anota('latitud', actual.latitud, geoData.latitud);
           if (!mismoNumero(geoData.longitud, actual.longitud)) anota('longitud', actual.longitud, geoData.longitud);
 
+          // ¿El código que viene lo tiene ya otro cliente de esta sucursal?
+          const dueñoDelCodigo = geoData.codigo
+            ? porCodigo.get(`${sucursalId}|${geoData.codigo}`)
+            : undefined;
+          const codigoOcupado = dueñoDelCodigo != null && dueñoDelCodigo !== actual.id;
+
+          if (codigoOcupado) {
+            // Se escribe todo menos el código, y se deja dicho quién lo tiene: eso es
+            // lo que hay que arreglar en el origen, y sin el nombre del otro cliente
+            // no hay por dónde empezar.
+            geoData.codigo = actual.codigo ?? null;
+            const i = campos.findIndex((f) => f.campo === 'código');
+            if (i >= 0) campos.splice(i, 1);
+
+            r.choquesDeCodigo++;
+            if (r.erroresDetalle.length < 5) {
+              const msg = `el código ${String(c.codigo).trim()} ya lo tiene otro cliente de ${code}: se guardó el resto de ${nombre} sin tocar su código`;
+              if (!r.erroresDetalle.includes(msg)) r.erroresDetalle.push(msg);
+            }
+          }
+
           const cambio = campos.length > 0;
 
           if (cambio) {
@@ -232,6 +270,10 @@ export async function processParrandaSync(
             // siguiente "cambia" otra vez. Eso es lo que hacía que el número subiera
             // solo —5703, 5913, 6127, 6602— sin que nadie tocara nada.
             porClave.set(key, { ...actual, ...geoData });
+            // El código recién escrito pasa a estar ocupado por este cliente: si más
+            // abajo llega otro con el mismo, se ve el choque igual que si viniera de
+            // la base.
+            if (geoData.codigo) porCodigo.set(`${sucursalId}|${geoData.codigo}`, actual.id);
           } else {
             r.sinCambios++;
           }

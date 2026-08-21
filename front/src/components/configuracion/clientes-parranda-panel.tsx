@@ -62,6 +62,8 @@ interface SyncRun {
     paginas: number;
     /** Los primeros motivos distintos de error. */
     erroresDetalle?: string[];
+    /** Códigos que ya tenía otro cliente de la misma sucursal. */
+    choquesDeCodigo?: number;
     /** Qué cambió, cliente a cliente (muestra acotada). */
     cambios?: Array<{
       cliente: string;
@@ -413,6 +415,9 @@ export const ClientesParrandaPanel = () => {
               {fmtFecha(syncVisto?.cuando)}
               {syncVisto?.resultado
                 ? ` · ${syncVisto.resultado.actualizados} cambiaron · ${syncVisto.resultado.errores} errores`
+                : ""}
+              {syncVisto?.resultado?.choquesDeCodigo
+                ? ` · ${syncVisto.resultado.choquesDeCodigo} códigos repetidos`
                 : ""}
             </span>
           </ModalHeader>
