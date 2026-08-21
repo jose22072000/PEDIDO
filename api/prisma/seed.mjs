@@ -88,6 +88,34 @@ async function main() {
   });
 
   console.log('Ensured admin user seeded (username: admin)');
+
+  // Las sucursales nuevas.
+  //
+  // Van AQUÍ y no en una migración porque esta aplicación no ejecuta migraciones: su
+  // arranque hace `prisma db push`, que sincroniza el esquema y no corre una sola
+  // línea del SQL de `prisma/migrations`. Una migración con estos INSERT se quedaría
+  // en el repositorio sin ejecutarse nunca, y lo peor es que nadie lo notaría —el
+  // despliegue diría "correcto" y las sucursales no estarían.
+  //
+  // `codigo` es lo que cruza con el Consolidado y con `Branch.externalId` de delivery,
+  // así que se elige aquí una vez y no se improvisa después.
+  //
+  // Con upsert por código: la semilla corre en cada despliegue y esto no duplica nada
+  // ni pisa el nombre si alguien lo cambió desde la pantalla.
+  const sucursalesNuevas = [
+    { nombre: 'Palma Soriano', codigo: 'PAL' },
+    { nombre: 'Moa', codigo: 'MOA' },
+  ];
+
+  for (const sucursal of sucursalesNuevas) {
+    await prisma.sucursal.upsert({
+      where: { codigo: sucursal.codigo },
+      update: {},
+      create: sucursal,
+    });
+  }
+
+  console.log('Ensured sucursales:', sucursalesNuevas.map((s) => s.codigo).join(', '));
 }
 
 main()
