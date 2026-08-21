@@ -102,6 +102,16 @@ export interface ParrandaSyncResult {
   erroresDetalle: string[];
   /** Códigos que ya tenía otro cliente de la misma sucursal. */
   choquesDeCodigo: number;
+  /** Códigos con el prefijo de otra sucursal. */
+  prefijosAjenos: number;
+  /**
+   * Lo que hay que enseñarle a Parranda, en cristiano y con nombres.
+   *
+   * Separado de `erroresDetalle`: un error es algo que se rompió aquí; esto es algo
+   * que viene mal de fuera y que aquí se sorteó. Mezclarlos hace que se busque el
+   * fallo en el sitio equivocado.
+   */
+  avisos: string[];
   /**
    * QUÉ cambió, cliente a cliente. Acotado: interesa mirar una muestra y entender qué
    * pasa, no guardar un diario entero en Redis.
@@ -163,13 +173,39 @@ export async function processParrandaSync(
   // Con este mapa se ve venir el choque antes de escribir: se guarda todo lo demás y
   // se deja el código como está, en vez de perder la fila entera por un campo.
   const porCodigo = new Map<string, string>();
+  const nombrePorId = new Map<string, string>();
   for (const c of existentes) {
+    nombrePorId.set(c.id, c.nombre);
     if (c.sucursalId && c.codigo) porCodigo.set(`${c.sucursalId}|${c.codigo}`, c.id);
+  }
+
+  // Qué prefijo usa DE VERDAD cada sucursal.
+  //
+  // Los códigos de Parranda empiezan por dos letras que identifican la sucursal, pero
+  // con un esquema distinto del nuestro: SC es Santiago, LT es Las Tunas, CM Camagüey,
+  // SS Sancti Spíritus… No hay tabla en ninguna parte, así que en vez de inventarme una
+  // —y equivocarme el día que aparezca una sucursal nueva— se mira lo que ya hay: el
+  // prefijo que lleva la mayoría de los clientes de esa sucursal es el suyo.
+  //
+  // Sirve para señalar los códigos que vienen con el prefijo de OTRA sucursal, que es
+  // lo que hay que enseñarle a Parranda.
+  const cuentaPrefijos = new Map<string, Map<string, number>>();
+  for (const c of existentes) {
+    if (!c.sucursalId || !c.codigo || c.codigo.length < 2) continue;
+    const pre = c.codigo.slice(0, 2).toUpperCase();
+    if (!cuentaPrefijos.has(c.sucursalId)) cuentaPrefijos.set(c.sucursalId, new Map());
+    const m = cuentaPrefijos.get(c.sucursalId)!;
+    m.set(pre, (m.get(pre) ?? 0) + 1);
+  }
+  const prefijoDe = new Map<string, string>();
+  for (const [sid, m] of cuentaPrefijos) {
+    const [mejor] = [...m.entries()].sort((a, b) => b[1] - a[1]);
+    if (mejor && mejor[1] >= 5) prefijoDe.set(sid, mejor[0]);
   }
 
   const r: ParrandaSyncResult = {
     paginas: 0, total: 0, creados: 0, actualizados: 0, sinCambios: 0, conGeo: 0, sinGeo: 0, sinSucursal: 0, errores: 0,
-    erroresDetalle: [], cambios: [], choquesDeCodigo: 0,
+    erroresDetalle: [], cambios: [], choquesDeCodigo: 0, prefijosAjenos: 0, avisos: [],
   };
 
   let offset = 0;
@@ -233,6 +269,21 @@ export async function processParrandaSync(
             : undefined;
           const codigoOcupado = dueñoDelCodigo != null && dueñoDelCodigo !== actual.id;
 
+          // ¿Viene con el prefijo de otra sucursal? Se anota y se sigue: el dato es
+          // válido igualmente, pero es la prueba de que en el origen están asignando
+          // códigos que no corresponden.
+          const preEsperado = prefijoDe.get(sucursalId);
+          const preRecibido = geoData.codigo?.slice(0, 2).toUpperCase();
+          if (preEsperado && preRecibido && preEsperado !== preRecibido) {
+            r.prefijosAjenos++;
+            if (r.avisos.length < 30) {
+              r.avisos.push(
+                `${nombre} (${code}): el código ${geoData.codigo} empieza por ${preRecibido}, ` +
+                  `y en ${code} todos los demás empiezan por ${preEsperado}`,
+              );
+            }
+          }
+
           if (codigoOcupado) {
             // Se escribe todo menos el código, y se deja dicho quién lo tiene: eso es
             // lo que hay que arreglar en el origen, y sin el nombre del otro cliente
@@ -242,9 +293,12 @@ export async function processParrandaSync(
             if (i >= 0) campos.splice(i, 1);
 
             r.choquesDeCodigo++;
-            if (r.erroresDetalle.length < 5) {
-              const msg = `el código ${String(c.codigo).trim()} ya lo tiene otro cliente de ${code}: se guardó el resto de ${nombre} sin tocar su código`;
-              if (!r.erroresDetalle.includes(msg)) r.erroresDetalle.push(msg);
+            if (r.avisos.length < 30) {
+              const otro = nombrePorId.get(dueñoDelCodigo!) ?? 'otro cliente';
+              r.avisos.push(
+                `${nombre} (${code}): Parranda le manda el código ${String(c.codigo).trim()}, ` +
+                  `que en esa misma sucursal ya lo tiene ${otro}. Se guardó el resto sin tocar su código.`,
+              );
             }
           }
 

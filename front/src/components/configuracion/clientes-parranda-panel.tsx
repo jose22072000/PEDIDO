@@ -64,6 +64,10 @@ interface SyncRun {
     erroresDetalle?: string[];
     /** Códigos que ya tenía otro cliente de la misma sucursal. */
     choquesDeCodigo?: number;
+    /** Códigos con el prefijo de otra sucursal. */
+    prefijosAjenos?: number;
+    /** Lo que hay que enseñarle a Parranda, con nombres. */
+    avisos?: string[];
     /** Qué cambió, cliente a cliente (muestra acotada). */
     cambios?: Array<{
       cliente: string;
@@ -419,6 +423,9 @@ export const ClientesParrandaPanel = () => {
               {syncVisto?.resultado?.choquesDeCodigo
                 ? ` · ${syncVisto.resultado.choquesDeCodigo} códigos repetidos`
                 : ""}
+              {syncVisto?.resultado?.prefijosAjenos
+                ? ` · ${syncVisto.resultado.prefijosAjenos} con prefijo de otra sucursal`
+                : ""}
             </span>
           </ModalHeader>
           <ModalBody className="text-sm">
@@ -433,6 +440,19 @@ export const ClientesParrandaPanel = () => {
               </div>
             )}
 
+            {/* Lo que viene mal de Parranda, aparte de los errores nuestros. Con
+                nombres y códigos, para poder copiarlo y mandárselo tal cual. */}
+            {(syncVisto?.resultado?.avisos?.length ?? 0) > 0 && (
+              <div className="rounded-md bg-warning-50 p-2 text-xs text-warning-800">
+                <b>Para avisarle a Parranda:</b>
+                <ul className="list-disc pl-4">
+                  {syncVisto!.resultado!.avisos!.map((a, i) => (
+                    <li key={i}>{a}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             {(syncVisto?.resultado?.cambios?.length ?? 0) === 0 ? (
               // Las sincronizaciones anteriores a este cambio no guardaron el
               // detalle. Decirlo es mejor que enseñar un vacío que parece un fallo.
@@ -441,25 +461,43 @@ export const ClientesParrandaPanel = () => {
                 empezó a registrarlo. La próxima que corras sí lo trae.
               </p>
             ) : (
-              <div className="flex flex-col gap-2">
-                {syncVisto!.resultado!.cambios!.map((c, i) => (
-                  <div key={`${c.cliente}-${i}`} className="border-b border-default-100 pb-1">
-                    <b>{c.cliente}</b>
-                    {c.sucursal ? (
-                      <span className="text-default-400"> · {c.sucursal}</span>
-                    ) : null}
-                    <ul className="pl-4 text-xs">
-                      {c.campos.map((f) => (
-                        <li key={f.campo}>
-                          {f.campo}:{" "}
-                          <span className="text-default-400">{f.antes ?? "vacío"}</span>
-                          {" → "}
-                          <span className="text-success">{f.despues ?? "vacío"}</span>
-                        </li>
+              <div className="flex flex-col gap-4">
+                {/* Por sucursal. Doscientos clientes en una lista corrida no se leen;
+                    por sucursal se ve enseguida si lo que cambió es de una sola o de
+                    todas, que es la primera pregunta que uno se hace. */}
+                {Object.entries(
+                  syncVisto!.resultado!.cambios!.reduce<
+                    Record<string, NonNullable<NonNullable<SyncRun["resultado"]>["cambios"]>>
+                  >((acc, c) => {
+                    const k = c.sucursal || "sin sucursal";
+                    (acc[k] ??= []).push(c);
+
+                    return acc;
+                  }, {}),
+                )
+                  .sort(([a], [b]) => a.localeCompare(b))
+                  .map(([sucursal, lista]) => (
+                    <div key={sucursal}>
+                      <p className="sticky top-0 bg-white py-1 text-xs font-semibold uppercase tracking-wide text-default-500">
+                        {sucursal} · {lista!.length}
+                      </p>
+                      {lista!.map((c, i) => (
+                        <div key={`${c.cliente}-${i}`} className="border-b border-default-100 pb-1">
+                          <b>{c.cliente}</b>
+                          <ul className="pl-4 text-xs">
+                            {c.campos.map((f) => (
+                              <li key={f.campo}>
+                                {f.campo}:{" "}
+                                <span className="text-default-400">{f.antes ?? "vacío"}</span>
+                                {" → "}
+                                <span className="text-success">{f.despues ?? "vacío"}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
                       ))}
-                    </ul>
-                  </div>
-                ))}
+                    </div>
+                  ))}
                 {(syncVisto!.resultado!.actualizados ?? 0) >
                   syncVisto!.resultado!.cambios!.length && (
                   <p className="text-xs text-default-400">
