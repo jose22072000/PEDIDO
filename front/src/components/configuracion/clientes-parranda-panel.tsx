@@ -16,6 +16,12 @@ import {
   Pagination,
   Spinner,
   addToast,
+  Modal,
+  ModalContent,
+  ModalHeader,
+  ModalBody,
+  ModalFooter,
+  useDisclosure,
 } from "@heroui/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -99,9 +105,13 @@ export const ClientesParrandaPanel = () => {
   const [sincronizando, setSincronizando] = useState(false);
 
   // Filtros + paginación de la tabla.
-  // Qué sincronización tiene el detalle abierto. Una sola a la vez: son listas de
-  // hasta 200 líneas y varias abiertas convierten el panel en un muro.
-  const [detalleAbierto, setDetalleAbierto] = useState<string | null>(null);
+  // La sincronización que se está mirando en el detalle.
+  const [syncVisto, setSyncVisto] = useState<SyncRun | null>(null);
+  const {
+    isOpen: detalleAbierto,
+    onOpen: onDetalleOpen,
+    onClose: onDetalleClose,
+  } = useDisclosure();
   const [sucursalId, setSucursalId] = useState("");
   const [municipio, setMunicipio] = useState("");
   const [municipios, setMunicipios] = useState<string[]>([]);
@@ -201,6 +211,7 @@ export const ClientesParrandaPanel = () => {
   };
 
   return (
+    <>
     <Card className={cards()}>
       <CardBody>
         <div className="flex flex-col gap-5">
@@ -251,8 +262,19 @@ export const ClientesParrandaPanel = () => {
               <p className="text-sm font-medium mb-1">Últimas sincronizaciones</p>
               <div className="flex flex-col gap-1 max-h-80 overflow-auto rounded-md border border-default-200 p-2">
                 {resumen.syncs.map((s) => (
-                  <div key={s.jobId} className="flex flex-col gap-1 text-xs">
-                   <div className="flex items-center gap-2">
+                  // La fila ENTERA abre el detalle. Un enlace pequeño al final se lo
+                  // salta cualquiera —de hecho se lo saltó—; una fila que se pulsa se
+                  // encuentra sola.
+                  <button
+                    key={s.jobId}
+                    type="button"
+                    className="flex flex-col gap-1 text-xs text-left rounded px-1 py-0.5 hover:bg-default-100"
+                    onClick={() => {
+                      setSyncVisto(s);
+                      onDetalleOpen();
+                    }}
+                  >
+                   <div className="flex items-center gap-2 w-full">
                     <Chip
                       size="sm"
                       color={s.estado === "completado" ? "success" : s.estado === "error" ? "danger" : "warning"}
@@ -276,52 +298,12 @@ export const ClientesParrandaPanel = () => {
                       </span>
                     )}
                     {s.error && <span className="text-danger truncate">{s.error}</span>}
-                    {/* Abrir para ver QUÉ cambió. "198 cambiaron" no se puede ni
-                        creer ni desmentir; con la lista delante se ve en un vistazo
-                        si son 198 clientes distintos o los mismos de siempre dando
-                        vueltas. */}
-                    {(s.resultado?.cambios?.length ?? 0) > 0 && (
-                      <button
-                        className="ml-auto underline text-primary shrink-0"
-                        type="button"
-                        onClick={() => setDetalleAbierto(detalleAbierto === s.jobId ? null : s.jobId)}
-                      >
-                        {detalleAbierto === s.jobId ? "ocultar detalle" : "ver qué cambió"}
-                      </button>
-                    )}
+                    <span className="ml-auto underline text-primary shrink-0">
+                      ver qué cambió
+                    </span>
                    </div>
 
-                   {detalleAbierto === s.jobId && (
-                     <div className="ml-2 border-l-2 border-default-200 pl-2 flex flex-col gap-1">
-                       {(s.resultado?.erroresDetalle?.length ?? 0) > 0 && (
-                         <div className="text-danger">
-                           <b>Errores:</b> {s.resultado!.erroresDetalle!.join(" · ")}
-                         </div>
-                       )}
-                       {s.resultado!.cambios!.map((c, i) => (
-                         <div key={`${c.cliente}-${i}`}>
-                           <b>{c.cliente}</b>
-                           {c.sucursal ? ` (${c.sucursal})` : ""}:{" "}
-                           {c.campos.map((f, j) => (
-                             <span key={f.campo}>
-                               {j > 0 ? ", " : ""}
-                               {f.campo}{" "}
-                               <span className="text-default-400">{f.antes ?? "vacío"}</span>
-                               {" → "}
-                               <span className="text-success">{f.despues ?? "vacío"}</span>
-                             </span>
-                           ))}
-                         </div>
-                       ))}
-                       {s.resultado!.actualizados > s.resultado!.cambios!.length && (
-                         <div className="text-default-400">
-                           …y {s.resultado!.actualizados - s.resultado!.cambios!.length} más
-                           (se guardan los primeros 200)
-                         </div>
-                       )}
-                     </div>
-                   )}
-                  </div>
+                  </button>
                 ))}
               </div>
             </div>
@@ -415,5 +397,83 @@ export const ClientesParrandaPanel = () => {
         </div>
       </CardBody>
     </Card>
+
+      {/* Qué trajo esa sincronización. En modal y no desplegado en la lista: son
+          hasta 200 líneas y dentro de una caja de cuatro filas no se lee nada. */}
+      <Modal
+        isOpen={detalleAbierto}
+        scrollBehavior="inside"
+        size="3xl"
+        onClose={onDetalleClose}
+      >
+        <ModalContent>
+          <ModalHeader className="flex flex-col gap-1">
+            <span>Qué cambió</span>
+            <span className="text-xs font-normal text-default-500">
+              {fmtFecha(syncVisto?.cuando)}
+              {syncVisto?.resultado
+                ? ` · ${syncVisto.resultado.actualizados} cambiaron · ${syncVisto.resultado.errores} errores`
+                : ""}
+            </span>
+          </ModalHeader>
+          <ModalBody className="text-sm">
+            {(syncVisto?.resultado?.erroresDetalle?.length ?? 0) > 0 && (
+              <div className="rounded-md bg-danger-50 p-2 text-xs text-danger-700">
+                <b>Motivos de los errores:</b>
+                <ul className="list-disc pl-4">
+                  {syncVisto!.resultado!.erroresDetalle!.map((e) => (
+                    <li key={e}>{e}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {(syncVisto?.resultado?.cambios?.length ?? 0) === 0 ? (
+              // Las sincronizaciones anteriores a este cambio no guardaron el
+              // detalle. Decirlo es mejor que enseñar un vacío que parece un fallo.
+              <p className="text-default-500">
+                Esta sincronización no guardó el detalle: es anterior al cambio que
+                empezó a registrarlo. La próxima que corras sí lo trae.
+              </p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {syncVisto!.resultado!.cambios!.map((c, i) => (
+                  <div key={`${c.cliente}-${i}`} className="border-b border-default-100 pb-1">
+                    <b>{c.cliente}</b>
+                    {c.sucursal ? (
+                      <span className="text-default-400"> · {c.sucursal}</span>
+                    ) : null}
+                    <ul className="pl-4 text-xs">
+                      {c.campos.map((f) => (
+                        <li key={f.campo}>
+                          {f.campo}:{" "}
+                          <span className="text-default-400">{f.antes ?? "vacío"}</span>
+                          {" → "}
+                          <span className="text-success">{f.despues ?? "vacío"}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+                {(syncVisto!.resultado!.actualizados ?? 0) >
+                  syncVisto!.resultado!.cambios!.length && (
+                  <p className="text-xs text-default-400">
+                    …y{" "}
+                    {syncVisto!.resultado!.actualizados -
+                      syncVisto!.resultado!.cambios!.length}{" "}
+                    más. Se guardan los primeros 200.
+                  </p>
+                )}
+              </div>
+            )}
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="light" onPress={onDetalleClose}>
+              Cerrar
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+    </>
   );
 };
