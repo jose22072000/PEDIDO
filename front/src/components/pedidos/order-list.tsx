@@ -337,6 +337,47 @@ export const OrdersList = () => {
     [fetchOrders, onClose, onConfirmClose],
   );
 
+  /**
+   * Reabrir un pedido completado.
+   *
+   * Completar es un clic en una lista larga: se hace sin querer, o se completa el de
+   * arriba creyendo que era el de abajo. Hasta ahora no había vuelta atrás y el
+   * arreglo era pedirle a alguien que lo tocara en la base de datos.
+   */
+  const handleReabrirOrder = useCallback(
+    async (orderId: string) => {
+      try {
+        const response = await fetch(`${getApiBaseUrl()}/orders/${orderId}/estado`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ estado: "en_proceso" }),
+        });
+
+        if (!response.ok) {
+          throw new Error(
+            await mensajeDeError(response, "No se pudo reabrir el pedido"),
+          );
+        }
+
+        void fetchOrders(true);
+        onClose();
+        addToast({
+          title: "Pedido reabierto",
+          description: "Vuelve a estar en proceso.",
+          color: "success",
+        });
+      } catch (err) {
+        addToast({
+          title: "No se reabrió",
+          description:
+            err instanceof Error ? err.message : "No se pudo reabrir el pedido",
+          color: "danger",
+        });
+      }
+    },
+    [fetchOrders, onClose],
+  );
+
   const handleDeleteOrder = useCallback(
     async (orderId: string) => {
       setIsDeleting(true);
@@ -976,6 +1017,21 @@ export const OrdersList = () => {
                       >
                         {estadoLabels[selectedOrder?.estado || "en_proceso"]}
                       </Chip>
+                      {/* Volver atrás. Solo sale en los completados, que es el único
+                          estado que se pone a mano: "expirado" lo decide la fecha
+                          comprometida y cambiarlo aquí sería mentir sobre una fecha
+                          que está dos líneas más arriba. */}
+                      {selectedOrder?.estado === "completada" &&
+                        puedeCompletar &&
+                        selectedOrder?.id && (
+                          <Button
+                            size="sm"
+                            variant="flat"
+                            onPress={() => handleReabrirOrder(selectedOrder.id)}
+                          >
+                            Reabrir
+                          </Button>
+                        )}
                       {selectedOrder?.pedido_cobrado != null && (
                         <Chip
                           color={

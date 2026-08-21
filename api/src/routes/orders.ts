@@ -106,8 +106,9 @@ router.get('/', async (req, res) => {
     }
 
     // Búsqueda general TILDE-insensible (jose == josé, ramon == ramón) sobre cliente,
-    // encargado, vendedor, folio y código Parranda a la vez — así da igual buscar por
-    // nombre, apellido, encargado o folio: se distingue solo por lo que matchea.
+    // encargado, vendedor, folio, código Parranda y PRODUCTO a la vez — así da igual
+    // buscar por nombre, apellido, encargado, folio o lo que se pidió: se distingue
+    // solo por lo que matchea.
     // Prisma no soporta unaccent, así que se hace un query crudo que quita las tildes con
     // translate() y devuelve los ids que matchean; el query principal aplica el scope de
     // sucursal + filtros + paginación sobre esos ids (nunca fuga entre sucursales).
@@ -149,6 +150,15 @@ router.get('/', async (req, res) => {
           UNION
           SELECT o.id FROM "Order" o JOIN "Seller" s ON s.id = o."sellerId"
             WHERE ${SIN_TILDES('s.name')} LIKE ${patron}
+          UNION
+          -- Por PRODUCTO y por su código. Es la pregunta que más se hace cuando
+          -- falta mercancía: "¿quién pidió cerveza?" o "¿qué pedidos llevan el
+          -- 10234?". Sin esto había que abrir los pedidos de uno en uno.
+          SELECT i."orderId" AS id FROM "OrderItem" i
+            WHERE ${SIN_TILDES('i.producto')} LIKE ${patron}
+          UNION
+          SELECT i."orderId" AS id FROM "OrderItem" i
+            WHERE ${SIN_TILDES('i.code')} LIKE ${patron}
         ) q
         LIMIT 5000`;
       const ids = matches.map((m) => m.id);
@@ -644,6 +654,76 @@ async function resolveSeller(name: string, code: string): Promise<SellerResoluti
 }
 
 // Bulk create orders from CSV records
+/**
+ * PATCH /:id/estado — mover un pedido entre "en proceso" y "completado".
+ *
+ * Completar ya se podía; lo que no se podía era DESHACERLO. Y completar es un clic
+ * en una lista larga: se hace sin querer, o se completa el de arriba creyendo que era
+ * el de abajo. Sin vuelta atrás, el arreglo era pedirle a alguien que lo tocara en la
+ * base de datos.
+ *
+ * "Expirado" no se pone a mano y por eso no se acepta aquí: sale de la fecha
+ * comprometida, así que ponerlo sería mentir sobre una fecha que está ahí al lado.
+ *
+ * Al reabrir se limpia también el archivado. Un pedido completado se archiva a la
+ * semana; si se reabre uno ya archivado y no se desarchiva, vuelve a la lista... y no
+ * aparece, porque la lista esconde lo archivado. Estaría reabierto e invisible.
+ */
+router.patch('/:id/estado', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { estado } = req.body as { estado?: string };
+
+    if (estado !== 'completada' && estado !== 'en_proceso') {
+      return res.status(400).json({
+        error: 'El estado solo puede ser "completada" o "en_proceso". El expirado sale de la fecha comprometida.',
+      });
+    }
+
+    // Mismo permiso que completar: reabrir es tan delicado como cerrar, y quien no
+    // puede una cosa no tiene por qué poder la otra.
+    if (!getRequesterContext(req).puedeCompletarPedidos) {
+      return res.status(403).json({
+        error: 'Tu rol no puede cambiar el estado de los pedidos. Lo hace el Operador o quien lleva la sucursal.',
+      });
+    }
+
+    const { where, error: sucursalError } = alcancePedido(req);
+    if (sucursalError || !where) {
+      return res.status(400).json({ error: sucursalError });
+    }
+
+    const existente = await prisma.pedido.findFirst({ where, select: { id: true } });
+    if (!existente) {
+      return res.status(404).json({ error: 'Pedido no encontrado' });
+    }
+
+    const order = await prisma.pedido.update({
+      where: { id },
+      data:
+        estado === 'completada'
+          ? { estado: 'completada', completedAt: new Date() }
+          : { estado: null, completedAt: null, archivedAt: null },
+      include: { items: true, cliente: true, vendedor: true, sucursal: { select: { codigo: true } } },
+    });
+
+    // A Parranda se le avisa solo al completar: es lo que su webhook entiende.
+    if (estado === 'completada') notifyPedidoCompletado(order);
+
+    emitEvent('pedido', {
+      sucursalId: order.sucursalId,
+      id: order.id,
+      accion: 'update',
+      datos: { ...order, estado: computeEstado(order) },
+    });
+
+    res.json({ ...order, estado: computeEstado(order) });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to update order status' });
+  }
+});
+
 router.post('/bulk', ingestaAuth, async (req, res) => {
   try {
     // El Operador no sube datos: factura con lo que ya está. La ingesta
