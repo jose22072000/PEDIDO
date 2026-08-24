@@ -54,6 +54,9 @@ router.get('/orders', async (req, res) => {
   const desde = typeof req.query.desde === 'string' ? req.query.desde : '';
   const hasta = typeof req.query.hasta === 'string' ? req.query.hasta : '';
   const since = typeof req.query.since === 'string' ? req.query.since : '';
+  // Buscar UN pedido por su folio, que es como lo nombra todo el mundo: es lo que
+  // lleva escrito el papel que tiene el repartidor en la mano.
+  const folio = typeof req.query.folio === 'string' ? req.query.folio.trim() : '';
   const askedCodigo = typeof req.query.sucursalCodigo === 'string' ? req.query.sucursalCodigo.trim() : '';
 
   // Scope a la sucursal local de esta instalación.
@@ -95,12 +98,38 @@ router.get('/orders', async (req, res) => {
       : {}),
     // Incremental: lo que se movió desde la última sincronización.
     ...(since ? { updatedAt: { gt: new Date(since) } } : {}),
+    // Por folio: contiene y sin distinguir mayúsculas, porque nadie teclea un folio
+    // entero ni respeta las mayúsculas al buscar.
+    ...(folio ? { folio: { contains: folio, mode: 'insensitive' as const } } : {}),
   };
 
   const pedidos = await prisma.pedido.findMany({
     where,
     take: Number.isFinite(limit) ? limit : undefined,
-    include: { cliente: true, sucursal: true, items: true },
+    include: {
+      cliente: true,
+      sucursal: true,
+      items: true,
+      // La CADENA entera: pedido -> vendedor -> gestor -> sucursal.
+      //
+      // Antes se mandaba el pedido con su cliente y sus líneas y nada más, así que
+      // quien recibía esto no podía responder de quién es el pedido ni de qué
+      // sucursal sale: le llegaban vendedores, clientes y pedidos sueltos, todos al
+      // mismo nivel, sin nada que los uniera. La sucursal de un pedido se deriva
+      // vendedor -> gestor -> sucursal, y si no se manda el eslabón del medio, del
+      // otro lado hay que adivinarla.
+      vendedor: {
+        select: {
+          id: true, nombre: true, codigo: true, activo: true, sucursalId: true,
+          gestor: {
+            select: {
+              id: true, username: true, sucursalId: true,
+              sucursal: { select: { codigo: true, nombre: true } },
+            },
+          },
+        },
+      },
+    },
     orderBy: { fecha: 'desc' },
   });
 
@@ -124,6 +153,27 @@ router.get('/orders', async (req, res) => {
     // Para que la tablet sepa por dónde seguir: se guarda el mayor de la tanda y se
     // manda como `since` en la siguiente sync.
     updatedAt: p.updatedAt,
+    // De quién es el pedido, con su cadena de mando. `sucursalCodigo` de aquí abajo
+    // es de dónde cuelga el VENDEDOR; el de arriba es el del pedido. Casi siempre son
+    // el mismo, y cuando no lo son es justo lo que hay que mirar.
+    vendedor: p.vendedor
+      ? {
+          id: p.vendedor.id,
+          codigo: p.vendedor.codigo,
+          nombre: p.vendedor.nombre,
+          activo: p.vendedor.activo,
+          sucursalId: p.vendedor.sucursalId,
+          gestor: p.vendedor.gestor
+            ? {
+                id: p.vendedor.gestor.id,
+                usuario: p.vendedor.gestor.username,
+                sucursalId: p.vendedor.gestor.sucursalId,
+                sucursalCodigo: p.vendedor.gestor.sucursal?.codigo ?? null,
+                sucursalNombre: p.vendedor.gestor.sucursal?.nombre ?? null,
+              }
+            : null,
+        }
+      : null,
     cliente: p.cliente
       ? {
           id: p.cliente.id,

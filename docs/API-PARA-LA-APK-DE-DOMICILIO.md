@@ -75,10 +75,23 @@ tienen cliente geolocalizado, que sirve para rellenar la tablet la primera vez.
   "orders": [
     {
       "id": "clx...", "folio": "PYH25-260824-1852",
-      "direccion": "Calle Eduardo R. Chivas #130", "telefono": "55948233",
+      "sucursalId": "clx...", "sucursalCodigo": "CAM", "sucursalNombre": "Camagüey",
+      "direccion": "Calle Eduardo R. Chivas #130", "encargado": "BENITO SIERRA",
+      "telefono": "55948233",
       "fecha": "2026-08-24T00:00:00.000Z", "fechaComprometida": "2026-08-31T...",
       "estado": null, "pedidoCobrado": null,
       "requiereDomicilio": true, "costoDomicilio": null,
+      "updatedAt": "2026-08-24T11:53:00.000Z",
+
+      "vendedor": {
+        "id": "clx...", "codigo": "diana.acosta", "nombre": "DIANA ACOSTA SOSA",
+        "activo": true, "sucursalId": "clx...",
+        "gestor": {
+          "id": "clx...", "usuario": "yamileidy",
+          "sucursalId": "clx...", "sucursalCodigo": "CAM", "sucursalNombre": "Camagüey"
+        }
+      },
+
       "cliente": { "...igual que arriba..." },
       "items": [
         { "codigo": "10234", "producto": "MALTA GUAJIRA 0.33L",
@@ -88,6 +101,36 @@ tienen cliente geolocalizado, que sirve para rellenar la tablet la primera vez.
   ]
 }
 ```
+
+### La jerarquía: de quién es cada pedido
+
+Esto es lo que faltaba y por lo que llegaba todo suelto. La cadena es:
+
+```
+sucursal  →  gestor (usuario)  →  vendedor  →  pedido  →  cliente
+```
+
+- **`vendedor`** — quién hizo el pedido. Es a quien hay que atribuirle la entrega.
+- **`vendedor.gestor`** — el usuario del que cuelga ese vendedor. En PEDIDO la sucursal
+  de un pedido se deriva así: **vendedor → gestor → sucursal del gestor**.
+- **`sucursalCodigo`** (el de arriba) es la sucursal DEL PEDIDO;
+  **`vendedor.gestor.sucursalCodigo`** es la del gestor. Casi siempre coinciden, y
+  cuando no, es justo lo que hay que mirar: significa que ese vendedor está mal
+  enlazado.
+
+`vendedor` puede venir en `null` (pedido sin vendedor asignado) y `gestor` también
+(vendedor "Sin asignar"). No es un fallo de la API: es un dato que falta en PEDIDO y
+que hay que arreglar allí, en Vendedores.
+
+### Buscar uno concreto
+
+```
+GET /integration/orders?folio=1852
+```
+
+Por folio, que es como lo nombra todo el mundo — es lo que lleva escrito el papel que
+el repartidor tiene en la mano. Busca por coincidencia parcial y sin distinguir
+mayúsculas: nadie teclea un folio entero.
 
 ### No te traigas el histórico: filtra
 
