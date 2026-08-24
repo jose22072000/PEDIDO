@@ -79,17 +79,43 @@ function texto(fila: Record<string, unknown>, ...nombres: string[]): string | nu
   return null;
 }
 
-/** Las bases (sucursales) que Ventra tiene configuradas. */
-export async function databases(): Promise<string[]> {
+export interface BaseVentra {
+  /** El slug que hay que mandar en `?database=`. Ej: "camaguey", "granma". */
+  database: string;
+  /** Cómo llama Ventra a esa sucursal. Ej: "CAMAGUEY", "BAYAMO". */
+  branchName: string;
+  connected: boolean;
+}
+
+/**
+ * Las bases (sucursales) que Ventra tiene configuradas.
+ *
+ * Hay que preguntárselas, NO deducirlas del nombre de nuestras sucursales. Los slugs
+ * no se parecen a lo que uno supondría:
+ *
+ *   granma      → BAYAMO           (nuestra sucursal se llama Granma, la suya Bayamo)
+ *   holguinmoa  → HOLGUIN          (y Moa tiene además su propia base, `moa`)
+ *   sspiritus   → SANCTI SPIRITUS  (abreviado, y sin acentos)
+ *   tunas       → LAS TUNAS        (sin el "las")
+ *
+ * Adivinar el slug es equivocarse en cuatro de diez, y equivocarse aquí significa
+ * dejar una sucursal entera sin precios sin que nadie lo note.
+ */
+export async function databases(): Promise<BaseVentra[]> {
   const d = await leer<unknown>('/axis/databases');
-  const filas = Array.isArray(d)
+  const filas = (Array.isArray(d)
     ? d
     : ((d as Record<string, unknown>)?.items as unknown[]) ||
       ((d as Record<string, unknown>)?.data as unknown[]) ||
-      [];
+      []) as Record<string, unknown>[];
+
   return filas
-    .map((f) => (typeof f === 'string' ? f : texto(f as Record<string, unknown>, 'database', 'name', 'code')))
-    .filter((x): x is string => Boolean(x));
+    .map((f) => ({
+      database: texto(f, 'database') || '',
+      branchName: texto(f, 'branchName', 'name') || '',
+      connected: (f.connected as boolean) ?? true,
+    }))
+    .filter((b) => b.database);
 }
 
 /**
@@ -113,8 +139,11 @@ export async function catalogoDeSucursal(database: string): Promise<ProductoVent
     category: texto(f, 'category', 'categoria'),
     unit: texto(f, 'unit', 'unidad'),
     weightKg: numero(f, 'weightKg', 'weight', 'pesoKg'),
-    stock: numero(f, 'stock', 'quantity', 'existencia', 'existencias', 'onHand'),
-    price: numero(f, 'price', 'unitPrice', 'salePrice', 'precio', 'precioVenta'),
+    // Los nombres REALES que devuelve Ventra son `existencias` y `precioUsd`. Los
+    // demás quedan como red por si un día renombran la columna: es un ERP, y perder
+    // todos los precios en silencio por un nombre cambiado es el fallo que no se ve.
+    stock: numero(f, 'existencias', 'stock', 'quantity', 'existencia', 'onHand'),
+    price: numero(f, 'precioUsd', 'price', 'unitPrice', 'salePrice', 'precio'),
     isActive: (f.isActive as boolean) ?? null,
   }));
 }

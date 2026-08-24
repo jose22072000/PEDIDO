@@ -14,7 +14,7 @@
  * está rancio" sin haber perdido el dato.
  */
 import prisma from '../prismaClient';
-import { catalogoDeSucursal } from './ventra';
+import { catalogoDeSucursal, databases } from './ventra';
 
 /** Cada cuánto se pregunta. El catálogo cambia poco; 30 min es de sobra. */
 const CADA_MS = Number(process.env.VENTRA_SONDEO_MS || 30 * 60 * 1000);
@@ -32,9 +32,14 @@ export interface ResultadoSondeo {
 /**
  * La base de Ventra que le toca a cada sucursal.
  *
- * Ventra nombra sus bases por el nombre de la sucursal ("CAMAGUEY", "SANTIAGO"), y
- * aquí la sucursal tiene nombre y código. Se cruza por el NOMBRE normalizado, que es
- * lo que coincide; el código no ("CAM" ≠ "CAMAGUEY").
+ * Se le PREGUNTA a Ventra en cada pasada en vez de deducirlo: sus slugs no se parecen
+ * a lo que uno supondría —`granma` es BAYAMO, `sspiritus` es Sancti Spíritus, `tunas`
+ * es Las Tunas— y adivinar falla en cuatro de diez. Fallar aquí deja una sucursal
+ * entera sin precios sin que salte nada.
+ *
+ * Se cruza por el nombre normalizado contra las DOS cosas que da Ventra: el slug y su
+ * nombre de sucursal. Así "Granma" encuentra la base `granma` aunque allí se llame
+ * BAYAMO, y "Camagüey" encuentra `camaguey` pese al acento.
  */
 function normalizar(s: string): string {
   return s
@@ -46,16 +51,34 @@ function normalizar(s: string): string {
 
 export async function sondearUnaVez(): Promise<ResultadoSondeo[]> {
   const sucursales = await prisma.sucursal.findMany({ select: { id: true, nombre: true, codigo: true } });
+  const bases = await databases();
   const salida: ResultadoSondeo[] = [];
 
   for (const suc of sucursales) {
-    // La base se llama como la sucursal. Se manda el nombre normalizado, que es lo que
-    // Ventra usa en `database`.
-    const database = normalizar(suc.nombre);
+    const clave = normalizar(suc.nombre);
+    const base = bases.find(
+      (b) => normalizar(b.database) === clave || normalizar(b.branchName) === clave,
+    );
+
     const r: ResultadoSondeo = {
-      sucursal: suc.nombre, database, leidos: 0, escritos: 0, conPrecio: 0, conStock: 0,
+      sucursal: suc.nombre, database: base?.database || '', leidos: 0, escritos: 0,
+      conPrecio: 0, conStock: 0,
     };
 
+    if (!base) {
+      // Se dice cuál es y con qué se intentó: una sucursal que no cruza es una
+      // sucursal sin precios, y callarlo es dejarla así para siempre.
+      r.error = `sin base en Ventra que cuadre con "${suc.nombre}" (bases: ${bases.map((b) => b.database).join(', ')})`;
+      salida.push(r);
+      continue;
+    }
+    if (!base.connected) {
+      r.error = `la base ${base.database} figura desconectada en Ventra`;
+      salida.push(r);
+      continue;
+    }
+
+    const database = base.database;
     try {
       const filas = await catalogoDeSucursal(database);
       r.leidos = filas.length;

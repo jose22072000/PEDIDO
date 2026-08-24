@@ -50,6 +50,67 @@ function computeEstado(o: { estado: string | null; fecha_comprometida: Date | nu
  * vendedor + estado derivado). Es lo que viaja por SSE: con esto la vista lo
  * inserta o lo sustituye en la lista que ya tiene, sin pedir nada al servidor.
  */
+/**
+ * Le pone precio a las líneas de un pedido y calcula su total.
+ *
+ * El precio sale del catálogo de LA SUCURSAL DEL PEDIDO: el mismo producto no vale lo
+ * mismo en Camagüey que en Santiago, así que un precio "del producto" a secas sería
+ * mentira en nueve sucursales de diez.
+ *
+ * Se cruza por NOMBRE y no por código porque el código de la línea viene del CSV de
+ * Parranda y el de Ventra es su sku: son dos numeraciones distintas. El nombre sí
+ * coincide, que es como lo escribe la gente en los dos sitios.
+ *
+ * Lo que no cruza se queda con precio nulo y CUENTA como no valorado. Poner cero sería
+ * peor: un total que parece completo y no lo es no hay quien lo detecte.
+ */
+type PedidoConLineas = {
+  sucursalId: string | null;
+  costoDomicilio: number | null;
+  estado: string | null;
+  fecha_comprometida: Date | null;
+  items: Array<{ producto: string; unidades: number; packs: number | null }>;
+};
+
+export async function conPrecios<T extends PedidoConLineas>(pedido: T) {
+  if (!pedido.sucursalId) return { ...pedido, total: null, lineasSinPrecio: pedido.items.length };
+
+  const nombres = [...new Set(pedido.items.map((i) => i.producto).filter(Boolean))];
+  if (nombres.length === 0) return { ...pedido, total: pedido.costoDomicilio ?? 0, lineasSinPrecio: 0 };
+
+  const catalogo = await prisma.productoSucursal.findMany({
+    where: { sucursalId: pedido.sucursalId, nombre: { in: nombres } },
+    select: { nombre: true, precio: true, pesoKg: true, stock: true },
+  });
+  const porNombre = new Map(catalogo.map((c) => [c.nombre.trim().toUpperCase(), c]));
+
+  let total = 0;
+  let sinPrecio = 0;
+  const items = pedido.items.map((i) => {
+    const c = porNombre.get((i.producto || '').trim().toUpperCase());
+    const precioUnidad = c?.precio ?? null;
+    // El precio de Ventra es por UNIDAD DE VENTA (el pack/caja), igual que el peso.
+    // Multiplicarlo por las unidades sueltas daría un total disparatado.
+    const cantidad = i.packs && i.packs > 0 ? i.packs : i.unidades;
+    const importe = precioUnidad != null ? Number((precioUnidad * cantidad).toFixed(2)) : null;
+
+    if (importe == null) sinPrecio++;
+    else total += importe;
+
+    return { ...i, precioUnidad, importe, pesoKg: c?.pesoKg ?? null, stock: c?.stock ?? null };
+  });
+
+  if (pedido.costoDomicilio != null) total += pedido.costoDomicilio;
+
+  return {
+    ...pedido,
+    items,
+    // null cuando NINGUNA línea tiene precio: un total de 0 se lee como "gratis".
+    total: sinPrecio === pedido.items.length ? null : Number(total.toFixed(2)),
+    lineasSinPrecio: sinPrecio,
+  };
+}
+
 async function pedidoParaLista(id: string) {
   const o = await prisma.pedido.findUnique({
     where: { id },
@@ -298,7 +359,14 @@ router.get('/', async (req, res) => {
     });
 
     // Calculate dynamic estado only for display (not for filtering)
-    const ordersWithStatus = orders.map(order => {
+    // El precio y el total, en la MISMA respuesta que la lista.
+    //
+    // Se resuelve aquí y no en el navegador porque el precio depende de la sucursal
+    // del pedido: hacerlo en el front obligaría a bajarse el catálogo entero de las
+    // diez sucursales para pintar una página de veinte pedidos.
+    const conTotales = await Promise.all(orders.map((o) => conPrecios(o)));
+
+    const ordersWithStatus = conTotales.map(order => {
       let computedEstado = order.estado;
       
       // If estado is null or not completada, calculate based on dates
