@@ -216,6 +216,19 @@ router.get('/webhook/domicilio/estado', async (_req, res) => {
  * los avisos de entonces ya se dieron por perdidos y nadie los va a reintentar solo.
  */
 router.post('/webhook/domicilio/reencolar', async (req, res) => {
+  // Primero se barren los completados. Bull no vuelve a admitir un jobId que ya existe
+  // aunque esté terminado, así que sin esto el botón contestaría "681 encolados" y no
+  // habría encolado ninguno. (Los que se encolen a partir de ahora se borran solos al
+  // completarse; esto limpia los que quedaron del historial viejo.)
+  const q = webhooksQueue();
+  if (q) {
+    try {
+      await q.clean(0, 'completed');
+      await q.clean(0, 'failed');
+    } catch (e) {
+      console.error('[mantenimiento] no se pudo limpiar la cola de webhooks:', (e as Error).message);
+    }
+  }
   const n = await encolarPendientesDeDomicilio({ limite: Number(req.body?.limite) || 1000 });
   auditar(req, 'webhook-reencolar', { destino: 'domicilio', encolados: n });
   res.json({ ok: true, encolados: n });

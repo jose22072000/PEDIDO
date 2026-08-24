@@ -67,12 +67,18 @@ export function webhooksQueue(): Queue.Queue | null {
  * volver a tocar el mismo pedido no encola un segundo. Un pedido que se edita cuatro
  * veces seguidas manda UN aviso, no cuatro, y como el worker lee el pedido de la DB al
  * entregarlo, ese aviso lleva ya la última versión.
+ *
+ * Y por eso `removeOnComplete`: Bull se niega a añadir un job cuyo jobId ya existe,
+ * TAMBIÉN si el que existe está completado. Guardando el historial, el segundo aviso de
+ * un pedido no se encolaba nunca —y "Reencolar pendientes" decía que había encolado 681
+ * sin encolar ninguno—. La ventana de deduplicación tiene que ser "mientras espera", no
+ * "para siempre".
  */
 export async function encolarWebhook(evento: string, pedidoId: string): Promise<void> {
   const q = webhooksQueue();
   if (!q) return;
   try {
-    await q.add({ evento, pedidoId }, { jobId: `${evento}:${pedidoId}` });
+    await q.add({ evento, pedidoId }, { jobId: `${evento}:${pedidoId}`, removeOnComplete: true });
   } catch (e) {
     console.error('[queues] encolarWebhook falló:', (e as Error).message);
   }
