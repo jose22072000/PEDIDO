@@ -38,6 +38,20 @@ GET /integration/clients?sucursalCodigo=CAM&limit=500
 Devuelve **solo los clientes con coordenadas**. Sin lat/lng no se puede calcular un
 domicilio, así que traerlos sería cargar la tablet con lo que no sirve.
 
+### Solo los de UN vendedor
+
+```
+GET /integration/clients?sucursalCodigo=CAM&vendedor=andy.almanza
+```
+
+Un repartidor no visita a los clientes de otro. Con esto la tablet se trae **su
+cartera** en vez de los 8.850 de la sucursal — que es la diferencia entre sincronizar
+en dos segundos o en dos minutos por datos móviles.
+
+`vendedor` acepta su **código** (`andy.almanza`, como lo nombra el CSV y la gente) o su
+id. El cliente no tiene vendedor propio: la relación vive en los pedidos, así que "los
+clientes de Andy" son los que alguna vez le compraron a Andy.
+
 ```json
 {
   "count": 500,
@@ -145,14 +159,24 @@ tiene, y el 99% son de hace meses.
 | `since=<ISO>` | **Cuándo cambió** el pedido | El incremental de verdad |
 | `folio=1852` | El folio | Buscar uno concreto |
 
-**La llamada que le interesa a la tablet antes de salir** — los de ayer y hoy que están
-en proceso, para llevarlos encima sin cobertura:
+**Cada filtro funciona por su cuenta.** No hace falta combinarlos:
+
+```
+GET /integration/orders?estado=en_proceso           ← solo por estado
+GET /integration/orders?desde=2026-08-24            ← solo por fecha (los de hoy)
+GET /integration/orders?desde=2026-08-23&hasta=2026-08-23   ← solo los de ayer
+GET /integration/orders?folio=1852                  ← solo por folio
+GET /integration/orders?since=2026-08-24T11:30:00Z  ← solo lo que cambió
+```
+
+Y se combinan si conviene. La que le interesa a la tablet antes de salir es "lo de ayer
+y hoy que está en proceso":
 
 ```
 GET /integration/orders?estado=en_proceso&desde=2026-08-23&hasta=2026-08-24
 ```
 
-Y después, para mantenerlos al día durante la jornada:
+Durante la jornada, para mantenerlo al día sin volver a bajarlo todo:
 
 ```
 GET /integration/orders?estado=en_proceso&since=2026-08-24T11:30:00.000Z

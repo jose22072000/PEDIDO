@@ -266,7 +266,7 @@ router.get('/orders/completados', async (req, res) => {
 });
 
 /**
- * GET /integration/clients?sucursalCodigo=XXX   (x-api-key)
+ * GET /integration/clients?sucursalCodigo=XXX&vendedor=andy.almanza   (x-api-key)
  * Clientes GEOLOCALIZADOS (con lat/lng) de la sucursal local. Delivery los espeja
  * localmente para armar órdenes personalizadas SELECCIONANDO el cliente (no recrearlo),
  * ya con su geo → sale el costo. SOLO con geo: sin coordenadas no se puede cotizar el
@@ -274,6 +274,15 @@ router.get('/orders/completados', async (req, res) => {
  */
 router.get('/clients', async (req, res) => {
   const askedCodigo = typeof req.query.sucursalCodigo === 'string' ? req.query.sucursalCodigo.trim() : '';
+  // Los clientes DE UN VENDEDOR.
+  //
+  // El cliente no tiene vendedor: la relación vive en los pedidos, así que "los
+  // clientes de Andy" son los que alguna vez le compraron a Andy. Se acepta su código
+  // ("andy.almanza", que es como lo nombra el CSV y la gente) o su id.
+  //
+  // Sirve para que una tablet se traiga SOLO su cartera en vez de los 8.850 clientes
+  // de la sucursal: un repartidor no visita a los de otro.
+  const vendedor = typeof req.query.vendedor === 'string' ? req.query.vendedor.trim() : '';
 
   const localSucursalId = readConfiguredSucursalId();
   let sucursalScope: Record<string, unknown> = {};
@@ -307,6 +316,18 @@ router.get('/clients', async (req, res) => {
       ...sucursalScope,
       latitud: { not: null },
       longitud: { not: null },
+      // Por vendedor: los que tienen ALGÚN pedido suyo.
+      ...(vendedor
+        ? {
+            pedidos: {
+              some: {
+                vendedor: {
+                  OR: [{ codigo: vendedor }, { id: vendedor }],
+                },
+              },
+            },
+          }
+        : {}),
     },
     include: { sucursal: { select: { codigo: true, nombre: true } } },
     // Al paginar se ordena por id: es único y estable, así ninguna fila se
