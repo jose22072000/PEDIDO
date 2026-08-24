@@ -12,6 +12,7 @@ import sucursalesRouter from './routes/sucursales';
 import configRouter from './routes/config';
 import vendedoresRouter from './routes/vendedores';
 import clientesRouter from './routes/clientes';
+import productosRouter from './routes/productos';
 import reportsRouter from './routes/reports';
 import integrationRouter from './routes/integration';
 import geolocalizacionRouter from './routes/geolocalizacion';
@@ -19,6 +20,7 @@ import mantenimientoRouter from './routes/mantenimiento';
 import eventsRouter from './routes/events';
 import prisma from './prismaClient';
 import { iniciarArchivadoAutomatico } from './lib/archivador';
+import { arrancarSondeoVentra } from './lib/sondeoVentra';
 import apiKeysRouter from './routes/apiKeys';
 import { apiKeyAuth } from './middleware/apiKeyAuth';
 import { observarRespuestas, manejarErrores, estadoSalud } from './middleware/errores';
@@ -79,6 +81,7 @@ app.use('/sucursales', sucursalesRouter);
 app.use('/config', configRouter);
 app.use('/vendedores', vendedoresRouter);
 app.use('/clientes', clientesRouter);
+app.use('/productos', productosRouter);
 app.use('/reports', reportsRouter);
 app.use('/integration', integrationRouter);
 app.use('/geolocalizacion', geolocalizacionRouter);
@@ -111,6 +114,9 @@ app.listen(port, '0.0.0.0', async () => {
   }
   // Archiva completados y expirados-viejos (soft-delete) al inicio y cada hora.
   iniciarArchivadoAutomatico();
+  // Y trae de Ventra el catálogo de cada sucursal —precio, existencias y peso— cada
+  // media hora. Solo lee: en Ventra no se escribe nada nunca.
+  arrancarSondeoVentra();
 });
 
 process.on('SIGINT', async () => {

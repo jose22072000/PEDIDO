@@ -1,0 +1,120 @@
+/**
+ * Cliente del Data Warehouse (Ventra). SOLO LECTURA.
+ *
+ * Aquí no se escribe NADA en Ventra: es el sistema del que vive la empresa y esta
+ * aplicación no tiene por qué poder tocarlo. Solo hay GETs, y así se queda.
+ *
+ * Alcanzable únicamente por la VPN WireGuard. Sin VPN esto falla, y falla en silencio
+ * a propósito: PEDIDO tiene que seguir funcionando aunque el almacén no conteste — lo
+ * que pasa es que los precios se quedan con la última foto buena en vez de vaciarse.
+ *
+ * El endpoint bueno es `/products/weights?database=<sucursal>`. La documentación lo
+ * dice con todas las letras: "Precio y existencias VARÍAN POR SUCURSAL, por eso se
+ * recomienda pasar database para una sucursal específica". Sin ese parámetro solo
+ * llegan los pesos, que es lo que delivery venía usando y por lo que nadie sabía que
+ * el precio estaba ahí.
+ */
+
+const BASE = process.env.VENTRA_API_URL || 'http://10.188.2.2:3001/api/external-api';
+const TOKEN = process.env.VENTRA_API_TOKEN || process.env.WAREHOUSE_API_TOKEN || '';
+
+/** Una fila del catálogo, ya por sucursal. */
+export interface ProductoVentra {
+  sku: string | null;
+  name: string | null;
+  category: string | null;
+  unit: string | null;
+  weightKg: number | null;
+  /** Existencias en ESA sucursal. */
+  stock: number | null;
+  /** Precio en ESA sucursal. */
+  price: number | null;
+  isActive?: boolean | null;
+}
+
+async function leer<T>(ruta: string): Promise<T> {
+  if (!TOKEN) throw new Error('VENTRA_API_TOKEN no configurado');
+  const url = `${BASE}${ruta.startsWith('/') ? ruta : `/${ruta}`}`;
+  // 30 s: es una consulta a un ERP por VPN, no una API de al lado. Pero con tope: sin
+  // él, un almacén colgado deja el sondeo esperando para siempre y no vuelve a correr.
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), 30_000);
+  try {
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${TOKEN}`, Accept: 'application/json' },
+      signal: ctl.signal,
+    });
+    if (!res.ok) {
+      const cuerpo = await res.text().catch(() => '');
+      throw new Error(`Ventra ${res.status} en ${ruta}: ${cuerpo.slice(0, 200)}`);
+    }
+    return (await res.json()) as T;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+/**
+ * Saca de una fila el primer campo que exista de una lista de nombres posibles.
+ *
+ * Ventra es un ERP y sus columnas no siempre se llaman igual (`price`, `unitPrice`,
+ * `precio`…). Buscar por varios nombres es más robusto que fijar uno y que el día que
+ * cambien la etiqueta se queden todos los precios en cero sin que nadie lo note.
+ */
+function numero(fila: Record<string, unknown>, ...nombres: string[]): number | null {
+  for (const n of nombres) {
+    const v = fila[n];
+    if (v == null || v === '') continue;
+    const x = Number(v);
+    if (!Number.isNaN(x)) return x;
+  }
+  return null;
+}
+
+function texto(fila: Record<string, unknown>, ...nombres: string[]): string | null {
+  for (const n of nombres) {
+    const v = fila[n];
+    if (typeof v === 'string' && v.trim()) return v.trim();
+  }
+  return null;
+}
+
+/** Las bases (sucursales) que Ventra tiene configuradas. */
+export async function databases(): Promise<string[]> {
+  const d = await leer<unknown>('/axis/databases');
+  const filas = Array.isArray(d)
+    ? d
+    : ((d as Record<string, unknown>)?.items as unknown[]) ||
+      ((d as Record<string, unknown>)?.data as unknown[]) ||
+      [];
+  return filas
+    .map((f) => (typeof f === 'string' ? f : texto(f as Record<string, unknown>, 'database', 'name', 'code')))
+    .filter((x): x is string => Boolean(x));
+}
+
+/**
+ * El catálogo de UNA sucursal: peso, existencias y precio.
+ *
+ * `database` es obligatorio aquí aunque la API lo acepte vacío: sin él, el precio y el
+ * stock que devuelve no son de ninguna sucursal en concreto, y guardarlos como si lo
+ * fueran es peor que no tenerlos.
+ */
+export async function catalogoDeSucursal(database: string): Promise<ProductoVentra[]> {
+  const d = await leer<unknown>(`/products/weights?database=${encodeURIComponent(database)}`);
+  const filas = (Array.isArray(d)
+    ? d
+    : ((d as Record<string, unknown>)?.items as unknown[]) ||
+      ((d as Record<string, unknown>)?.data as unknown[]) ||
+      []) as Record<string, unknown>[];
+
+  return filas.map((f) => ({
+    sku: texto(f, 'sku', 'productCode', 'code'),
+    name: texto(f, 'name', 'productName', 'descripcion'),
+    category: texto(f, 'category', 'categoria'),
+    unit: texto(f, 'unit', 'unidad'),
+    weightKg: numero(f, 'weightKg', 'weight', 'pesoKg'),
+    stock: numero(f, 'stock', 'quantity', 'existencia', 'existencias', 'onHand'),
+    price: numero(f, 'price', 'unitPrice', 'salePrice', 'precio', 'precioVenta'),
+    isActive: (f.isActive as boolean) ?? null,
+  }));
+}

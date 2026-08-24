@@ -15,6 +15,40 @@ model Sucursal {
     vendedores Vendedor[]
     clientes   Cliente[]
     pedidos    Pedido[]
+    productos  ProductoSucursal[]
+}
+
+/// El catálogo de Ventra, copiado aquí por sucursal.
+///
+/// Se copia y no se consulta al vuelo porque Ventra vive detrás de una VPN: si se
+/// preguntara en cada carga de pantalla, un corte de VPN dejaría PEDIDO sin precios y
+/// sin poder trabajar. Con la copia, un corte solo significa que los precios son los
+/// de la última pasada buena — que para un catálogo que cambia poco es suficiente.
+///
+/// La clave es (sucursal, sku): el MISMO producto tiene precio y existencias
+/// distintas en cada sucursal, y esa es justo la razón de que esto exista.
+model ProductoSucursal {
+    id          String   @id @default(cuid())
+    sucursalId  String
+    sucursal    Sucursal @relation(fields: [sucursalId], references: [id])
+    sku         String
+    nombre      String
+    categoria   String?
+    unidad      String?
+    pesoKg      Float?
+    /// Existencias en ESA sucursal, tal como las da Ventra.
+    stock       Float?
+    /// Precio en ESA sucursal.
+    precio      Float?
+    activo      Boolean  @default(true)
+    /// Cuándo se trajo. Es lo que dice si lo que se está mirando es de hace diez
+    /// minutos o de hace tres días porque la VPN lleva caída desde el lunes.
+    traidoAt    DateTime @default(now())
+    updatedAt   DateTime @default(now()) @updatedAt
+
+    @@unique([sucursalId, sku])
+    @@index([sucursalId])
+    @@index([nombre])
 }
 
 model Rol {

@@ -89,6 +89,28 @@ tienen cliente geolocalizado, que sirve para rellenar la tablet la primera vez.
 }
 ```
 
+### No te traigas el histórico: filtra
+
+Una tablet por repartidor, sincronizando por datos móviles y media jornada sin
+cobertura. Bajarse los 44.700 pedidos en cada arranque son megas y minutos que no
+tiene, y el 99% son de hace meses.
+
+| Parámetro | Qué filtra | Cuándo usarlo |
+|---|---|---|
+| `desde=YYYY-MM-DD` / `hasta=YYYY-MM-DD` | La **fecha del pedido** | "Los de hoy", "los de esta semana". Es como trabaja el repartidor |
+| `since=<ISO>` | **Cuándo cambió** el pedido | El incremental de verdad |
+
+```
+GET /integration/orders?onlyPending=1&desde=2026-08-24&hasta=2026-08-24
+GET /integration/orders?since=2026-08-24T11:30:00.000Z
+```
+
+**`since` es el que hace que una sync sea instantánea.** Cada pedido viene con su
+`updatedAt`: guarda el MAYOR de la tanda y mándalo como `since` la próxima vez. La
+segunda sincronización suele traer nada o cuatro filas.
+
+Se combinan: `?desde=…&since=…` es "de los de hoy, lo que cambió desde la última vez".
+
 ## 3. Devolver el costo calculado
 
 ```
@@ -120,14 +142,47 @@ segura de que el envío llegó, que lo repita — es más barato que perderlo.
 
 ---
 
+## 4. El catálogo con precio y existencias, por sucursal
+
+```
+GET /productos?sucursalCodigo=CAM&soloConStock=1&limit=1000
+```
+
+```json
+{
+  "count": 127,
+  "productos": [
+    { "sku": "ALIM0010", "nombre": "ACEITE SOYA SAUDE 500 ML CAJA 20U",
+      "categoria": "ALIM", "unidad": "unidad",
+      "pesoKg": 9.6, "stock": 340, "precio": 12.5,
+      "sucursalCodigo": "CAM", "sucursalNombre": "Camagüey",
+      "traidoAt": "2026-08-24T15:30:00.000Z" }
+  ]
+}
+```
+
+**El precio y el stock son POR SUCURSAL**: el mismo producto no vale lo mismo en
+Camagüey que en Santiago, así que `sucursalCodigo` no es opcional en la práctica.
+
+`traidoAt` dice de cuándo es el dato. Sale de una copia local que se refresca desde el
+almacén cada media hora — así un corte de VPN no deja la tablet sin catálogo, solo con
+uno un poco viejo. Si ves `traidoAt` de hace días, avisa: la VPN está caída.
+
+`pesoKg` es el que necesitas para calcular el domicilio, y ya viene aquí: no hace falta
+que la APK hable con el almacén.
+
 ## Cómo sincronizar sin volverse loco
 
 1. **Al instalar / una vez al día:** bájate los clientes enteros (paso 1, paginando) y
-   guárdalos en la tablet. Cambian poco.
-2. **Cada X minutos, con señal:** pide `onlyPending=1` (paso 2). Es corto: solo lo que
-   falta por cotizar.
+   el catálogo de tu sucursal (paso 4). Cambian poco.
+2. **Cada X minutos, con señal:** pide `onlyPending=1` con `since=<tu última sync>`
+   (paso 2). Suele venir vacío o con cuatro filas.
 3. **Cuando calcules:** acumula y manda el lote (paso 3). Si falla, guarda y reintenta:
    repetir no rompe nada.
+
+Lo que NO hay que hacer: pedir `/integration/orders` sin filtros en cada arranque. Eso
+es el histórico entero, y por datos móviles es la diferencia entre sincronizar en dos
+segundos o en dos minutos.
 
 No hace falta websocket ni push. Preguntar cada pocos minutos es más simple, sobrevive
 a los cortes de señal y no deja a la tablet esperando una conexión que no va a llegar.
