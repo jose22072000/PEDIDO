@@ -626,6 +626,14 @@ export const OrdersList = () => {
             <Autocomplete
               allowsCustomValue={false}
               className="w-full sm:w-72"
+              // Cada opción son DOS líneas (producto y categoría). Sin altura ni
+              // separación se montan una encima de otra y no se distingue dónde
+              // acaba una y empieza la siguiente. El `py` de la lista es para que la
+              // primera no nazca pegada al borde, que salía cortada.
+              listboxProps={{
+                itemClasses: { base: "py-2 data-[hover=true]:bg-default-100" },
+              }}
+              popoverProps={{ classNames: { content: "py-1" } }}
               defaultItems={productos.map((nombre) => ({
                 nombre,
                 ...partirProducto(nombre),
@@ -641,10 +649,10 @@ export const OrdersList = () => {
                 // `textValue` es por lo que se busca al teclear: el nombre ENTERO, para
                 // que quien escriba "alimentos" o "arroz" lo encuentre igual.
                 <AutocompleteItem key={item.nombre} textValue={item.nombre}>
-                  <div className="flex flex-col">
+                  <div className="flex flex-col gap-0.5 leading-tight">
                     <span className="text-sm">{item.producto}</span>
                     {item.categoria && (
-                      <span className="text-[11px] uppercase tracking-wide text-default-400">
+                      <span className="text-[10px] uppercase tracking-wide text-default-400">
                         {item.categoria}
                       </span>
                     )}
@@ -1180,33 +1188,6 @@ export const OrdersList = () => {
                       </Chip>
                     </div>
 
-                    {/* Costo del domicilio (copiable, sin el $) */}
-                    <div className="flex flex-wrap items-center gap-2 mt-3">
-                      <span className="text-xs text-default-500">
-                        Costo domicilio:
-                      </span>
-                      {selectedOrder?.costoDomicilio != null ? (
-                        <>
-                          <code className="px-2 py-1 text-sm border rounded bg-default-50 select-all">
-                            <span className="select-none text-default-400">
-                              $
-                            </span>
-                            {fmtUsd(selectedOrder.costoDomicilio)}
-                          </code>
-                          <Chip color="success" size="sm" variant="flat">
-                            Calculado
-                          </Chip>
-                        </>
-                      ) : selectedOrder?.requiere_domicilio ? (
-                        <Chip color="warning" size="sm" variant="flat">
-                          Sin calcular todavía
-                        </Chip>
-                      ) : (
-                        <Chip color="default" size="sm" variant="flat">
-                          No aplica
-                        </Chip>
-                      )}
-                    </div>
                   </div>
 
                   <Divider />
@@ -1214,7 +1195,8 @@ export const OrdersList = () => {
                   {/* Products */}
                   <div>
                     <h4 className="mb-2 text-sm font-semibold text-default-700">
-                      Productos ({selectedOrder?.items.length || 0})
+                      Productos ({(selectedOrder?.items.length || 0) +
+                        (selectedOrder?.requiere_domicilio || selectedOrder?.costoDomicilio != null ? 1 : 0)})
                     </h4>
                     <div className="flex flex-col gap-2 overflow-y-auto max-h-60">
                       {selectedOrder?.items.map((item) => (
@@ -1246,6 +1228,37 @@ export const OrdersList = () => {
                           </div>
                         </div>
                       ))}
+
+                      {/* El domicilio es UNA LÍNEA MÁS, no un campo aparte.
+                          Es un producto de servicio —así se llama en Ventra, código
+                          45— y lo que se cobra por él va en el total como cualquier
+                          otra línea. Tenerlo suelto en "Estado" lo dejaba fuera de la
+                          cuenta y obligaba a sumarlo a mano. */}
+                      {(selectedOrder?.requiere_domicilio ||
+                        selectedOrder?.costoDomicilio != null) && (
+                        <div className="flex items-center justify-between p-3 rounded-lg bg-primary-50 border border-primary-100">
+                          <div className="flex items-center gap-3">
+                            <Icons.delivery className="size-6 text-primary" />
+                            <div>
+                              <p className="font-medium">ENTREGA A DOMICILIO</p>
+                              <p className="text-xs text-default-500">
+                                Servicio
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            {selectedOrder?.costoDomicilio != null ? (
+                              <Chip color="success" size="sm" variant="flat">
+                                ${fmtUsd(selectedOrder.costoDomicilio)}
+                              </Chip>
+                            ) : (
+                              <Chip color="warning" size="sm" variant="flat">
+                                Sin calcular todavía
+                              </Chip>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>

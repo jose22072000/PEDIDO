@@ -27,13 +27,33 @@ function readConfiguredSucursalId(): string | null {
 }
 
 /**
- * GET /integration/orders?onlyPending=1&limit=500
- * Lista pedidos para que delivery los cotice. Con onlyPending=1 solo los que
- * aún no tienen costo y cuyo cliente TIENE geolocalización (calculables).
+ * GET /integration/orders?onlyPending=1&desde=YYYY-MM-DD&hasta=YYYY-MM-DD&since=<ISO>&limit=500
+ *
+ * Lista pedidos para cotizar el domicilio. Con onlyPending=1 solo los que aún no
+ * tienen costo y cuyo cliente TIENE geolocalización (calculables).
+ *
+ * # Por qué hay filtros de fecha
+ *
+ * Quien consume esto es una tablet, una por repartidor, sincronizando por datos
+ * móviles y a veces sin cobertura. Traerse el histórico entero en cada arranque son
+ * megas y minutos que la tablet no tiene, y encima el 99% son pedidos de hace meses
+ * que ya nadie va a cotizar.
+ *
+ *   desde / hasta  → por FECHA DEL PEDIDO. "Dame los de hoy" o "los de esta semana",
+ *                    que es como trabaja el repartidor.
+ *   since          → por CUÁNDO ENTRÓ O CAMBIÓ (updatedAt). Es el sincronizado
+ *                    incremental: se guarda la hora de la última sync y en la
+ *                    siguiente solo llega lo que se movió desde entonces. Suele ser
+ *                    nada o cuatro filas.
+ *
+ * Se pueden combinar. `since` es el que hace que una sync sea instantánea.
  */
 router.get('/orders', async (req, res) => {
   const onlyPending = req.query.onlyPending === '1' || req.query.onlyPending === 'true';
   const limit = req.query.limit ? Number(req.query.limit) : undefined;
+  const desde = typeof req.query.desde === 'string' ? req.query.desde : '';
+  const hasta = typeof req.query.hasta === 'string' ? req.query.hasta : '';
+  const since = typeof req.query.since === 'string' ? req.query.since : '';
   const askedCodigo = typeof req.query.sucursalCodigo === 'string' ? req.query.sucursalCodigo.trim() : '';
 
   // Scope a la sucursal local de esta instalación.
@@ -63,6 +83,18 @@ router.get('/orders', async (req, res) => {
     // Pendientes de cotizar = los que REQUIEREN domicilio (requiere_domicilio=true) y aún no
     // tienen costo. Un pedido sin domicilio NO lleva costo: no se encola ni se cotiza.
     ...(onlyPending ? { requiere_domicilio: true, costoDomicilio: null } : {}),
+    // Por fecha del pedido. El 'hasta' incluye el día entero: quien escribe
+    // hasta=2026-08-24 quiere los del 24, no los del 24 a las 00:00.
+    ...(desde || hasta
+      ? {
+          fecha: {
+            ...(desde ? { gte: new Date(`${desde}T00:00:00`) } : {}),
+            ...(hasta ? { lte: new Date(`${hasta}T23:59:59.999`) } : {}),
+          },
+        }
+      : {}),
+    // Incremental: lo que se movió desde la última sincronización.
+    ...(since ? { updatedAt: { gt: new Date(since) } } : {}),
   };
 
   const pedidos = await prisma.pedido.findMany({
@@ -89,6 +121,9 @@ router.get('/orders', async (req, res) => {
     pedidoCobrado: p.pedido_cobrado,
     requiereDomicilio: p.requiere_domicilio,
     costoDomicilio: p.costoDomicilio,
+    // Para que la tablet sepa por dónde seguir: se guarda el mayor de la tanda y se
+    // manda como `since` en la siguiente sync.
+    updatedAt: p.updatedAt,
     cliente: p.cliente
       ? {
           id: p.cliente.id,

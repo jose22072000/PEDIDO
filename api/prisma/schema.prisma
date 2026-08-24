@@ -96,6 +96,13 @@ model Pedido {
     requiere_domicilio Boolean?     @map("requiresDelivery")
     costoDomicilio     Float?       @map("deliveryCost")  // lo escribe delivery vía /integration
     createdAt          DateTime     @default(now())
+    // Cuándo se tocó por última vez. Es lo que hace posible la sincronización
+    // INCREMENTAL de las tablets: piden "lo que cambió desde tal hora" en vez del
+    // histórico entero, que por datos móviles son megas y minutos que no tienen.
+    //
+    // Con `@default(now())` las filas que ya existen quedan con una fecha razonable en
+    // vez de nula, así que la primera sync de cada tablet no se las salta.
+    updatedAt          DateTime     @default(now()) @updatedAt
     // Archivado (soft-delete): completados y expirados-viejos se ocultan de la lista pero
     // se conservan para reportes. null = activo (en proceso).
     archivedAt         DateTime?
@@ -106,6 +113,9 @@ model Pedido {
     @@unique([sucursalId, folio, vendedorId])
     @@index([fecha])
     @@index([archivedAt])
+    // La sincronización incremental filtra por esto en cada llamada de cada tablet.
+    // Sin índice, cada sync recorre los 44.700 pedidos.
+    @@index([updatedAt])
     // Los reportes y la vista de vendedores filtran por vendedorId (8 sitios en
     // el código). Sin índice, cada uno recorre los 43k pedidos.
     @@index([vendedorId])
