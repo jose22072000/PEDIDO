@@ -140,13 +140,28 @@ tiene, y el 99% son de hace meses.
 
 | Parámetro | Qué filtra | Cuándo usarlo |
 |---|---|---|
-| `desde=YYYY-MM-DD` / `hasta=YYYY-MM-DD` | La **fecha del pedido** | "Los de hoy", "los de esta semana". Es como trabaja el repartidor |
+| `desde=YYYY-MM-DD` / `hasta=YYYY-MM-DD` | La **fecha del pedido** | "Los de hoy", "los de ayer" |
+| `estado=en_proceso` | El estado | Lo que se va a repartir HOY |
 | `since=<ISO>` | **Cuándo cambió** el pedido | El incremental de verdad |
+| `folio=1852` | El folio | Buscar uno concreto |
+
+**La llamada que le interesa a la tablet antes de salir** — los de ayer y hoy que están
+en proceso, para llevarlos encima sin cobertura:
 
 ```
-GET /integration/orders?onlyPending=1&desde=2026-08-24&hasta=2026-08-24
-GET /integration/orders?since=2026-08-24T11:30:00.000Z
+GET /integration/orders?estado=en_proceso&desde=2026-08-23&hasta=2026-08-24
 ```
+
+Y después, para mantenerlos al día durante la jornada:
+
+```
+GET /integration/orders?estado=en_proceso&since=2026-08-24T11:30:00.000Z
+```
+
+**Sobre `estado`:** «en proceso» y «expirado» no son columnas en la base. El único
+estado guardado es `completada`; expirado se deduce de que la fecha comprometida ya
+pasó. La API lo traduce, así que desde fuera se piden por su nombre y ya — no hace falta
+saber esa interioridad ni replicar la regla en la APK.
 
 **`since` es el que hace que una sync sea instantánea.** Cada pedido viene con su
 `updatedAt`: guarda el MAYOR de la tanda y mándalo como `since` la próxima vez. La

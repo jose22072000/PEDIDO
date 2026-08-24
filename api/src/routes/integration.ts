@@ -39,8 +39,11 @@ function readConfiguredSucursalId(): string | null {
  * megas y minutos que la tablet no tiene, y encima el 99% son pedidos de hace meses
  * que ya nadie va a cotizar.
  *
- *   desde / hasta  → por FECHA DEL PEDIDO. "Dame los de hoy" o "los de esta semana",
- *                    que es como trabaja el repartidor.
+ *   desde / hasta  → por FECHA DEL PEDIDO. "Dame los de hoy" o "los de ayer", que es
+ *                    lo que el repartidor necesita tener encima antes de salir.
+ *   estado         → en_proceso | completada | expirada. Con "en_proceso" se lleva
+ *                    justo lo que va a repartir: lo completado ya se entregó y lo
+ *                    expirado no lo va a llevar hoy.
  *   since          → por CUÁNDO ENTRÓ O CAMBIÓ (updatedAt). Es el sincronizado
  *                    incremental: se guarda la hora de la última sync y en la
  *                    siguiente solo llega lo que se movió desde entonces. Suele ser
@@ -57,6 +60,9 @@ router.get('/orders', async (req, res) => {
   // Buscar UN pedido por su folio, que es como lo nombra todo el mundo: es lo que
   // lleva escrito el papel que tiene el repartidor en la mano.
   const folio = typeof req.query.folio === 'string' ? req.query.folio.trim() : '';
+  // Por estado. El repartidor sale a la calle con los EN PROCESO: los completados ya
+  // se entregaron y los expirados no los va a llevar hoy.
+  const estado = typeof req.query.estado === 'string' ? req.query.estado.trim() : '';
   const askedCodigo = typeof req.query.sucursalCodigo === 'string' ? req.query.sucursalCodigo.trim() : '';
 
   // Scope a la sucursal local de esta instalación.
@@ -101,6 +107,22 @@ router.get('/orders', async (req, res) => {
     // Por folio: contiene y sin distinguir mayúsculas, porque nadie teclea un folio
     // entero ni respeta las mayúsculas al buscar.
     ...(folio ? { folio: { contains: folio, mode: 'insensitive' as const } } : {}),
+    // Por estado.
+    //
+    // "En proceso" y "expirado" NO son columnas: el único estado guardado es
+    // 'completada', y expirado se deduce de que la fecha comprometida ya pasó. Así que
+    // aquí se traducen a lo que sí se puede consultar, en vez de pedirle a quien llama
+    // que sepa esa interioridad.
+    ...(estado === 'completada' ? { estado: 'completada' } : {}),
+    ...(estado === 'en_proceso'
+      ? {
+          NOT: { estado: 'completada' },
+          OR: [{ fecha_comprometida: null }, { fecha_comprometida: { gte: new Date() } }],
+        }
+      : {}),
+    ...(estado === 'expirada'
+      ? { NOT: { estado: 'completada' }, fecha_comprometida: { lt: new Date() } }
+      : {}),
   };
 
   const pedidos = await prisma.pedido.findMany({
