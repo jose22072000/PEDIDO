@@ -142,3 +142,48 @@ export function notifyPedidoCompletado(p: {
     productos, // SOLO Parranda (330/500/1500) + Malta Guajira (330/1500)
   });
 }
+
+/**
+ * Siembra la config de un destino desde el entorno, si viene, la PRIMERA vez.
+ *
+ * Sólo rellena lo que está VACÍO: nunca pisa lo que alguien puso en la pantalla de
+ * Configuración. Sin esa regla, cada reinicio devolvería el secret al del .env y una
+ * rotación hecha desde la UI se desharía sola en el siguiente despliegue, que es
+ * justo el fallo que nadie relaciona con el reinicio.
+ *
+ * Existe para dejar una instalación lista sin pasar por la pantalla —cada sucursal
+ * corre su propio PEDIDO y son varias—. A partir de ahí, la UI manda.
+ */
+export async function sembrarConfigDesdeEntorno(): Promise<void> {
+  const destinos: Array<{ destino: Destino; prefijo: string }> = [
+    { destino: 'domicilio', prefijo: 'WEBHOOK_DOMICILIO' },
+    { destino: 'parranda', prefijo: 'WEBHOOK_PARRANDA' },
+  ];
+
+  for (const { destino, prefijo } of destinos) {
+    const url = (process.env[`${prefijo}_URL`] || '').trim();
+    const key = (process.env[`${prefijo}_KEY`] || '').trim();
+    const secret = (process.env[`${prefijo}_SECRET`] || '').trim();
+    if (!url && !key && !secret) continue;
+
+    try {
+      const row = await prisma.webhookConfig.findUnique({ where: { id: destino } });
+      const data: Record<string, unknown> = {};
+      if (url && !row?.url) data.url = url;
+      if (key && !row?.apiKey) data.apiKey = key;
+      if (secret && !row?.secret) data.secret = secret;
+      if (Object.keys(data).length === 0) continue;
+
+      await prisma.webhookConfig.upsert({
+        where: { id: destino },
+        update: data,
+        create: { id: destino, ...data },
+      });
+      invalidarWebhookCache(destino);
+      console.log(`[webhook:${destino}] config sembrada desde el entorno: ${Object.keys(data).join(', ')}`);
+    } catch (e) {
+      // Que no se pueda sembrar no puede impedir que arranque la API.
+      console.error(`[webhook:${destino}] no se pudo sembrar:`, (e as Error).message);
+    }
+  }
+}

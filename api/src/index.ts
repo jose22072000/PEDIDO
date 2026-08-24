@@ -23,6 +23,7 @@ import { iniciarArchivadoAutomatico } from './lib/archivador';
 import { arrancarSondeoVentra } from './lib/sondeoVentra';
 import apiKeysRouter from './routes/apiKeys';
 import webhooksRouter from './routes/webhooks';
+import { sembrarConfigDesdeEntorno } from './lib/webhook';
 import { apiKeyAuth } from './middleware/apiKeyAuth';
 import { observarRespuestas, manejarErrores, estadoSalud } from './middleware/errores';
 
@@ -126,6 +127,9 @@ app.listen(port, '0.0.0.0', async () => {
   // Y trae de Ventra el catálogo de cada sucursal —precio, existencias y peso— cada
   // media hora. Solo lee: en Ventra no se escribe nada nunca.
   arrancarSondeoVentra();
+  // Deja la config de los webhooks puesta si viene por entorno y todavía está vacía.
+  // No pisa lo que se haya cambiado desde Configuración.
+  void sembrarConfigDesdeEntorno();
 });
 
 process.on('SIGINT', async () => {
