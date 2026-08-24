@@ -1,10 +1,12 @@
 import { Router } from 'express';
-import { randomUUID } from 'crypto';
+import { randomUUID, randomBytes } from 'crypto';
 import fs from 'fs';
 import multer from 'multer';
 import prisma from '../prismaClient';
 import { getRequesterContext } from '../lib/sucursalContext';
-import { invalidarWebhookCache } from '../lib/webhook';
+import { invalidarWebhookCache, entregarWebhook, getConfig, type Destino } from '../lib/webhook';
+import { webhooksQueue } from '../lib/queues';
+import { encolarPendientesDeDomicilio } from '../lib/domicilio';
 
 const upload = multer({ dest: 'uploads/temp' });
 const fecha = (v: unknown) => (v == null ? null : new Date(v as string));
@@ -60,20 +62,46 @@ router.get('/job/:jobId', (req, res) => {
   res.json({ jobId: req.params.jobId, ...j });
 });
 
-// -------- Webhook saliente (Parranda): config editable por el SUPER ADMIN desde la UI --------
-// GET: devuelve la config (el secret NUNCA se devuelve, solo si existe).
-router.get('/webhook', async (_req, res) => {
+// -------- Webhooks: config editable por el SUPER ADMIN desde la UI (NO por .env) --------
+// Dos destinos, la misma tabla y la misma pantalla:
+//   parranda  -> aviso de "pedido completado".
+//   domicilio -> la APK. Ida (hay que cotizar) y vuelta (el secret con el que se
+//                verifica lo que nos devuelven).
+//
+// Que se edite aquí y no en el .env es lo que permite cambiar la URL o rotar el secret
+// sin volver a desplegar, que es justo lo que hace falta el día que se rota de verdad.
+
+const DESTINOS = new Set<Destino>(['parranda', 'domicilio']);
+function destinoDe(req: any): Destino | null {
+  const d = String(req.params.destino || 'parranda') as Destino;
+  return DESTINOS.has(d) ? d : null;
+}
+
+// GET: la config. El secret NUNCA se devuelve, sólo si existe.
+async function leerConfig(req: any, res: any) {
+  const destino = destinoDe(req);
+  if (!destino) return res.status(404).json({ error: 'Destino desconocido.' });
   try {
-    const row = await prisma.webhookConfig.findUnique({ where: { id: 'parranda' } });
-    res.json({ url: row?.url || '', key: row?.apiKey || '', activo: row?.activo ?? true, tieneSecret: !!row?.secret });
+    const row = await prisma.webhookConfig.findUnique({ where: { id: destino } });
+    res.json({
+      destino,
+      url: row?.url || '',
+      key: row?.apiKey || '',
+      activo: row?.activo ?? true,
+      tieneSecret: !!row?.secret,
+      actualizado: row?.updatedAt ?? null,
+    });
   } catch (err) {
     console.error('webhook get error:', err);
     res.status(500).json({ error: 'No se pudo leer la config del webhook.' });
   }
-});
+}
 
-// PUT: guarda la config. El secret solo se actualiza si mandan uno nuevo (vacío = no tocar).
-router.put('/webhook', async (req, res) => {
+// PUT: guarda. El secret sólo se toca si mandan uno nuevo (vacío = dejarlo como está),
+// para que guardar la URL no borre el secret sin querer.
+async function guardarConfig(req: any, res: any) {
+  const destino = destinoDe(req);
+  if (!destino) return res.status(404).json({ error: 'Destino desconocido.' });
   try {
     const { url, key, secret, activo } = (req.body || {}) as { url?: string; key?: string; secret?: string; activo?: boolean };
     const data: Record<string, unknown> = {
@@ -82,14 +110,115 @@ router.put('/webhook', async (req, res) => {
       activo: activo !== false,
     };
     if (typeof secret === 'string' && secret.trim()) data.secret = secret.trim();
-    await prisma.webhookConfig.upsert({ where: { id: 'parranda' }, update: data, create: { id: 'parranda', ...data } });
-    invalidarWebhookCache();
-    auditar(req, 'webhook-config', { url: data.url, activo: data.activo });
+    await prisma.webhookConfig.upsert({ where: { id: destino }, update: data, create: { id: destino, ...data } });
+    invalidarWebhookCache(destino);
+    auditar(req, 'webhook-config', { destino, url: data.url, activo: data.activo, cambioSecret: !!data.secret });
     res.json({ ok: true });
   } catch (err) {
     console.error('webhook put error:', err);
     res.status(500).json({ error: 'No se pudo guardar la config del webhook.' });
   }
+}
+
+router.get('/webhook', leerConfig);            // sin destino = parranda (como siempre)
+router.put('/webhook', guardarConfig);
+router.get('/webhook/:destino', leerConfig);
+router.put('/webhook/:destino', guardarConfig);
+
+/**
+ * POST /mantenimiento/webhook/:destino/secret
+ * Genera un secret y lo devuelve UNA vez, para copiárselo al del otro extremo.
+ *
+ * Lo genera el servidor y no la persona porque un secret escrito a mano acaba siendo
+ * "procovar2026": 32 bytes de azar no se adivinan ni se reutilizan de otro sitio.
+ */
+router.post('/webhook/:destino/secret', async (req, res) => {
+  const destino = destinoDe(req);
+  if (!destino) return res.status(404).json({ error: 'Destino desconocido.' });
+  const secret = randomBytes(32).toString('hex');
+  await prisma.webhookConfig.upsert({
+    where: { id: destino },
+    update: { secret },
+    create: { id: destino, secret },
+  });
+  invalidarWebhookCache(destino);
+  auditar(req, 'webhook-secret-nuevo', { destino });
+  // Se devuelve en claro AQUÍ y sólo aquí: es el único momento en que se puede copiar.
+  res.json({ ok: true, secret });
+});
+
+/**
+ * POST /mantenimiento/webhook/:destino/probar
+ * Manda un aviso de prueba a la URL configurada y cuenta qué contestó. Sirve para saber
+ * si el problema es de configuración ANTES de que haya pedidos de verdad esperando.
+ */
+router.post('/webhook/:destino/probar', async (req, res) => {
+  const destino = destinoDe(req);
+  if (!destino) return res.status(404).json({ error: 'Destino desconocido.' });
+  const cfg = await getConfig(destino);
+  if (!cfg.url) return res.status(400).json({ error: 'No hay URL configurada.' });
+  if (!cfg.activo) return res.status(400).json({ error: 'El webhook está desactivado.' });
+
+  const inicio = Date.now();
+  try {
+    await entregarWebhook(destino, {
+      evento: 'prueba',
+      destino,
+      mensaje: 'Prueba desde PEDIDO. Si ves esto, la URL y la firma están bien.',
+      en: new Date().toISOString(),
+    });
+    auditar(req, 'webhook-prueba', { destino, ok: true });
+    res.json({ ok: true, url: cfg.url, ms: Date.now() - inicio, firmado: !!cfg.secret });
+  } catch (e) {
+    auditar(req, 'webhook-prueba', { destino, ok: false });
+    res.status(502).json({ ok: false, url: cfg.url, ms: Date.now() - inicio, error: (e as Error).message });
+  }
+});
+
+/**
+ * GET /mantenimiento/webhook/domicilio/estado
+ * Cuántos avisos están esperando, cuántos fallaron y cuántos pedidos siguen sin cotizar.
+ * Sin esto, un webhook mal configurado se nota cuando alguien pregunta por qué ningún
+ * pedido tiene precio de domicilio — o sea, tarde.
+ */
+router.get('/webhook/domicilio/estado', async (_req, res) => {
+  const q = webhooksQueue();
+  const cola = q
+    ? await q.getJobCounts()
+    : { waiting: 0, active: 0, completed: 0, failed: 0, delayed: 0, paused: 0 };
+
+  const [sinCotizar, sinGeo] = await Promise.all([
+    prisma.pedido.count({
+      where: { requiere_domicilio: true, costoDomicilio: null, archivedAt: null,
+               cliente: { latitud: { not: null } } },
+    }),
+    // Éstos NO se encolan: sin coordenadas no hay nada que cotizar. Se arreglan
+    // geolocalizando al cliente, no tocando el webhook.
+    prisma.pedido.count({
+      where: { requiere_domicilio: true, costoDomicilio: null, archivedAt: null,
+               OR: [{ cliente: { latitud: null } }, { clienteId: null }] },
+    }),
+  ]);
+
+  const cfg = await getConfig('domicilio');
+  res.json({
+    configurado: !!cfg.url && !!cfg.secret,
+    activo: cfg.activo,
+    cola,
+    sinCotizar,
+    sinGeolocalizar: sinGeo,
+  });
+});
+
+/**
+ * POST /mantenimiento/webhook/domicilio/reencolar
+ * Vuelve a mandar todo lo que sigue sin cotizar. Para el día que la APK estuvo caída:
+ * los avisos de entonces ya se dieron por perdidos y nadie los va a reintentar solo.
+ */
+router.post('/webhook/domicilio/reencolar', async (req, res) => {
+  const n = await encolarPendientesDeDomicilio({ limite: Number(req.body?.limite) || 1000 });
+  auditar(req, 'webhook-reencolar', { destino: 'domicilio', encolados: n });
+  res.json({ ok: true, encolados: n });
 });
 
 // Mismo criterio de código que el import del CSV (nombre.primer_apellido, sin tildes

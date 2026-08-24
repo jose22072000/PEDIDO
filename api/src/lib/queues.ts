@@ -5,11 +5,6 @@ import { Redis } from 'ioredis';
 import { getConnection, PREFIX } from './redis';
 
 export const QUEUE_IMPORT = `${PREFIX}:import-csv`;
-// Cola de INGESTA hacia delivery (namespace de delivery, Redis compartido): PEDIDO
-// ENCOLA aquí cuando un pedido se crea o se geolocaliza; el worker de delivery la
-// consume y procesa (event-driven, SIN polling). Durable: si delivery está caído, los
-// jobs esperan.
-export const QUEUE_DELIVERY_IN_ORDERS = 'procovar-delivery:in:orders';
 
 const _queues = new Map<string, Queue.Queue>();
 
@@ -51,29 +46,34 @@ export function parrandaQueue(): Queue.Queue | null {
   return makeQueue(QUEUE_PARRANDA);
 }
 
-/** Cola de ingesta de pedidos hacia delivery. null si Redis está deshabilitado. */
-export function deliveryOrdersQueue(): Queue.Queue | null {
-  return makeQueue(QUEUE_DELIVERY_IN_ORDERS);
+/**
+ * Cola de webhooks salientes. null si Redis está deshabilitado.
+ *
+ * Existe por una razón concreta: la importación de un CSV crea cientos de pedidos de
+ * una sentada. Avisar de cada uno dentro del request convertiría una importación de
+ * dos segundos en varios minutos —y si el receptor está caído, en varios minutos que
+ * además fallan—. Encolar es instantáneo; el worker los va soltando de a pocos.
+ */
+export const QUEUE_WEBHOOKS = `${PREFIX}:webhooks`;
+export function webhooksQueue(): Queue.Queue | null {
+  return makeQueue(QUEUE_WEBHOOKS);
 }
 
 /**
- * Encola un evento "pedido(s) cambiaron" para que delivery los procese (event-driven,
- * reemplaza el poll de 15s). Payload liviano: señala que hay que revisar pendientes.
- * No-op si Redis está deshabilitado; nunca lanza (no rompe el request que lo dispara).
+ * Encola un aviso saliente. No-op si Redis está deshabilitado; nunca lanza (no puede
+ * romper el request que lo dispara).
+ *
+ * El `jobId` es evento+pedido a propósito: mientras el aviso esté esperando en la cola,
+ * volver a tocar el mismo pedido no encola un segundo. Un pedido que se edita cuatro
+ * veces seguidas manda UN aviso, no cuatro, y como el worker lee el pedido de la DB al
+ * entregarlo, ese aviso lleva ya la última versión.
  */
-export async function enqueueDeliveryOrders(payload: {
-  reason: string;
-  sucursalCodigo?: string | null;
-  externalId?: string | null;
-}): Promise<void> {
-  // OPT-IN: solo encola cuando delivery ya consume esta cola (DELIVERY_EVENTS=true). Sin
-  // el flag NO encola -> delivery sigue con su mecanismo actual, sin jobs huérfanos.
-  if (process.env.DELIVERY_EVENTS !== 'true') return;
-  const q = deliveryOrdersQueue();
+export async function encolarWebhook(evento: string, pedidoId: string): Promise<void> {
+  const q = webhooksQueue();
   if (!q) return;
   try {
-    await q.add(payload);
+    await q.add({ evento, pedidoId }, { jobId: `${evento}:${pedidoId}` });
   } catch (e) {
-    console.error('[queues] enqueueDeliveryOrders falló:', (e as Error).message);
+    console.error('[queues] encolarWebhook falló:', (e as Error).message);
   }
 }

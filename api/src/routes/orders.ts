@@ -13,7 +13,8 @@ import { parsearFechaConsulta } from '../lib/fechaConsulta';
 import { notifyPedidoCompletado } from '../lib/webhook';
 import { emitEvent } from '../lib/events';
 import { redisEnabled, publishJSON, getSubscriber, CH_IMPORT_DONE, CH_IMPORT_FAILED } from '../lib/redis';
-import { importQueue, enqueueDeliveryOrders } from '../lib/queues';
+import { importQueue } from '../lib/queues';
+import { pedirCotizacion, encolarPendientesDeDomicilio } from '../lib/domicilio';
 import { mintSseTicket, consumeSseTicket } from '../lib/sseTickets';
 import { ingestaAuth } from '../middleware/ingestaAuth';
 
@@ -483,10 +484,10 @@ router.post('/', async (req, res) => {
       include: { items: true }
     });
 
-    // Event-driven: avisa a delivery que hay un pedido nuevo para (re)procesar. Durable
-    // (cola Redis); no-op sin Redis. Reemplaza el poll de 15s de delivery. Delivery filtra
-    // luego los que tienen geo + requieren domicilio.
-    void enqueueDeliveryOrders({ reason: 'order-created', externalId: order.id });
+    // Si hay que llevarlo a casa, la APK tiene que cotizarlo. Va por la cola: el aviso
+    // no puede hacer esperar a quien está creando el pedido, ni fallar si la APK está
+    // caída.
+    if (order.requiere_domicilio) pedirCotizacion(order.id);
     // El pedido viaja COMPLETO (misma forma que la lista) para que las vistas lo
     // inserten arriba sin volver a pedir la página entera.
     emitEvent('pedido', {
@@ -1080,9 +1081,9 @@ export async function processBulkImport(
     }
   }
 
-  // Se importaron pedidos -> avisa a delivery para (re)procesar domicilios (event-driven).
+  // Se importaron pedidos: los que pidan domicilio entran en la cola de cotización.
   if (results.created > 0 || results.updated > 0) {
-    void enqueueDeliveryOrders({ reason: 'bulk-import' });
+    void encolarPendientesDeDomicilio({ sucursalId: uploaderSucursalId });
     emitEvent('pedido', { sucursalId: uploaderSucursalId ?? null, accion: 'bulk' });
     emitEvent('cliente', { sucursalId: uploaderSucursalId ?? null, accion: 'bulk' });
   }

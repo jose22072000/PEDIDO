@@ -5,7 +5,9 @@
 // él no hay colas que consumir (la API entonces importa inline y este worker sobra).
 import 'dotenv/config';
 import { redisEnabled, publishJSON, CH_IMPORT_DONE, CH_IMPORT_FAILED } from './lib/redis';
-import { importQueue, parrandaQueue, QUEUE_IMPORT, QUEUE_PARRANDA } from './lib/queues';
+import { importQueue, parrandaQueue, webhooksQueue, QUEUE_IMPORT, QUEUE_PARRANDA, QUEUE_WEBHOOKS } from './lib/queues';
+import { entregarWebhook } from './lib/webhook';
+import { payloadDomicilio, EVENTO_DOMICILIO } from './lib/domicilio';
 import { processBulkImport } from './routes/orders';
 import { processParrandaSync } from './lib/parranda';
 
@@ -65,6 +67,44 @@ async function main() {
 
     await programarSyncDiario(pq);
   }
+
+  arrancarWebhooks();
+}
+
+/**
+ * Los avisos salientes, de a pocos.
+ *
+ * Aquí y no en la API porque una importación de CSV crea cientos de pedidos de golpe:
+ * mandar el aviso dentro del request convertiría una importación de dos segundos en
+ * varios minutos, y si el receptor está caído, en varios minutos que además fallan.
+ *
+ * El job sólo lleva el id. El pedido se lee de la DB al entregarlo, así que un aviso
+ * que llevaba diez minutos esperando en la cola sale con la última versión, no con la
+ * foto de cuando se encoló.
+ */
+function arrancarWebhooks() {
+  const wq = webhooksQueue();
+  if (!wq) return;
+
+  const concurrencia = Number(process.env.WEBHOOK_CONCURRENCY || 3);
+  wq.process(concurrencia, async (job) => {
+    const { evento, pedidoId } = job.data as { evento: string; pedidoId: string };
+    if (evento !== EVENTO_DOMICILIO) return { saltado: `evento desconocido: ${evento}` };
+
+    const payload = await payloadDomicilio(pedidoId);
+    // Borrado mientras esperaba en la cola. No es un fallo que haya que reintentar.
+    if (!payload) return { saltado: 'el pedido ya no existe' };
+    // Dejó de requerir domicilio, o ya se lo cotizaron por otra vía.
+    if (!payload.requiereDomicilio) return { saltado: 'ya no requiere domicilio' };
+
+    await entregarWebhook('domicilio', payload);
+    return { folio: payload.folio };
+  });
+
+  wq.on('failed', (job, err) =>
+    console.error(`[worker] webhook ${job?.data?.evento} ${job?.data?.pedidoId} falló:`, err.message),
+  );
+  console.log(`[worker] escuchando ${QUEUE_WEBHOOKS} (concurrency=${concurrencia})`);
 }
 
 /**

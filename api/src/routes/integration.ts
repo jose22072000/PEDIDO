@@ -1,6 +1,4 @@
 import { Router } from 'express';
-import fs from 'fs';
-import path from 'path';
 import prisma from '../prismaClient';
 import { serviceAuth } from '../middleware/serviceAuth';
 
@@ -12,19 +10,11 @@ import { serviceAuth } from '../middleware/serviceAuth';
 // (config.json.sucursalId). La integración se scopea a esa sucursal para que un
 // delivery de una sucursal nunca vea ni escriba pedidos de otra.
 import { clasificarParranda } from '../lib/webhook';
+import { readConfiguredSucursalId } from '../lib/sucursalLocal';
 
 const router = Router();
 router.use(serviceAuth);
 
-const CONFIG_FILE = path.join(__dirname, '../../config.json');
-function readConfiguredSucursalId(): string | null {
-  try {
-    const parsed = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')) as { sucursalId?: string | null };
-    return parsed.sucursalId?.trim() || null;
-  } catch {
-    return null;
-  }
-}
 
 /**
  * GET /integration/orders?onlyPending=1&desde=YYYY-MM-DD&hasta=YYYY-MM-DD&since=<ISO>&limit=500

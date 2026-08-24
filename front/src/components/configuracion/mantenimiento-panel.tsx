@@ -15,6 +15,7 @@ import { cards } from "../primitives";
 import Icons from "../icons/iconify";
 
 import { ApiKeysPanel } from "./api-keys-panel";
+import { WebhookDomicilio } from "./webhook-domicilio";
 import { getApiBaseUrl } from "@/config";
 
 /**
@@ -490,6 +491,8 @@ export const MantenimientoPanel = () => {
               <Button color="primary" size="sm" isLoading={cargando === "webhook"} onPress={guardarWebhook}>Guardar</Button>
             </div>
           </div>
+
+          <WebhookDomicilio />
 
           <ApiKeysPanel />
         </div>
