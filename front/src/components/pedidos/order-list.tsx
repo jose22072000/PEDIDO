@@ -13,6 +13,8 @@ import {
   ModalFooter,
   useDisclosure,
   Divider,
+  Autocomplete,
+  AutocompleteItem,
   Select,
   SelectItem,
   addToast,
@@ -617,43 +619,39 @@ export const OrdersList = () => {
                 que se necesita cuando falta mercancía y hay que avisar a quien la
                 pidió. La lista sale de las líneas reales de esta sucursal, así que
                 no hay opciones que devuelvan cero. */}
-            <Select
-              isClearable
-              className="w-full sm:w-64"
+            {/* Autocompletado y no un desplegable a secas: son cientos de productos.
+                Bajar por una lista de esas es inservible —hay que escribir "arroz" y
+                que salgan los arroces—, y además el desplegable dejaba el primero
+                medio tapado por el borde del campo. */}
+            <Autocomplete
+              allowsCustomValue={false}
+              className="w-full sm:w-72"
+              defaultItems={productos.map((nombre) => ({
+                nombre,
+                ...partirProducto(nombre),
+              }))}
               label="Producto"
-              placeholder="Todos"
-              renderValue={(items) =>
-                items.map((item) => (
-                  <span key={item.key}>
-                    {partirProducto(String(item.key)).producto}
-                  </span>
-                ))
-              }
-              selectedKeys={productoFilter ? [productoFilter] : []}
+              placeholder="Todos · escribe para buscar"
+              selectedKey={productoFilter || null}
               size="lg"
               variant="bordered"
-              onChange={(e) => setProductoFilter(e.target.value)}
+              onSelectionChange={(k) => setProductoFilter(k ? String(k) : "")}
             >
-              {productos.map((nombre) => {
-                const { categoria, producto } = partirProducto(nombre);
-
-                return (
-                  // `textValue` es lo que se teclea para buscar dentro del
-                  // desplegable: va el nombre ENTERO, para que quien escriba
-                  // "alimentos" siga encontrándolo.
-                  <SelectItem key={nombre} textValue={nombre}>
-                    <div className="flex flex-col">
-                      <span className="text-sm">{producto}</span>
-                      {categoria && (
-                        <span className="text-[11px] uppercase tracking-wide text-default-400">
-                          {categoria}
-                        </span>
-                      )}
-                    </div>
-                  </SelectItem>
-                );
-              })}
-            </Select>
+              {(item: { nombre: string; categoria: string; producto: string }) => (
+                // `textValue` es por lo que se busca al teclear: el nombre ENTERO, para
+                // que quien escriba "alimentos" o "arroz" lo encuentre igual.
+                <AutocompleteItem key={item.nombre} textValue={item.nombre}>
+                  <div className="flex flex-col">
+                    <span className="text-sm">{item.producto}</span>
+                    {item.categoria && (
+                      <span className="text-[11px] uppercase tracking-wide text-default-400">
+                        {item.categoria}
+                      </span>
+                    )}
+                  </div>
+                </AutocompleteItem>
+              )}
+            </Autocomplete>
             <Select
               className="w-full sm:w-56"
               label="Domicilio"
