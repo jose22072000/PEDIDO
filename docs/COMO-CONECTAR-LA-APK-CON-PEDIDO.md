@@ -97,6 +97,30 @@ GET /integration/clients?sucursalCodigo=CAM&vendedor=andy.almanza
 Solo los que tienen coordenadas (sin ellas no hay domicilio que calcular). Con
 `vendedor` te traes **su cartera** en vez de los 8.850 de la sucursal.
 
+Y cada cliente dice **de quién es**, que antes no venía:
+
+```json
+{ "codigo": "CAM-0412", "nombre": "CAFETERIA EL RAPIDO",
+  "sucursalCodigo": "CAM", "sucursalNombre": "Camagüey",
+  "vendedor": {
+    "codigo": "andy.almanza", "nombre": "ANDY ALMANZA",
+    "sucursalCodigo": "CAM",
+    "gestor": { "usuario": "yamileidy", "sucursalCodigo": "CAM" }
+  },
+  "vendedores": [ { "codigo": "andy.almanza", "...": "" } ] }
+```
+
+`vendedor` es **quien lo trajo** (el de su pedido más antiguo), que es el mismo
+criterio que usa el panel. `vendedores` son **todos** los que le han vendido: un
+cliente puede comprarle a dos, y quedarnos con uno sería decidir desde aquí a quién le
+toca la entrega.
+
+La sucursal viene por partida triple a propósito: la del cliente, la del vendedor y la
+de su gestor. Normalmente son la misma. Cuando no coinciden es que ese vendedor está
+mal colocado en PEDIDO — mejor verlo que atribuir la entrega a la sucursal equivocada
+sin que nadie se entere. Y si el cliente no tiene sucursal propia (pasa con los que
+Parranda no mapeó), la del vendedor te la da igual.
+
 ## 4. Devolver el costo
 
 Cuando una tablet suba sus entregas a tu `dispositivo/sync`, tú escribes el costo en

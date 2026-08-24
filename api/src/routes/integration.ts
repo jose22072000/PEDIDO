@@ -345,6 +345,72 @@ router.get('/clients', async (req, res) => {
     ...(limit && cursor ? { skip: 1, cursor: { id: cursor } } : {}),
   });
 
+  // De quién es cada cliente.
+  //
+  // El cliente no tiene vendedor propio: esa relación vive en los pedidos. Se
+  // resuelve aquí, para la página que se va a devolver, en UNA consulta: pedirlo
+  // cliente por cliente serían 500 consultas para pintar 500 filas.
+  //
+  // `vendedor` es quien lo TRAJO —el de su pedido más antiguo—, que es el criterio
+  // que ya usa la lista de clientes del panel. `vendedores` son todos los que le han
+  // vendido: un cliente puede comprarle a dos, y quedarse solo con uno sería decidir
+  // desde aquí a quién le toca la entrega.
+  const idsClientes = clientes.map((c) => c.id);
+  const suyos = idsClientes.length
+    ? await prisma.pedido.findMany({
+        where: { clienteId: { in: idsClientes }, vendedorId: { not: null } },
+        select: {
+          clienteId: true,
+          vendedor: {
+            select: {
+              id: true, codigo: true, nombre: true,
+              sucursal: { select: { id: true, codigo: true, nombre: true } },
+              gestor: {
+                select: {
+                  id: true, username: true,
+                  sucursal: { select: { id: true, codigo: true, nombre: true } },
+                },
+              },
+            },
+          },
+        },
+        orderBy: { fecha: 'asc' },
+      })
+    : [];
+
+  type Vend = NonNullable<(typeof suyos)[number]['vendedor']>;
+  const loTrajo = new Map<string, Vend>();
+  const todosSus = new Map<string, Map<string, Vend>>();
+  for (const p of suyos) {
+    if (!p.clienteId || !p.vendedor) continue;
+    // Vienen ordenados por fecha ascendente, así que el primero que aparece de cada
+    // cliente es el de su pedido más antiguo: quien lo trajo.
+    if (!loTrajo.has(p.clienteId)) loTrajo.set(p.clienteId, p.vendedor);
+    if (!todosSus.has(p.clienteId)) todosSus.set(p.clienteId, new Map());
+    todosSus.get(p.clienteId)!.set(p.vendedor.id, p.vendedor);
+  }
+
+  const comoSale = (v: Vend) => ({
+    id: v.id,
+    codigo: v.codigo,
+    nombre: v.nombre,
+    // La sucursal del vendedor, y la de su gestor. Normalmente son la misma; cuando
+    // no lo son, es que el vendedor está mal colocado, y verlo es mejor que que la
+    // APK atribuya la entrega a la sucursal equivocada sin que nadie se entere.
+    sucursalId: v.sucursal?.id ?? null,
+    sucursalCodigo: v.sucursal?.codigo ?? null,
+    sucursalNombre: v.sucursal?.nombre ?? null,
+    gestor: v.gestor
+      ? {
+          id: v.gestor.id,
+          usuario: v.gestor.username,
+          sucursalId: v.gestor.sucursal?.id ?? null,
+          sucursalCodigo: v.gestor.sucursal?.codigo ?? null,
+          sucursalNombre: v.gestor.sucursal?.nombre ?? null,
+        }
+      : null,
+  });
+
   const clients = clientes.map((c) => ({
     id: c.id,
     codigo: c.codigo,
@@ -360,6 +426,10 @@ router.get('/clients', async (req, res) => {
     sucursalId: c.sucursalId,
     sucursalCodigo: c.sucursal?.codigo || null,
     sucursalNombre: c.sucursal?.nombre || null,
+    // Quién lo trajo, con su sucursal y su gestor.
+    vendedor: loTrajo.has(c.id) ? comoSale(loTrajo.get(c.id)!) : null,
+    // Y todos los que le han vendido, por si le compra a más de uno.
+    vendedores: [...(todosSus.get(c.id)?.values() ?? [])].map(comoSale),
     // Para que la tablet sepa por dónde seguir en la próxima sync.
     updatedAt: c.updatedAt,
   }));
