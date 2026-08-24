@@ -134,6 +134,17 @@ POST /integration/orders/domicilio
 **En lote y es idempotente**: mandar lo mismo dos veces deja lo mismo. Si no estás
 seguro de que llegó, repite.
 
+## Ya no hace falta preguntar: te avisamos
+
+Todo lo de arriba sigue siendo tuyo para traerte lo que necesites cuando quieras —el
+arranque de una tablet nueva, una sincronización completa, recuperar un día que
+estuviste caído—. Pero para el día a día no hace falta preguntar cada tantos minutos si
+hay algo nuevo: **te avisamos por webhook** en cuanto un pedido pide domicilio, y nos
+devuelves el costo por el mismo camino.
+
+Eso está en [WEBHOOKS-CON-LA-APK-DE-DOMICILIO.md](WEBHOOKS-CON-LA-APK-DE-DOMICILIO.md),
+con cómo se configura y cómo se firma.
+
 ## Sincronizar sin bajarte todo cada vez
 
 `since` es el que hace que una sync sea instantánea. Está en **pedidos y en clientes**:
