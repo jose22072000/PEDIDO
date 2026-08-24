@@ -283,6 +283,12 @@ router.get('/clients', async (req, res) => {
   // Sirve para que una tablet se traiga SOLO su cartera en vez de los 8.850 clientes
   // de la sucursal: un repartidor no visita a los de otro.
   const vendedor = typeof req.query.vendedor === 'string' ? req.query.vendedor.trim() : '';
+  // Incremental, igual que en /orders: lo que cambió desde la última sincronización.
+  //
+  // Sin esto, refrescar la cartera obliga a bajársela entera aunque no se haya movido
+  // un dato. Con 8.850 clientes y datos móviles, eso es un minuto largo cada vez para,
+  // casi siempre, no traer nada.
+  const since = typeof req.query.since === 'string' ? req.query.since : '';
 
   const localSucursalId = readConfiguredSucursalId();
   let sucursalScope: Record<string, unknown> = {};
@@ -316,6 +322,7 @@ router.get('/clients', async (req, res) => {
       ...sucursalScope,
       latitud: { not: null },
       longitud: { not: null },
+      ...(since ? { updatedAt: { gt: new Date(since) } } : {}),
       // Por vendedor: los que tienen ALGÚN pedido suyo.
       ...(vendedor
         ? {
@@ -353,6 +360,8 @@ router.get('/clients', async (req, res) => {
     sucursalId: c.sucursalId,
     sucursalCodigo: c.sucursal?.codigo || null,
     sucursalNombre: c.sucursal?.nombre || null,
+    // Para que la tablet sepa por dónde seguir en la próxima sync.
+    updatedAt: c.updatedAt,
   }));
 
   // nextCursor solo aparece si se pidió paginación Y la página vino llena:
