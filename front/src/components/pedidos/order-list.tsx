@@ -630,8 +630,13 @@ export const OrdersList = () => {
               // separación se montan una encima de otra y no se distingue dónde
               // acaba una y empieza la siguiente. El `py` de la lista es para que la
               // primera no nazca pegada al borde, que salía cortada.
+              // `h-auto` es lo que arregla el solapamiento: la opción traía altura
+              // fija del tema, así que un nombre que ocupa dos líneas se salía de su
+              // caja y se montaba encima de la siguiente.
               listboxProps={{
-                itemClasses: { base: "py-2 data-[hover=true]:bg-default-100" },
+                itemClasses: {
+                  base: "py-2 h-auto data-[hover=true]:bg-default-100",
+                },
               }}
               popoverProps={{ classNames: { content: "py-1" } }}
               defaultItems={productos.map((nombre) => ({
@@ -649,10 +654,13 @@ export const OrdersList = () => {
                 // `textValue` es por lo que se busca al teclear: el nombre ENTERO, para
                 // que quien escriba "alimentos" o "arroz" lo encuentre igual.
                 <AutocompleteItem key={item.nombre} textValue={item.nombre}>
-                  <div className="flex flex-col gap-0.5 leading-tight">
-                    <span className="text-sm">{item.producto}</span>
+                  {/* Una sola línea: el nombre y, a la derecha, su categoría en
+                      pequeño. Apiladas se montaban una encima de otra en cuanto el
+                      nombre no cabía de un renglón — y casi ninguno cabe. */}
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-sm truncate">{item.producto}</span>
                     {item.categoria && (
-                      <span className="text-[10px] uppercase tracking-wide text-default-400">
+                      <span className="shrink-0 text-[10px] uppercase tracking-wide text-default-400">
                         {item.categoria}
                       </span>
                     )}
