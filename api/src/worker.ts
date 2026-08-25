@@ -92,8 +92,8 @@ function arrancarWebhooks() {
   // cola de verdad.
   const concurrencia = Number(process.env.WEBHOOK_CONCURRENCY || 8);
   wq.process(concurrencia, async (job) => {
-    const { evento, pedidoId, encoladoEn } = job.data as {
-      evento: string; pedidoId: string; encoladoEn?: number;
+    const { evento, pedidoId, encoladoEn, relleno } = job.data as {
+      evento: string; pedidoId: string; encoladoEn?: number; relleno?: boolean;
     };
     if (evento !== EVENTO_DOMICILIO) return { saltado: `evento desconocido: ${evento}` };
 
@@ -106,7 +106,7 @@ function arrancarWebhooks() {
     await entregarWebhook('domicilio', payload);
     // Desde que se encoló hasta que salió. Es el número que dice si esto va en tiempo
     // real o no, y se enseña en Configuración para no tener que creérselo.
-    if (encoladoEn) await anotarLatencia(Date.now() - encoladoEn);
+    if (encoladoEn) await anotarLatencia(Date.now() - encoladoEn, !!relleno);
     return { folio: payload.folio };
   });
 

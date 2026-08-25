@@ -209,7 +209,10 @@ router.get('/webhook/domicilio/estado', async (_req, res) => {
     sinCotizar,
     sinGeolocalizar: sinGeo,
     // Cuánto tardan en salir de verdad, medido: desde que se encolan hasta que salen.
+    // La de EN VIVO es la que contesta "¿va en tiempo real?"; la de relleno mide una
+    // ráfaga drenando, que es otra cosa.
     latencia: await resumenLatencias(),
+    latenciaRelleno: await resumenLatencias(true),
   });
 });
 

@@ -836,6 +836,14 @@ router.patch('/:id/estado', async (req, res) => {
     // A Parranda se le avisa solo al completar: es lo que su webhook entiende.
     if (estado === 'completada') notifyPedidoCompletado(order);
 
+    // Un pedido que se REABRE y sigue pidiendo domicilio sin costo hay que volver a
+    // cotizarlo, y en el acto. Si no, se queda esperando a que alguien importe un CSV o
+    // pulse "Reencolar" —o sea, a que alguien se acuerde—, que es justo lo que no puede
+    // pasar con un pedido que acaba de volver a estar activo.
+    if (estado !== 'completada' && order.requiere_domicilio && order.costoDomicilio == null) {
+      pedirCotizacion(order.id);
+    }
+
     emitEvent('pedido', {
       sucursalId: order.sucursalId,
       id: order.id,

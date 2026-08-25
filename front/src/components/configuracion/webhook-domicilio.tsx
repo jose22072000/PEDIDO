@@ -231,17 +231,21 @@ export const WebhookDomicilio = () => {
             </Chip>
           )}
           {/* Lo que tarda de verdad un aviso desde que se encola hasta que sale. Sin
-              este número, "va en tiempo real" es algo que hay que creerse. */}
+              este número, "va en tiempo real" es algo que hay que creerse.
+              Sólo los EN VIVO: un reencolado de 250 drena en ráfaga y sus últimos
+              salen a los segundos, que es normal y no dice nada del tiempo real. */}
           {estado.latencia?.muestras > 0 && (
             <Chip
               color={estado.latencia.medianaMs < 1000 ? "success" : "warning"}
               size="sm"
               variant="flat"
             >
-              salen en {estado.latencia.medianaMs} ms
-              {estado.latencia.peorMs > estado.latencia.medianaMs
-                ? ` (peor ${estado.latencia.peorMs})`
-                : ""}
+              en vivo: salen en {estado.latencia.medianaMs} ms
+            </Chip>
+          )}
+          {estado.latenciaRelleno?.muestras > 0 && (
+            <Chip size="sm" variant="flat">
+              relleno: {(estado.latenciaRelleno.medianaMs / 1000).toFixed(1)} s
             </Chip>
           )}
           <Button

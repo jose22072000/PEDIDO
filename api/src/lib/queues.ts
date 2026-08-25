@@ -83,7 +83,7 @@ export async function encolarWebhook(
   if (!q) return;
   try {
     await q.add(
-      { evento, pedidoId, encoladoEn: Date.now() },
+      { evento, pedidoId, encoladoEn: Date.now(), relleno: !!opts.relleno },
       {
         jobId: `${evento}:${pedidoId}`,
         removeOnComplete: true,
