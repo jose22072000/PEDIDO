@@ -232,6 +232,7 @@ export async function encolarPendientesDeDomicilio(opts: {
     take: Math.min(opts.limite ?? 1000, 5000),
   });
 
-  for (const p of pendientes) await encolarWebhook(EVENTO_DOMICILIO, p.id);
+  // Relleno: va por detrás de lo que esté pasando ahora mismo.
+  for (const p of pendientes) await encolarWebhook(EVENTO_DOMICILIO, p.id, { relleno: true });
   return pendientes.length;
 }

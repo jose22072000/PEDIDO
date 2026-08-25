@@ -77,3 +77,45 @@ export function getSubscriber(): Redis | null {
 export function getConnection(): Redis | null {
   return connection;
 }
+
+/**
+ * Cuánto tarda un aviso desde que se encola hasta que sale.
+ *
+ * Vive en Redis y no en memoria porque quien entrega es el worker y quien lo enseña es
+ * la API: son dos procesos. Se guardan las últimas 200 y nada más — interesa si ahora
+ * mismo salen en el acto, no un histórico.
+ */
+export const K_WEBHOOK_LAT = `${PREFIX}:webhooks:latencias`;
+
+export async function anotarLatencia(ms: number): Promise<void> {
+  const conn = getConnection();
+  if (!conn) return;
+  try {
+    await conn.lpush(K_WEBHOOK_LAT, `${Date.now()}:${Math.round(ms)}`);
+    await conn.ltrim(K_WEBHOOK_LAT, 0, 199);
+  } catch {
+    /* medir no puede romper la entrega */
+  }
+}
+
+/** Resumen de las últimas entregas: cuántas, mediana, la peor, y cuándo fue la última. */
+export async function resumenLatencias(): Promise<{
+  muestras: number; medianaMs: number | null; peorMs: number | null; ultimaEn: string | null;
+} | null> {
+  const conn = getConnection();
+  if (!conn) return null;
+  try {
+    const filas = await conn.lrange(K_WEBHOOK_LAT, 0, 199);
+    const pares = filas.map((f) => f.split(':').map(Number)).filter((a) => a.length === 2 && !a.some(Number.isNaN));
+    if (!pares.length) return { muestras: 0, medianaMs: null, peorMs: null, ultimaEn: null };
+    const ms = pares.map((a) => a[1]).sort((a, b) => a - b);
+    return {
+      muestras: ms.length,
+      medianaMs: ms[Math.floor(ms.length / 2)],
+      peorMs: ms[ms.length - 1],
+      ultimaEn: new Date(Math.max(...pares.map((a) => a[0]))).toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}

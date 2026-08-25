@@ -230,6 +230,20 @@ export const WebhookDomicilio = () => {
               {estado.sinGeolocalizar} sin geolocalizar
             </Chip>
           )}
+          {/* Lo que tarda de verdad un aviso desde que se encola hasta que sale. Sin
+              este número, "va en tiempo real" es algo que hay que creerse. */}
+          {estado.latencia?.muestras > 0 && (
+            <Chip
+              color={estado.latencia.medianaMs < 1000 ? "success" : "warning"}
+              size="sm"
+              variant="flat"
+            >
+              salen en {estado.latencia.medianaMs} ms
+              {estado.latencia.peorMs > estado.latencia.medianaMs
+                ? ` (peor ${estado.latencia.peorMs})`
+                : ""}
+            </Chip>
+          )}
           <Button
             isDisabled={!estado.sinCotizar}
             isLoading={cargando === "reencolar"}

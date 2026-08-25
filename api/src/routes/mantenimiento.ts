@@ -7,6 +7,7 @@ import { getRequesterContext } from '../lib/sucursalContext';
 import { invalidarWebhookCache, entregarWebhook, getConfig, type Destino } from '../lib/webhook';
 import { webhooksQueue } from '../lib/queues';
 import { encolarPendientesDeDomicilio } from '../lib/domicilio';
+import { resumenLatencias } from '../lib/redis';
 
 const upload = multer({ dest: 'uploads/temp' });
 const fecha = (v: unknown) => (v == null ? null : new Date(v as string));
@@ -207,6 +208,8 @@ router.get('/webhook/domicilio/estado', async (_req, res) => {
     cola,
     sinCotizar,
     sinGeolocalizar: sinGeo,
+    // Cuánto tardan en salir de verdad, medido: desde que se encolan hasta que salen.
+    latencia: await resumenLatencias(),
   });
 });
 

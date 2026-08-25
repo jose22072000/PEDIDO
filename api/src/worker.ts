@@ -4,7 +4,7 @@
 // del request, con concurrencia acotada (IMPORT_CONCURRENCY). Requiere REDIS_URL; sin
 // él no hay colas que consumir (la API entonces importa inline y este worker sobra).
 import 'dotenv/config';
-import { redisEnabled, publishJSON, CH_IMPORT_DONE, CH_IMPORT_FAILED } from './lib/redis';
+import { redisEnabled, publishJSON, anotarLatencia, CH_IMPORT_DONE, CH_IMPORT_FAILED } from './lib/redis';
 import { importQueue, parrandaQueue, webhooksQueue, QUEUE_IMPORT, QUEUE_PARRANDA, QUEUE_WEBHOOKS } from './lib/queues';
 import { entregarWebhook } from './lib/webhook';
 import { payloadDomicilio, EVENTO_DOMICILIO } from './lib/domicilio';
@@ -86,9 +86,15 @@ function arrancarWebhooks() {
   const wq = webhooksQueue();
   if (!wq) return;
 
-  const concurrencia = Number(process.env.WEBHOOK_CONCURRENCY || 3);
+  // Ocho a la vez. Con tres, un reencolado de 681 tardaba minutos en drenar y todo lo
+  // que entrara mientras tanto quedaba detrás; ahora además la prioridad hace que lo de
+  // ahora adelante al relleno, pero drenar rápido sigue importando para no tener nunca
+  // cola de verdad.
+  const concurrencia = Number(process.env.WEBHOOK_CONCURRENCY || 8);
   wq.process(concurrencia, async (job) => {
-    const { evento, pedidoId } = job.data as { evento: string; pedidoId: string };
+    const { evento, pedidoId, encoladoEn } = job.data as {
+      evento: string; pedidoId: string; encoladoEn?: number;
+    };
     if (evento !== EVENTO_DOMICILIO) return { saltado: `evento desconocido: ${evento}` };
 
     const payload = await payloadDomicilio(pedidoId);
@@ -98,6 +104,9 @@ function arrancarWebhooks() {
     if (!payload.requiereDomicilio) return { saltado: 'ya no requiere domicilio' };
 
     await entregarWebhook('domicilio', payload);
+    // Desde que se encoló hasta que salió. Es el número que dice si esto va en tiempo
+    // real o no, y se enseña en Configuración para no tener que creérselo.
+    if (encoladoEn) await anotarLatencia(Date.now() - encoladoEn);
     return { folio: payload.folio };
   });
 

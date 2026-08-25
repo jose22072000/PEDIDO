@@ -74,11 +74,30 @@ export function webhooksQueue(): Queue.Queue | null {
  * sin encolar ninguno—. La ventana de deduplicación tiene que ser "mientras espera", no
  * "para siempre".
  */
-export async function encolarWebhook(evento: string, pedidoId: string): Promise<void> {
+export async function encolarWebhook(
+  evento: string,
+  pedidoId: string,
+  opts: { relleno?: boolean } = {},
+): Promise<void> {
   const q = webhooksQueue();
   if (!q) return;
   try {
-    await q.add({ evento, pedidoId }, { jobId: `${evento}:${pedidoId}`, removeOnComplete: true });
+    await q.add(
+      { evento, pedidoId, encoladoEn: Date.now() },
+      {
+        jobId: `${evento}:${pedidoId}`,
+        removeOnComplete: true,
+        // Un pedido que acaba de nacer NO puede esperar detrás de un relleno.
+        //
+        // Sin esto, el día que se reencolan 681 atrasados, el pedido que un vendedor
+        // acaba de meter va detrás de los 681: con tres en paralelo son casi un minuto
+        // de espera para un aviso que debería salir en el acto. La cola estaba para
+        // aguantar caídas de la APK, no para poner al día de delante del ahora.
+        //
+        // En Bull el número BAJO es el que corre primero.
+        priority: opts.relleno ? 10 : 1,
+      },
+    );
   } catch (e) {
     console.error('[queues] encolarWebhook falló:', (e as Error).message);
   }
