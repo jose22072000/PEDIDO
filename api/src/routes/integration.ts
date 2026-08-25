@@ -515,4 +515,75 @@ router.get('/client-order-counts', async (req, res) => {
   res.json({ count: counts.length, counts });
 });
 
+/**
+ * GET /integration/vendedores?sucursalCodigo=XXX&activos=1   (x-api-key)
+ *
+ * El MAESTRO de vendedores, entero. No los que han hecho pedidos: todos.
+ *
+ * # Para qué
+ *
+ * Rutas identifica a sus vendedores por el nombre de una carpeta de Drive
+ * («ALEXANDER», «STGTadyslai», «TABLET3») y aquí se llaman como los llamó el maestro
+ * («andy.almanza», «ALEXANDER RODRÍGUEZ»). Para cruzar los pedidos con el recorrido
+ * hay que emparejar las dos listas, y eso lo hace una persona una vez por vendedor.
+ *
+ * Deducir la lista de los PEDIDOS no vale: quien está emparejando necesita ver a
+ * TODOS —también al que todavía no ha vendido nada, y al que lleva un mes sin
+ * pedidos— y si no, se queda esperando a que aparezcan para poder decir quiénes son.
+ *
+ * Es de solo lectura y no toca nada. La sucursal se scopea igual que en /orders y
+ * /clients: cada instalación entrega lo suyo.
+ */
+router.get('/vendedores', async (req, res) => {
+  const askedCodigo = typeof req.query.sucursalCodigo === 'string' ? req.query.sucursalCodigo.trim() : '';
+  // Por defecto SOLO los activos: un vendedor de baja no tiene a quién emparejar y
+  // ensucia la lista. Con activos=0 salen todos, para revisar un histórico.
+  const soloActivos = req.query.activos !== '0' && req.query.activos !== 'false';
+
+  const localSucursalId = readConfiguredSucursalId();
+  let sucursalScope: Record<string, unknown> = {};
+  if (localSucursalId) {
+    sucursalScope = { sucursalId: localSucursalId };
+    if (askedCodigo) {
+      const local = await prisma.sucursal.findUnique({ where: { id: localSucursalId } });
+      if (local?.codigo && local.codigo !== askedCodigo) {
+        return res.status(403).json({
+          error: `Esta instalación es de la sucursal '${local.codigo}', no '${askedCodigo}'.`,
+        });
+      }
+    }
+  } else if (askedCodigo) {
+    sucursalScope = { sucursal: { codigo: askedCodigo } };
+  }
+
+  const vendedores = await prisma.vendedor.findMany({
+    where: { ...sucursalScope, ...(soloActivos ? { activo: true } : {}) },
+    select: {
+      id: true,
+      codigo: true,
+      nombre: true,
+      activo: true,
+      sucursalId: true,
+      sucursal: { select: { codigo: true, nombre: true } },
+      // Cuántos pedidos lleva: es lo que dice si un emparejamiento importa mucho o
+      // poco, y quien está emparejando agradece verlo para empezar por los gordos.
+      _count: { select: { pedidos: true } },
+    },
+    orderBy: { nombre: 'asc' },
+  });
+
+  const sellers = vendedores.map((v) => ({
+    id: v.id,
+    codigo: v.codigo,
+    nombre: v.nombre,
+    activo: v.activo,
+    sucursalId: v.sucursalId,
+    sucursalCodigo: v.sucursal?.codigo ?? null,
+    sucursalNombre: v.sucursal?.nombre ?? null,
+    pedidos: v._count.pedidos,
+  }));
+
+  res.json({ count: sellers.length, sellers });
+});
+
 export default router;
