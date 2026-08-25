@@ -37,6 +37,25 @@ import "@/styles/components/typo.css";
 // autoUpdate ya hace lo correcto solo: instala la version nueva y la activa en
 // la siguiente navegacion, sin recargar por debajo de los pies del usuario.
 
+// Un trozo de la aplicacion que no se pudo bajar, cazado ANTES de que llegue a la
+// consola como error suelto.
+//
+// Vite avisa con `vite:preloadError` cuando un import diferido falla. Pasa despues de
+// cada despliegue: la pestania abierta sigue con el index.html viejo y pide ficheros
+// con nombres que ya no existen.
+//
+// AQUI NO SE RECARGA NADA. Se deja que el fallo llegue al aviso de pantalla, que tiene
+// su boton. Recargar solo se probo dos veces —04/08/2026 y 08/08/2026— y las dos
+// acabaron en bucle de recargas con la aplicacion inutilizable; un boton que hay que
+// pulsar es peor experiencia y mejor idea.
+window.addEventListener("vite:preloadError", () => {
+  // eslint-disable-next-line no-console
+  console.warn(
+    "[despliegue] falta un trozo de la aplicacion (version vieja en esta pestania). " +
+      "Hay que recargar con el boton del aviso, que ademas limpia las cachés.",
+  );
+});
+
 // Global fetch wrapper: attach Authorization Bearer header from localStorage if present
 // This keeps existing fetch calls working without modifying every file.
 import { senalConTope } from "@/lib/senal-con-tope";
