@@ -7,6 +7,7 @@ import 'dotenv/config';
 import { redisEnabled, publishJSON, anotarLatencia, CH_IMPORT_DONE, CH_IMPORT_FAILED } from './lib/redis';
 import { importQueue, parrandaQueue, webhooksQueue, QUEUE_IMPORT, QUEUE_PARRANDA, QUEUE_WEBHOOKS } from './lib/queues';
 import { entregarWebhook } from './lib/webhook';
+import { emitEvent } from './lib/events';
 import { payloadDomicilio, EVENTO_DOMICILIO } from './lib/domicilio';
 import { processBulkImport } from './routes/orders';
 import { processParrandaSync } from './lib/parranda';
@@ -107,6 +108,10 @@ function arrancarWebhooks() {
     // Desde que se encoló hasta que salió. Es el número que dice si esto va en tiempo
     // real o no, y se enseña en Configuración para no tener que creérselo.
     if (encoladoEn) await anotarLatencia(Date.now() - encoladoEn, !!relleno);
+    // Y se avisa a las pantallas abiertas. El worker es otro proceso que la API, pero
+    // emitEvent publica en el MISMO Redis y el SSE de la API lo reenvía: por eso
+    // Configuración se mueve sola, sin preguntar cada pocos segundos.
+    emitEvent('webhook', { accion: 'entregado', id: pedidoId, datos: { folio: payload.folio, relleno: !!relleno } });
     return { folio: payload.folio };
   });
 

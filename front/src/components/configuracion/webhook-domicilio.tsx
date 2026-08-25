@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Icons from "../icons/iconify";
 
 import { getApiBaseUrl } from "@/config";
+import { useLiveEvents } from "@/hooks/use-live-events";
 
 /**
  * El webhook de domicilio, en los dos sentidos.
@@ -47,6 +48,15 @@ export const WebhookDomicilio = () => {
   useEffect(() => {
     cargar();
   }, [cargar]);
+
+  // EN VIVO por SSE, no preguntando cada X segundos. Cada aviso que sale mueve estos
+  // contadores, y el worker publica el evento en el mismo Redis que lee el stream de la
+  // API. Los eventos llegan agrupados, así que una ráfaga de 250 recarga el estado una
+  // vez y no 250. Sin esto, la pantalla se quedaba con los números de cuando se abrió y
+  // había que recargar a mano para saber si el webhook estaba haciendo algo.
+  useLiveEvents(["webhook"], () => {
+    void cargar();
+  });
 
   const guardar = async () => {
     setCargando("guardar");

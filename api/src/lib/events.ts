@@ -10,7 +10,10 @@ export type EntidadEvento =
   | 'sucursal'
   | 'config'
   | 'reporte'
-  | 'apikey';
+  | 'apikey'
+  // El webhook de domicilio: cada aviso que sale mueve los contadores de
+  // Configuración. Sin esto la pantalla se queda con los números de cuando se abrió.
+  | 'webhook';
 
 /** Qué le pasó a la entidad. Determina cómo la aplica el front sin recargar. */
 export type AccionEvento = 'create' | 'update' | 'delete' | 'bulk' | 'change' | string;
