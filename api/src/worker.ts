@@ -12,6 +12,26 @@ import { payloadDomicilio, EVENTO_DOMICILIO } from './lib/domicilio';
 import { processBulkImport } from './routes/orders';
 import { processParrandaSync } from './lib/parranda';
 
+/**
+ * Avisar a las pantallas de que salió un aviso, como mucho una vez cada pocos segundos.
+ *
+ * Un evento por entrega era pasarse: un relleno de 700 publicaba 700 eventos, el SSE se
+ * los mandaba a TODAS las pestañas abiertas y cada una pedía los contadores otra vez.
+ * Los contadores no cambian tanto como para eso, y lo que se ganaba era llenar de
+ * tráfico enlaces que en las sucursales ya van justos.
+ *
+ * Los fallos NO pasan por aquí: ésos se avisan siempre, que son los que hay que mirar.
+ */
+let ultimoAviso = 0;
+const AVISO_CADA_MS = Number(process.env.WEBHOOK_AVISO_MS || 4000);
+
+function avisarPantallas(folio: string, relleno: boolean): void {
+  const ahora = Date.now();
+  if (ahora - ultimoAviso < AVISO_CADA_MS) return;
+  ultimoAviso = ahora;
+  emitEvent('webhook', { accion: 'entregado', datos: { folio, relleno } });
+}
+
 async function main() {
   if (!redisEnabled()) {
     console.error('[worker] REDIS_URL no configurado: no hay colas que consumir. Saliendo.');
@@ -111,13 +131,16 @@ function arrancarWebhooks() {
     // Y se avisa a las pantallas abiertas. El worker es otro proceso que la API, pero
     // emitEvent publica en el MISMO Redis y el SSE de la API lo reenvía: por eso
     // Configuración se mueve sola, sin preguntar cada pocos segundos.
-    emitEvent('webhook', { accion: 'entregado', id: pedidoId, datos: { folio: payload.folio, relleno: !!relleno } });
+    avisarPantallas(payload.folio, !!relleno);
     return { folio: payload.folio };
   });
 
-  wq.on('failed', (job, err) =>
-    console.error(`[worker] webhook ${job?.data?.evento} ${job?.data?.pedidoId} falló:`, err.message),
-  );
+  wq.on('failed', (job, err) => {
+    console.error(`[worker] webhook ${job?.data?.evento} ${job?.data?.pedidoId} falló:`, err.message);
+    // Un fallo se avisa SIEMPRE, sin limitar: es lo único de aquí que alguien tiene que
+    // mirar, y enterarse tarde de que la APK dejó de contestar no sirve de nada.
+    emitEvent('webhook', { accion: 'fallado', id: job?.data?.pedidoId ?? null, datos: { error: err.message.slice(0, 200) } });
+  });
   console.log(`[worker] escuchando ${QUEUE_WEBHOOKS} (concurrency=${concurrencia})`);
 }
 

@@ -30,32 +30,43 @@ export const WebhookDomicilio = () => {
 
   const base = getApiBaseUrl();
 
-  const cargar = useCallback(async () => {
+  // SOLO los contadores. Separado de la config a propósito: esto se refresca cuando
+  // sale un aviso, y si de paso reescribiera el formulario, un aviso que llega mientras
+  // escribes la URL te borraría lo escrito de debajo de las manos.
+  const cargarEstado = useCallback(async () => {
     try {
-      const [c, e] = await Promise.all([
-        fetch(`${base}/mantenimiento/webhook/domicilio`).then((r) => r.json()),
-        fetch(`${base}/mantenimiento/webhook/domicilio/estado`).then((r) => r.json()),
-      ]);
-      if (!c.error) {
-        setCfg({ url: c.url || "", key: c.key || "", secret: "", activo: c.activo ?? true, tieneSecret: !!c.tieneSecret });
-      }
+      const e = await fetch(`${base}/mantenimiento/webhook/domicilio/estado`).then((r) => r.json());
       if (!e.error) setEstado(e);
     } catch {
-      /* se reintenta al recargar */
+      /* se reintenta al siguiente evento */
     }
   }, [base]);
 
+  const cargar = useCallback(async () => {
+    try {
+      const c = await fetch(`${base}/mantenimiento/webhook/domicilio`).then((r) => r.json());
+      if (!c.error) {
+        setCfg({ url: c.url || "", key: c.key || "", secret: "", activo: c.activo ?? true, tieneSecret: !!c.tieneSecret });
+      }
+    } catch {
+      /* se reintenta al recargar */
+    }
+    await cargarEstado();
+  }, [base, cargarEstado]);
+
   useEffect(() => {
     cargar();
-  }, [cargar]);
+    // Sólo al montar: si dependiera de `cargar`, cualquier render que la recree
+    // volvería a pisar el formulario.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // EN VIVO por SSE, no preguntando cada X segundos. Cada aviso que sale mueve estos
-  // contadores, y el worker publica el evento en el mismo Redis que lee el stream de la
-  // API. Los eventos llegan agrupados, así que una ráfaga de 250 recarga el estado una
-  // vez y no 250. Sin esto, la pantalla se quedaba con los números de cuando se abrió y
-  // había que recargar a mano para saber si el webhook estaba haciendo algo.
+  // EN VIVO por SSE: nada de preguntar cada X segundos. El worker publica en el mismo
+  // Redis que lee el stream de la API, así que la pantalla se entera en cuanto sale un
+  // aviso. Refresca SÓLO los contadores —no la página, no el formulario— y el worker
+  // limita cuántos eventos emite, así que un relleno de 700 no dispara 700 refrescos.
   useLiveEvents(["webhook"], () => {
-    void cargar();
+    void cargarEstado();
   });
 
   const guardar = async () => {
