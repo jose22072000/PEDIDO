@@ -5,8 +5,6 @@ import {
   CardBody,
   CardHeader,
   Input,
-  Autocomplete,
-  AutocompleteItem,
   Select,
   SelectItem,
   Spinner,
@@ -20,6 +18,7 @@ import {
 } from "@heroui/react";
 
 import { NavigationHeading } from "@/components/navigation-heading";
+import { VendedorSelect } from "@/components/vendedor-select";
 import { getApiBaseUrl } from "@/config";
 import { usarReporte } from "@/stores/datos/reportes";
 import { FRESCO_LARGO_MS } from "@/stores/crearStoreDatos";
@@ -305,24 +304,14 @@ export default function ReportePedidosVendedorPage() {
                 value={fechaFin}
                 onChange={(e) => setFechaFin(e.target.value)}
               />
-              {/* Con buscador: son 82 vendedores y bajar la rueda hasta el que
-                  buscas es más trabajo que escribir tres letras. */}
-              <Autocomplete
-                defaultItems={[
-                  { id: "all", nombre: "Todos los vendedores" },
-                  ...vendedores,
-                ]}
+              <VendedorSelect
+                claveTodos="all"
                 isLoading={isLoadingVendedores}
-                label="Vendedor"
                 labelPlacement="outside"
-                placeholder="Selecciona un vendedor"
-                selectedKey={vendedorId}
-                onSelectionChange={(k) => setVendedorId((k as string) || "all")}
-              >
-                {(item: { id: string; nombre: string }) => (
-                  <AutocompleteItem key={item.id}>{item.nombre}</AutocompleteItem>
-                )}
-              </Autocomplete>
+                value={vendedorId}
+                vendedores={vendedores}
+                onChange={setVendedorId}
+              />
             </div>
             <div className="flex gap-2 w-full lg:w-auto">
               <Button

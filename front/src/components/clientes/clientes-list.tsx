@@ -5,8 +5,6 @@ import {
   Pagination,
   Button,
   Input,
-  Autocomplete,
-  AutocompleteItem,
   Select,
   SelectItem,
   Spinner,
@@ -22,6 +20,7 @@ import { useEffect, useState, useCallback } from "react";
 
 import { cards } from "../primitives";
 import Icons from "../icons/iconify";
+import { VendedorSelect } from "../vendedor-select";
 
 import { cn, copyTextToClipboard } from "@/lib/utils";
 import { registrarCopia } from "@/lib/registrar-copia";
@@ -236,31 +235,12 @@ export const ClientesList = () => {
                 ...municipios.map((m) => <SelectItem key={m}>{m}</SelectItem>),
               ]}
             </Select>
-            <Autocomplete
-              // Con buscador: hay 82 vendedores y en una lista desplegable eso son
-              // muchas vueltas de rueda para llegar a uno. Escribir tres letras es
-              // lo que ya se hace con los productos, aquí igual.
-              defaultItems={[
-                { id: "", nombre: "Todos los vendedores", clientes: null },
-                ...vendedores,
-              ]}
-              label="Vendedor"
-              placeholder="Todos los vendedores"
-              selectedKey={vendedorId}
-              size="lg"
-              startContent={<Icons.user className="size-5 text-default-400" />}
-              variant="bordered"
-              onSelectionChange={(k) => setVendedorId((k as string) ?? "")}
-            >
-              {(v: { id: string; nombre: string; clientes: number | null }) => (
-                // El numero al lado responde de un vistazo "cuantos clientes
-                // tiene cada uno", que es para lo que se pidio esto.
-                <AutocompleteItem key={v.id} textValue={v.nombre}>
-                  {v.nombre}
-                  {v.clientes != null ? ` · ${v.clientes}` : ""}
-                </AutocompleteItem>
-              )}
-            </Autocomplete>
+            <VendedorSelect
+              claveTodos=""
+              value={vendedorId}
+              vendedores={vendedores}
+              onChange={setVendedorId}
+            />
             <Select
               label="Compra"
               placeholder="Todos"

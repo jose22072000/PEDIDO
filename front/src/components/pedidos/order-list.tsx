@@ -28,6 +28,7 @@ import { useEffect, useState, useCallback } from "react";
 
 import { cards } from "../primitives";
 import Icons from "../icons/iconify";
+import { VendedorSelect } from "../vendedor-select";
 
 import { cn, copyTextToClipboard } from "@/lib/utils";
 import { registrarCopia } from "@/lib/registrar-copia";
@@ -755,35 +756,12 @@ export const OrdersList = () => {
                 <SelectItem key={option.value}>{option.label}</SelectItem>
               ))}
             </Select>
-            <Autocomplete
-              // Con buscador: hay 82 vendedores y en una lista desplegable eso son
-              // muchas vueltas de rueda para llegar a uno. Escribir tres letras es
-              // lo que ya se hace con los productos, aquí igual.
+            <VendedorSelect
               className="w-full sm:w-56"
-              defaultItems={
-                [
-                  { id: "todos", nombre: "Todos los vendedores" },
-                  ...vendedores,
-                ] as VendedorOpt[]
-              }
-              label="Vendedor"
-              // Sin esto, borrar el texto para buscar deja el filtro en el aire: la
-              // caja se ve vacía pero la lista sigue filtrada por el de antes.
-              selectedKey={vendedorFilter}
-              size="lg"
-              startContent={
-                <Icons.workers className="size-5 text-default-400" />
-              }
-              variant="bordered"
-              onSelectionChange={(k) => setVendedorFilter((k as string) || "todos")}
-            >
-              {(v: VendedorOpt) => (
-                <AutocompleteItem key={v.id} textValue={v.nombre}>
-                  {v.nombre}
-                  {v.codigo ? ` (${v.codigo})` : ""}
-                </AutocompleteItem>
-              )}
-            </Autocomplete>
+              value={vendedorFilter}
+              vendedores={vendedores}
+              onChange={setVendedorFilter}
+            />
           </div>
           <div className="flex flex-col gap-4 sm:flex-row">
             <Input
