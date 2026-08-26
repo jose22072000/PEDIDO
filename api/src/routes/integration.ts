@@ -473,34 +473,16 @@ router.get('/clients', async (req, res) => {
 });
 
 /**
- * POST /integration/orders/domicilio
- * Body: { updates: [{ id, costo, distanceKm? }] }
- * Delivery escribe el costo de domicilio calculado en cada pedido.
+ * La puerta por la que delivery escribía el costo de domicilio: BORRADA.
+ *
+ * El costo lo pone la APK, por el webhook, que además guarda la tasa con la que cotizó
+ * y deja rastro de quién movió al cliente. Esta ruta escribía el campo directamente,
+ * sin nada de eso, y ya no la llamaba nadie.
+ *
+ * Se quita en vez de dejarla ahí sin usar porque una ruta viva es una ruta que alguien
+ * puede llamar: cualquiera con la clave de servicio podía pisar en silencio el precio
+ * que la APK acababa de calcular, y no habría quedado ni rastro de que pasó.
  */
-router.post('/orders/domicilio', async (req, res) => {
-  const updates = Array.isArray(req.body?.updates) ? req.body.updates : [];
-  const localSucursalId = readConfiguredSucursalId();
-  let updated = 0;
-  let skipped = 0;
-  const errors: Array<{ id: string; error: string }> = [];
-
-  for (const u of updates) {
-    if (!u || !u.id || u.costo == null) continue;
-    try {
-      // updateMany con guard de sucursal local: nunca escribe en otra sucursal.
-      const r = await prisma.pedido.updateMany({
-        where: { id: String(u.id), ...(localSucursalId ? { sucursalId: localSucursalId } : {}) },
-        data: { costoDomicilio: Number(u.costo) },
-      });
-      if (r.count > 0) updated++;
-      else skipped++; // no existe o es de otra sucursal
-    } catch (e) {
-      errors.push({ id: String(u.id), error: (e as Error).message });
-    }
-  }
-
-  res.json({ updated, skipped, errors });
-});
 
 /**
  * GET /integration/client-order-counts

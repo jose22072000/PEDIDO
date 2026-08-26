@@ -128,7 +128,14 @@ model Pedido {
     estado             String?      @map("status")
     pedido_cobrado     String?      @map("paymentStatus")
     requiere_domicilio Boolean?     @map("requiresDelivery")
-    costoDomicilio     Float?       @map("deliveryCost")  // lo escribe delivery vía /integration
+    costoDomicilio     Float?       @map("deliveryCost")  // en USD, lo escribe la APK de domicilio
+    /// La tasa CUP/USD con la que se cotizó ESE domicilio.
+    ///
+    /// Se guarda la tasa y no un segundo importe en CUP a propósito. Con dos importes
+    /// habría dos verdades que se separan en cuanto cambie la tasa, y ninguna forma de
+    /// saber cuál es la buena. Con la tasa, el CUP se reproduce exacto —el mismo que
+    /// vio quien cobró— y además queda registrado a cómo estaba el cambio ese día.
+    tasaDomicilio      Float?
     createdAt          DateTime     @default(now())
     // Cuándo se tocó por última vez. Es lo que hace posible la sincronización
     // INCREMENTAL de las tablets: piden "lo que cambió desde tal hora" en vez del
@@ -266,6 +273,15 @@ model Cliente {
     distanciaDesde  String?
     distanciaAt     DateTime?
 
+    /// De dónde salió la ubicación que tiene ahora: "parranda", "apk", o quién la puso.
+    ///
+    /// Hace falta porque la APK de domicilio SÍ puede corregirla —quien va a llevar el
+    /// pedido es el que sabe dónde es de verdad—, y entonces hay que poder distinguir
+    /// el dato del consolidado del que corrigió un repartidor. Sin esto, una corrección
+    /// buena y un error se ven exactamente igual.
+    geoFuente       String?
+    geoAt           DateTime?
+
     createdAt DateTime @default(now())
     // Fecha de la última sincronización (Parranda) del cliente. La setea Prisma en cada
     // update/create -> refleja "cuándo se sincronizó por última vez".
@@ -354,4 +370,30 @@ model TasaCambio {
     /// Cuándo se trajo. Si esto envejece, el CUP deja de ser fiable y hay que decirlo.
     traidoAt  DateTime @default(now())
     updatedAt DateTime @updatedAt @default(now())
+}
+
+
+/// Cada vez que alguien cambia dónde está un cliente, se guarda lo que había.
+///
+/// La APK de domicilio puede corregir la ubicación y la dirección: quien lleva el
+/// pedido es quien sabe dónde es. Pero una corrección se puede equivocar igual que el
+/// dato original, y sin el valor anterior no hay forma de volver atrás ni de saber si
+/// el cliente "se movió" tres veces en una semana.
+///
+/// Es un registro, no un histórico completo: sólo se escribe cuando algo cambia de
+/// verdad, así que no crece por las sincronizaciones que dejan todo igual.
+model ClienteGeoCambio {
+    id                 String   @id @default(cuid())
+    clienteId          String
+    latitudAnterior    Float?
+    longitudAnterior   Float?
+    direccionAnterior  String?
+    latitudNueva       Float?
+    longitudNueva      Float?
+    direccionNueva     String?
+    /// Quién lo cambió: "apk", "parranda", o el usuario.
+    fuente             String
+    createdAt          DateTime @default(now())
+
+    @@index([clienteId, createdAt])
 }

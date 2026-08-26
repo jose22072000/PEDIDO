@@ -151,6 +151,15 @@ export async function payloadDomicilio(pedidoId: string) {
           telefono: p.telefono,
           latitud: p.cliente.latitud,
           longitud: p.cliente.longitud,
+          /**
+           * Le decimos a la APK qué le falta a este cliente, en vez de que lo deduzca.
+           *
+           * "sinUbicacion" no es lo mismo que un fallo: es un encargo. Significa que
+           * hace falta que alguien ponga dónde vive, y que si nos devuelven lat/lng se
+           * guardan. Sin esta marca, la APK recibe un cliente con las coordenadas en
+           * nulo y no puede distinguir "no la tenemos" de "se perdió por el camino".
+           */
+          sinUbicacion: p.cliente.latitud == null || p.cliente.longitud == null,
         }
       : null,
     encargado: p.encargado,
@@ -163,6 +172,9 @@ export async function payloadDomicilio(pedidoId: string) {
     lineasSinPrecio: sinPrecio,
     // Lo que ya tuviera puesto, para que reenviar un aviso no se lea como "sin cotizar".
     costoDomicilio: p.costoDomicilio,
+    // Los importes van en USD. Si la APK manda la tasa con la que cotizó, se guarda con
+    // el pedido y el CUP se reproduce exacto el día que haga falta.
+    moneda: 'USD',
   };
 }
 
@@ -179,6 +191,11 @@ export type ResultadoCosto = { ok: boolean; pedidoId?: string; folio?: string; m
  * (la clave real es sucursal+folio+vendedor). Sin eso, se rechaza en vez de escribir en
  * el pedido equivocado.
  */
+/** Compara coordenadas sin que un decimal de ruido cuente como que el cliente se movió. */
+function redondear(v: number | null | undefined): number | null {
+  return v == null || !Number.isFinite(v) ? null : Math.round(v * 1e6) / 1e6;
+}
+
 export async function aplicarCostoDomicilio(u: {
   pedidoId?: string | null;
   folio?: string | null;
@@ -196,12 +213,37 @@ export async function aplicarCostoDomicilio(u: {
    */
   latitud?: number | null;
   longitud?: number | null;
+  /**
+   * La dirección tal como la encontró quien fue a llevar el pedido.
+   *
+   * Va junto con las coordenadas y no por separado: si el repartidor corrige el punto
+   * del mapa pero la dirección escrita sigue diciendo otra cosa, el siguiente que lea
+   * la ficha no sabe a cuál de las dos hacerle caso.
+   */
+  direccion?: string | null;
+  /**
+   * La tasa CUP/USD con la que la APK calculó ese costo.
+   *
+   * El costo viaja en USD. La tasa la pone Amado, que es quien la tiene de primera
+   * mano, y se guarda con el pedido para que el importe en CUP se pueda reproducir
+   * exacto el día que haga falta —aunque para entonces la tasa sea otra.
+   */
+  tasa?: number | null;
 }): Promise<ResultadoCosto> {
   const local = readConfiguredSucursalId();
   const costo = Number(u.costo);
   if (!Number.isFinite(costo) || costo < 0) {
     return { ok: false, motivo: 'costo no es un número válido' };
   }
+
+  /**
+   * La tasa sólo se guarda si es creíble.
+   *
+   * Un cero o un nulo colado aquí no daría error: dejaría el pedido con una tasa que
+   * al reproducir el importe en CUP da cero, y eso se descubre cobrando.
+   */
+  const t = u.tasa == null ? null : Number(u.tasa);
+  const tasaValida = t != null && Number.isFinite(t) && t > 0 ? t : null;
 
   const alcance = local ? { sucursalId: local } : {};
 
@@ -220,36 +262,80 @@ export async function aplicarCostoDomicilio(u: {
    * se fía uno de ninguna.
    */
   /**
-   * La ubicación del cliente, cuando la APK la trae y NO la teníamos.
+   * La ubicación y la dirección del cliente, tal como las trae la APK de domicilio.
    *
-   * Sólo se rellena lo que está vacío: NO se pisa una coordenada existente. Las que ya
-   * están vienen del consolidado de Parranda, que es el dato oficial; si la APK pudiera
-   * sobreescribirlas, un error de un repartidor movería a un cliente de sitio para
-   * todos los sistemas —rutas incluido— y nadie sabría de dónde salió el cambio.
+   * La APK SÍ pisa lo que ya había, a propósito. Quien va a llevar el pedido es el que
+   * está parado en la puerta: si dice que el cliente no está donde dice el consolidado
+   * de Parranda, el equivocado es el consolidado. Negarse a corregirlo obliga a que
+   * alguien vuelva a fallar el domicilio para enterarse.
    *
-   * Para corregir una que esté mal, se corrige en Clientes, que es donde se ve quién
-   * lo hizo.
+   * Lo que no se hace es perder lo anterior. Cada cambio deja apuntado el valor que
+   * había en ClienteGeoCambio, porque una corrección se equivoca igual de fácil que el
+   * dato original —y sin el valor viejo no hay forma de volver atrás ni de ver que un
+   * cliente "se mudó" tres veces en una semana, que es como se nota que algo va mal.
    */
   const guardarUbicacion = async (pedidoId: string) => {
     const lat = u.latitud == null ? null : Number(u.latitud);
     const lng = u.longitud == null ? null : Number(u.longitud);
-    if (lat == null || lng == null) return;
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    const dir = (u.direccion || '').trim() || null;
+
+    const hayPunto = lat != null && lng != null && Number.isFinite(lat) && Number.isFinite(lng);
+    if (!hayPunto && !dir) return;
+
     // Cuba entera cae aquí. Un dígito de más pone al cliente en otro continente y el
     // domicilio se cobraría por miles de kilómetros.
-    if (lat < 19 || lat > 24 || lng < -85 || lng > -73) return;
+    const puntoValido =
+      hayPunto && lat! >= 19 && lat! <= 24 && lng! >= -85 && lng! <= -73;
+    if (hayPunto && !puntoValido) return;
 
     const pedido = await prisma.pedido.findUnique({
       where: { id: pedidoId },
-      select: { cliente: { select: { id: true, latitud: true, longitud: true } } },
+      select: {
+        cliente: {
+          select: { id: true, latitud: true, longitud: true, direccion: true },
+        },
+      },
     });
     const c = pedido?.cliente;
-    if (!c || c.latitud != null || c.longitud != null) return;   // ya la tenía: no se toca
+    if (!c) return;
 
-    await prisma.cliente.update({
-      where: { id: c.id },
-      data: { latitud: lat, longitud: lng, geolocalizacion: `${lat},${lng}` },
-    });
+    // Sólo se escribe si algo cambia de verdad. La APK manda estos datos en cada
+    // cotización; sin esta comprobación, el registro de cambios se llenaría de líneas
+    // donde no cambió nada y dejaría de servir para ver los cambios de verdad.
+    const movio =
+      puntoValido && (redondear(c.latitud) !== redondear(lat) || redondear(c.longitud) !== redondear(lng));
+    const cambioDir = dir != null && dir !== (c.direccion || '').trim();
+    if (!movio && !cambioDir) return;
+
+    await prisma.$transaction([
+      prisma.clienteGeoCambio.create({
+        data: {
+          clienteId: c.id,
+          latitudAnterior: c.latitud,
+          longitudAnterior: c.longitud,
+          direccionAnterior: c.direccion,
+          latitudNueva: movio ? lat : c.latitud,
+          longitudNueva: movio ? lng : c.longitud,
+          direccionNueva: cambioDir ? dir : c.direccion,
+          fuente: 'apk',
+        },
+      }),
+      prisma.cliente.update({
+        where: { id: c.id },
+        data: {
+          ...(movio
+            ? { latitud: lat, longitud: lng, geolocalizacion: `${lat},${lng}` }
+            : {}),
+          ...(cambioDir ? { direccion: dir } : {}),
+          geoFuente: 'apk',
+          geoAt: new Date(),
+          // La distancia guardada se midió desde donde el cliente ESTABA. Si se movió,
+          // ya no vale: se borra para que se vuelva a calcular en vez de cobrar por una
+          // distancia a un sitio donde el cliente no está.
+          ...(movio ? { distanciaKm: null, distanciaDesde: null, distanciaAt: null } : {}),
+        },
+      }),
+    ]);
   };
 
   const guardarDistancia = async (pedidoId: string) => {
@@ -274,7 +360,7 @@ export async function aplicarCostoDomicilio(u: {
   if (u.pedidoId) {
     const r = await prisma.pedido.updateMany({
       where: { id: String(u.pedidoId), ...alcance },
-      data: { costoDomicilio: costo },
+      data: { costoDomicilio: costo, tasaDomicilio: tasaValida },
     });
     if (r.count > 0) {
       await guardarUbicacion(String(u.pedidoId));
@@ -303,7 +389,10 @@ export async function aplicarCostoDomicilio(u: {
         motivo: 'folio repetido en esta sucursal: manda pedidoId o vendedorCodigo',
       };
     }
-    await prisma.pedido.update({ where: { id: candidatos[0].id }, data: { costoDomicilio: costo } });
+    await prisma.pedido.update({
+      where: { id: candidatos[0].id },
+      data: { costoDomicilio: costo, tasaDomicilio: tasaValida },
+    });
     await guardarUbicacion(candidatos[0].id);
     await guardarDistancia(candidatos[0].id);
     return { ok: true, pedidoId: candidatos[0].id, folio: String(u.folio) };
@@ -338,9 +427,21 @@ export async function encolarPendientesDeDomicilio(opts: {
       costoDomicilio: null,
       archivedAt: null,
       ...(opts.sucursalId ? { sucursalId: opts.sucursalId } : {}),
-      // Sin coordenadas no hay nada que cotizar: mandarlo sería darle trabajo a la APK
-      // para que conteste que no puede. Eso se arregla geolocalizando al cliente.
-      cliente: { latitud: { not: null }, longitud: { not: null } },
+      /**
+       * Los clientes SIN coordenadas también van. Antes se filtraban, y era un error:
+       * la APK es justamente la que pone la ubicación de quien no la tiene, así que
+       * dejarlos fuera los condenaba a no tenerla nunca. Granma tiene hoy 362 clientes
+       * sin geolocalizar y ninguno se podía cotizar; sacándolos de aquí, se quedaban
+       * así para siempre.
+       *
+       * Lo que sí hace falta es una dirección: sin coordenadas y sin dirección no hay
+       * nada por donde empezar a buscar, y eso se arregla en Clientes, no en la APK.
+       */
+      OR: [
+        { cliente: { latitud: { not: null }, longitud: { not: null } } },
+        { cliente: { direccion: { not: null } } },
+        { direccion: { not: null } },
+      ],
     },
     select: { id: true },
     orderBy: { fecha: 'desc' },

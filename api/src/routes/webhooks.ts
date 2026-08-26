@@ -81,9 +81,7 @@ router.post('/domicilio', async (req, res) => {
   const cuerpo = req.body || {};
   const entregas = Array.isArray(cuerpo.entregas)
     ? cuerpo.entregas
-    : Array.isArray(cuerpo.updates)   // el nombre que usaba delivery, por si acaso
-      ? cuerpo.updates
-      : cuerpo.costo != null
+    : cuerpo.costo != null
         ? [cuerpo]                    // una sola, sin envolver
         : [];
 
@@ -112,9 +110,13 @@ router.post('/domicilio', async (req, res) => {
         // Desde qué punto se midió. Si no lo mandan, se apunta la sucursal, que es lo
         // único que se sabe con certeza.
         distanciaDesde: e.distanciaDesde ?? e.distancia_desde ?? null,
-        // Dónde está el cliente, si la APK lo averiguó y nosotros no lo teníamos.
+        // Dónde está el cliente de verdad, según quien fue a llevarle el pedido. Puede
+        // corregir lo que ya teníamos; lo anterior queda guardado.
         latitud: e.latitud ?? e.lat ?? e.clienteLatitud ?? null,
         longitud: e.longitud ?? e.lng ?? e.clienteLongitud ?? null,
+        direccion: e.direccion ?? e.clienteDireccion ?? e.address ?? null,
+        // La tasa CUP/USD con la que se calculó este costo.
+        tasa: e.tasa ?? e.tasaCambio ?? e.tasa_cambio ?? e.rate ?? null,
       });
       if (r.ok) aplicadas.push({ pedidoId: r.pedidoId, folio: r.folio });
       else rechazadas.push({ pedidoId: r.pedidoId, folio: r.folio, motivo: r.motivo || 'no aplicada' });
