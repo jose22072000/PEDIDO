@@ -90,13 +90,32 @@ export function VendedorSelect({
   const nombreDe = (id: string) =>
     opciones.find((o) => o.id === id)?.nombre ?? "";
 
+  /**
+   * El filtrado se hace AQUÍ, no con `defaultFilter`.
+   *
+   * En cuanto se le pasa `items` a un Autocomplete de HeroUI, la lista es controlada y
+   * el componente deja de filtrar: da por hecho que quien manda los items ya los ha
+   * filtrado. `defaultFilter` sólo lo aplica con `defaultItems`. Estaba pasando `items`
+   * y un `defaultFilter` que no llegaba a ejecutarse nunca, así que escribir «leisy»
+   * seguía enseñando la lista entera.
+   *
+   * `defaultItems` no vale aquí: los vendedores llegan por red después del primer
+   * pintado, y una lista no controlada se quedaría con el array vacío del principio.
+   */
+  const visibles = useMemo(
+    () => opciones.filter((o) => empiezaPorPalabra(o.nombre, texto)),
+    [opciones, texto],
+  );
+
   return (
     <Autocomplete
       className={className}
-      defaultFilter={empiezaPorPalabra}
+      // Sin esto, un texto que no encuentra a nadie cierra la lista y parece que se
+      // rompió. Con la lista abierta y vacía se ve que sí buscó y no hay nadie así.
+      allowsEmptyCollection
       inputValue={texto}
       isLoading={isLoading}
-      items={opciones}
+      items={visibles}
       label="Vendedor"
       labelPlacement={labelPlacement}
       placeholder={etiquetaTodos}
