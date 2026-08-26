@@ -24,7 +24,7 @@ import {
   Tab,
   Tabs,
 } from "@heroui/react";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 
 import { cards } from "../primitives";
 import Icons from "../icons/iconify";
@@ -277,7 +277,16 @@ export const OrdersList = () => {
 
   const $$ = (usd: number | null | undefined) => importe(usd, moneda, tasa);
 
-  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  /**
+   * El detalle guarda el ID, no una copia del pedido.
+   *
+   * Guardaba el objeto entero, y eso lo dejaba congelado en el momento de abrirlo: si
+   * mientras lo mirabas entraba el costo del domicilio, la LISTA de detrás se
+   * actualizaba —el SSE la refresca— pero el detalle abierto seguía diciendo «sin
+   * calcular». Dos números distintos del mismo pedido en la misma pantalla, y el de
+   * delante era el viejo.
+   */
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null);
   const [orderToComplete, setOrderToComplete] = useState<Order | null>(null);
   const [orderToDelete, setOrderToDelete] = useState<Order | null>(null);
@@ -393,6 +402,26 @@ export const OrdersList = () => {
   const pagination = datos?.pagination ?? PAGINACION_VACIA;
 
   /**
+   * El pedido del detalle, sacado SIEMPRE de la lista viva.
+   *
+   * Así, cuando el SSE trae el costo del domicilio, el detalle abierto se entera en el
+   * mismo momento que la fila de detrás — que era lo que fallaba: el de fuera decía
+   * $0.73 y el de dentro seguía en «sin calcular».
+   */
+  const vivo = selectedOrderId
+    ? (orders.find((o) => o.id === selectedOrderId) ?? null)
+    : null;
+
+  // Y si el pedido se sale del filtro mientras lo tienes abierto —al completarlo, por
+  // ejemplo— se sigue enseñando lo último que se sabía de él. Sin esto, el detalle se
+  // quedaría en blanco de golpe justo después de darle a un botón, que parece un fallo.
+  const ultimo = useRef<Order | null>(null);
+
+  if (vivo) ultimo.current = vivo;
+  const selectedOrder: Order | null =
+    vivo ?? (selectedOrderId ? ultimo.current : null);
+
+  /**
    * @param fondo  recarga silenciosa: sin esqueleto y sin pintar errores. La usa el
    *               SSE cuando llega un cambio masivo que no se puede aplicar en sitio.
    */
@@ -504,7 +533,7 @@ export const OrdersList = () => {
         onClose();
         onDeleteConfirmClose();
         setOrderToDelete(null);
-        setSelectedOrder(null);
+        setSelectedOrderId(null);
       } catch (err) {
         addToast({
           title: "Error",
@@ -554,7 +583,7 @@ export const OrdersList = () => {
 
   const handleOpenDetails = useCallback(
     (order: Order) => {
-      setSelectedOrder(order);
+      setSelectedOrderId(order.id);
       onOpen();
     },
     [onOpen],
