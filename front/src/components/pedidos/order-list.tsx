@@ -1326,8 +1326,10 @@ export const OrdersList = () => {
                                 )}
                               </div>
                             ) : (
-                              <Chip color="warning" size="sm" variant="flat">
-                                sin precio
+                              {/* Sin precio NI stock en esta sucursal = no lo hay
+                                  aquí. Se deja la línea porque el pedido lo pidió. */}
+                              <Chip size="sm" variant="flat">
+                                no hay en esta sucursal
                               </Chip>
                             )}
                           </div>
@@ -1365,37 +1367,42 @@ export const OrdersList = () => {
                         </div>
                       )}
 
-                      {/* EL TOTAL. Lo calcula la API sumando cada línea por el precio
-                          de Ventra de ESA sucursal, más el domicilio.
-                          Si alguna línea no tiene precio se dice cuántas, en vez de
-                          enseñar un total que parece bueno y está incompleto: un total
-                          al que le falta un producto es peor que no tener total,
-                          porque nadie lo comprueba. */}
-                      <div className="mt-1 flex items-center justify-between rounded-lg border-2 border-default-200 bg-default-50 p-3">
-                        <div>
-                          <p className="font-semibold">Total</p>
-                          {(selectedOrder?.lineasSinPrecio ?? 0) > 0 && (
-                            <p className="text-xs text-warning-600">
-                              Faltan {selectedOrder?.lineasSinPrecio} producto
-                              {selectedOrder?.lineasSinPrecio !== 1 ? "s" : ""} por precio
-                            </p>
-                          )}
-                        </div>
-                        {selectedOrder?.total != null ? (
-                          <p className="text-xl font-bold tabular-nums">
-                            {$$(selectedOrder.total)}
-                          </p>
-                        ) : (
-                          <Chip color="warning" size="sm" variant="flat">
-                            sin precios de esta sucursal
-                          </Chip>
-                        )}
-                      </div>
                     </div>
                   </div>
                 </div>
               </ModalBody>
               <ModalFooter className="flex-col items-stretch gap-3">
+                {/* EL TOTAL, fuera de la lista de productos.
+                    Estaba dentro, como una línea más, y ahí se lee como si fuera otro
+                    artículo del pedido — con su borde y su fila, igual que el arroz.
+                    El total no es un producto: es el resultado. Va aparte y encima de
+                    lo que se copia, que es lo último que se mira antes de facturar. */}
+                <div className="flex w-full items-center justify-between rounded-lg border-2 border-default-300 bg-default-100 p-3">
+                  <div>
+                    <p className="text-base font-semibold">Total del pedido</p>
+                    {/* No es "falta un dato": es que ese producto NO ESTÁ en esta
+                        sucursal ahora mismo. Ventra lo deja sin precio ni stock por si
+                        vuelve a haberlo, y decirlo como una carencia nuestra manda a
+                        buscar un fallo donde no lo hay. */}
+                    {(selectedOrder?.lineasSinPrecio ?? 0) > 0 && (
+                      <p className="text-xs text-default-500">
+                        {selectedOrder?.lineasSinPrecio} producto
+                        {selectedOrder?.lineasSinPrecio !== 1 ? "s" : ""} sin existencia
+                        en esta sucursal, no {selectedOrder?.lineasSinPrecio !== 1 ? "cuentan" : "cuenta"} en el total
+                      </p>
+                    )}
+                  </div>
+                  {selectedOrder?.total != null ? (
+                    <p className="text-2xl font-bold tabular-nums">
+                      {$$(selectedOrder.total)}
+                    </p>
+                  ) : (
+                    <Chip size="sm" variant="flat">
+                      ningún producto disponible aquí
+                    </Chip>
+                  )}
+                </div>
+
                 <div className="w-full p-3 border rounded-lg bg-warning-50 border-warning-200">
                   <p className="mb-2 text-xs text-warning-700">
                     Copia este texto manualmente:
