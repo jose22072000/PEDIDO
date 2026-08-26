@@ -158,13 +158,30 @@ export async function conPrecios<T extends PedidoConLineas>(pedido: T) {
   };
 }
 
+/**
+ * Un pedido con la MISMA forma que los de la lista, para mandarlo por SSE.
+ *
+ * El `conPrecios` es imprescindible y faltaba. El objeto que viaja por SSE no se añade
+ * a la lista: la REEMPLAZA. Así que un pedido que entraba en vivo pisaba su fila con
+ * una versión sin `precioUnidad`, sin `importe` y sin `total`, y la pantalla lo pintaba
+ * como si en esa sucursal no hubiera ninguno de sus productos.
+ *
+ * Lo malo es cómo se veía: no fallaba nada, no había error en ningún log, y el pedido
+ * recién llegado —justo el que alguien está mirando— salía con «no hay en esta
+ * sucursal» en todas las líneas mientras el mismo pedido, al recargar la página,
+ * aparecía con sus precios. Nada apuntaba al aviso en vivo.
+ *
+ * Cualquier cosa que se añada a la respuesta de la lista hay que añadirla también aquí,
+ * o vuelve a pasar lo mismo con el campo nuevo.
+ */
 async function pedidoParaLista(id: string) {
   const o = await prisma.pedido.findUnique({
     where: { id },
     include: { items: true, cliente: true, vendedor: true },
   });
+  if (!o) return null;
 
-  return o ? { ...o, estado: computeEstado(o) } : null;
+  return { ...(await conPrecios(o)), estado: computeEstado(o) };
 }
 
 // List orders with pagination and filters.
@@ -633,7 +650,9 @@ router.patch('/:id/completar', async (req, res) => {
       sucursalId: order.sucursalId,
       id: order.id,
       accion: 'update',
-      datos: { ...order, estado: computeEstado(order) },
+      // pedidoParaLista y no `order` a secas: hace falta pasar por conPrecios, o esta
+      // actualización pisa la fila de la lista con una versión sin precios ni total.
+      datos: await pedidoParaLista(order.id),
     });
 
     res.json(order);
@@ -896,7 +915,9 @@ router.patch('/:id/estado', async (req, res) => {
       sucursalId: order.sucursalId,
       id: order.id,
       accion: 'update',
-      datos: { ...order, estado: computeEstado(order) },
+      // pedidoParaLista y no `order` a secas: hace falta pasar por conPrecios, o esta
+      // actualización pisa la fila de la lista con una versión sin precios ni total.
+      datos: await pedidoParaLista(order.id),
     });
 
     res.json({ ...order, estado: computeEstado(order) });
