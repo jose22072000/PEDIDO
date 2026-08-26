@@ -43,7 +43,20 @@ router.use(serviceAuth);
  */
 router.get('/orders', async (req, res) => {
   const onlyPending = req.query.onlyPending === '1' || req.query.onlyPending === 'true';
-  const limit = req.query.limit ? Number(req.query.limit) : undefined;
+  /**
+   * SIEMPRE hay tope, se pida o no.
+   *
+   * Sin `limit` esto devolvía todo lo que cuadrara con el filtro, y un cliente pidiendo
+   * quince días se llevó ~7.000 pedidos con sus líneas en una sola respuesta: PEDIDO
+   * tiene que construir ese JSON entero en memoria antes de mandarlo y se quedó sin
+   * heap. La API se cayó por una petición perfectamente legítima.
+   *
+   * El tope va aquí y no en quien llama, porque quien llama puede ser cualquiera —y el
+   * que tira el servicio no es el que se entera—.
+   */
+  const TOPE = 2000;
+  const pedido = req.query.limit ? Number(req.query.limit) : TOPE;
+  const limit = Number.isFinite(pedido) ? Math.min(Math.max(1, pedido), 5000) : TOPE;
   const desde = typeof req.query.desde === 'string' ? req.query.desde : '';
   const hasta = typeof req.query.hasta === 'string' ? req.query.hasta : '';
   const since = typeof req.query.since === 'string' ? req.query.since : '';
@@ -117,7 +130,7 @@ router.get('/orders', async (req, res) => {
 
   const pedidos = await prisma.pedido.findMany({
     where,
-    take: Number.isFinite(limit) ? limit : undefined,
+    take: limit,
     include: {
       cliente: true,
       sucursal: true,
