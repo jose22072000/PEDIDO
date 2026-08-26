@@ -311,3 +311,25 @@ model ApiKey {
 
     @@map("ApiKey")
 }
+
+
+/// Cuando el nombre de Parranda y el de Ventra no se parecen lo bastante, alguien dice
+/// cuál es cuál.
+///
+/// El cruce automático acierta 56 de 71. Los que fallan no son un fallo del algoritmo:
+/// son productos que no están en Ventra (PARRANDA 0.33L, MALTA GUAJIRA) o que están con
+/// otro formato (10 KG contra 1 KG PACA 30U). Adivinarlos sería peor que dejarlos sin
+/// precio: un precio equivocado no falla, sale mal y cuadra.
+model ProductoVinculo {
+    id             String   @id @default(cuid())
+    /// El nombre TAL CUAL viene en el pedido de Parranda.
+    nombrePedido   String   @unique
+    /// El nombre tal cual está en el catálogo de Ventra.
+    nombreVentra   String
+    /// Quién lo vinculó, para poder preguntarle si sale un precio raro.
+    creadoPor      String?
+    createdAt      DateTime @default(now())
+    updatedAt      DateTime @updatedAt @default(now())
+
+    @@index([nombrePedido])
+}

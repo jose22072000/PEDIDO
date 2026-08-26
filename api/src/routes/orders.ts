@@ -1,6 +1,7 @@
 import { Router, type Request } from 'express';
 import { Prisma } from '@prisma/client';
 import prisma from '../prismaClient';
+import { normalizarProducto, variantesProducto } from '../lib/nombreProducto';
 import { mapCsvRecords, type OrderRecordDto } from '../dto/orderRecord.dto';
 import {
   requireSucursalId,
@@ -83,12 +84,27 @@ export async function conPrecios<T extends PedidoConLineas>(pedido: T) {
     where: { sucursalId: pedido.sucursalId, nombre: { in: nombres } },
     select: { nombre: true, precio: true, pesoKg: true, stock: true },
   });
-  const porNombre = new Map(catalogo.map((c) => [c.nombre.trim().toUpperCase(), c]));
+  // El catálogo, indexado por su nombre normalizado. Sin normalizar no cruza NI UNO:
+  // Parranda antepone la categoría y pega las unidades ("ALIMENTOS ARROZ BLANCO 25KG
+  // SACO" contra "ARROZ BLANCO 25 KG SACO").
+  const porNombre = new Map(catalogo.map((c) => [normalizarProducto(c.nombre), c]));
+
+  // Y los que alguien vinculó a mano, porque el nombre no se parecía lo bastante.
+  // Éstos MANDAN sobre el cruce automático: si una persona dijo cuál es, es ése.
+  const vinculos = new Map<string, string>(
+    (await prisma.productoVinculo.findMany({ select: { nombrePedido: true, nombreVentra: true } }))
+      .map((v) => [normalizarProducto(v.nombrePedido), normalizarProducto(v.nombreVentra)] as const),
+  );
 
   let total = 0;
   let sinPrecio = 0;
   const items = pedido.items.map((i) => {
-    const c = porNombre.get((i.producto || '').trim().toUpperCase());
+    // Se prueban las formas posibles de ese nombre, de la más fiel a la más
+      // permisiva, y se para en la primera que exista. El vínculo a mano va primero.
+      const claves = variantesProducto(i.producto || '');
+      const aMano = claves.map((k) => vinculos.get(k)).find(Boolean);
+      const c = (aMano ? porNombre.get(aMano) : undefined)
+        ?? claves.map((k) => porNombre.get(k)).find(Boolean);
     const precioUnidad = c?.precio ?? null;
     // El precio de Ventra es por UNIDAD DE VENTA (el pack/caja), igual que el peso.
     // Multiplicarlo por las unidades sueltas daría un total disparatado.

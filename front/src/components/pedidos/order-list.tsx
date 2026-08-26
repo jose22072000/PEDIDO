@@ -834,9 +834,18 @@ export const OrdersList = () => {
                   </div>
                   {(order.costoDomicilio != null ||
                     order.requiere_domicilio) && (
-                    <div className="absolute top-0 right-0 z-10">
+                    <div className="absolute top-0 right-0 z-10 flex -translate-y-7 gap-1.5">
+                      {/* El TOTAL, al lado del domicilio y no sólo dentro del pedido.
+                          Es el número por el que se pregunta —"¿cuánto es este
+                          pedido?"— y tenerlo que abrir uno por uno para verlo hacía
+                          inútil la lista. */}
+                      {order.total != null && (
+                        <Chip color="default" size="sm" variant="flat">
+                          Total: ${fmtUsd(order.total)}
+                          {(order.lineasSinPrecio ?? 0) > 0 && " *"}
+                        </Chip>
+                      )}
                       <Chip
-                        className="-translate-y-7"
                         color={
                           order.costoDomicilio != null ? "success" : "warning"
                         }
