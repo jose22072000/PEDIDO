@@ -80,8 +80,17 @@ export async function conPrecios<T extends PedidoConLineas>(pedido: T) {
   const nombres = [...new Set(pedido.items.map((i) => i.producto).filter(Boolean))];
   if (nombres.length === 0) return { ...pedido, total: pedido.costoDomicilio ?? 0, lineasSinPrecio: 0 };
 
+  // El catálogo ENTERO de esa sucursal, no filtrado por nombre.
+  //
+  // Filtrarlo con `nombre: { in: nombres }` era pedirle a la base los productos que se
+  // llamaran EXACTAMENTE como en el pedido —"ALIMENTOS ARROZ BLANCO 25KG SACO"— y ese
+  // nombre no existe en Ventra: siempre volvía vacío. Toda la normalización de después
+  // trabajaba sobre una lista vacía, así que daba igual lo bien que cruzara.
+  //
+  // Son 127 filas por sucursal: traerlas enteras cuesta menos que el viaje que se
+  // ahorraba, y es la única forma de poder comparar nombres que no coinciden.
   const catalogo = await prisma.productoSucursal.findMany({
-    where: { sucursalId: pedido.sucursalId, nombre: { in: nombres } },
+    where: { sucursalId: pedido.sucursalId },
     select: { nombre: true, precio: true, pesoKg: true, stock: true },
   });
   // El catálogo, indexado por su nombre normalizado. Sin normalizar no cruza NI UNO:
