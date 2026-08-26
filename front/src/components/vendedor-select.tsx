@@ -102,10 +102,19 @@ export function VendedorSelect({
    * `defaultItems` no vale aquí: los vendedores llegan por red después del primer
    * pintado, y una lista no controlada se quedaría con el array vacío del principio.
    */
-  const visibles = useMemo(
-    () => opciones.filter((o) => empiezaPorPalabra(o.nombre, texto)),
-    [opciones, texto],
-  );
+  const visibles = useMemo(() => {
+    const fuera = opciones.filter((o) => empiezaPorPalabra(o.nombre, texto));
+
+    // El elegido va SIEMPRE en la lista, aunque el texto escrito no lo encuentre.
+    //
+    // HeroUI da por inválida una `selectedKey` que no esté entre los `items`, y la
+    // borra. Como aquí los items son el resultado del filtro, en cuanto escribías algo
+    // que no cuadraba con el vendedor elegido, el componente se quedaba sin él y
+    // limpiaba la selección solo.
+    return fuera.some((o) => o.id === value)
+      ? fuera
+      : [...opciones.filter((o) => o.id === value), ...fuera];
+  }, [opciones, texto, value]);
 
   return (
     <Autocomplete
@@ -125,13 +134,19 @@ export function VendedorSelect({
       variant="bordered"
       onInputChange={setTexto}
       onOpenChange={(abierto) => {
-        // Al abrir, la caja se queda limpia para escribir directamente. Al cerrar sin
-        // elegir nada, vuelve a enseñar quién está seleccionado — si no, parecería que
-        // el filtro se quitó cuando en realidad sigue puesto.
+        // Al abrir, la caja se queda limpia para escribir directamente. Al cerrar
+        // vuelve a enseñar quién está elegido: si se quedara el texto a medio escribir,
+        // parecería que el filtro es ése cuando el que manda es el de antes.
         setTexto(abierto ? "" : nombreDe(value));
       }}
       onSelectionChange={(k) => {
-        const id = (k as string) ?? claveTodos;
+        // Un null aquí NO es «quitar el filtro»: es el componente avisando de que la
+        // caja perdió el foco sin que se eligiera nada. Hacerle caso era lo que borraba
+        // el filtro con sólo tocar fuera. Para quitarlo está su propia opción en la
+        // lista, que es explícita y no se dispara sin querer.
+        if (k == null) return;
+
+        const id = k as string;
 
         onChange(id);
         setTexto(nombreDe(id));
