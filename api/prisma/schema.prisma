@@ -282,6 +282,17 @@ model Cliente {
     geoFuente       String?
     geoAt           DateTime?
 
+    /**
+     * El teléfono del cliente. Hasta ahora sólo vivía en el PEDIDO.
+     *
+     * Eso hacía imposible contestar "¿tienes el teléfono de este cliente?" sin abrir
+     * sus pedidos uno por uno, y para el que no había pedido nada últimamente, la
+     * respuesta era que no lo teníamos —cuando sí—. Se rellena del pedido más reciente
+     * que traiga uno, y se actualiza cuando entra un pedido con un número distinto: el
+     * último que dio el cliente es el bueno.
+     */
+    telefono        String?
+
     createdAt DateTime @default(now())
     // Fecha de la última sincronización (Parranda) del cliente. La setea Prisma en cada
     // update/create -> refleja "cuándo se sincronizó por última vez".

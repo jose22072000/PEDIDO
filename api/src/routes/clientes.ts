@@ -291,6 +291,30 @@ router.get('/', async (req, res) => {
     //
     // El scope de sucursal ya esta puesto arriba y NO se toca aqui: filtrar por
     // un vendedor de otra sucursal no puede enseñar sus clientes.
+    /**
+     * Filtros por DATO QUE FALTA: "enséñame los que no tienen teléfono".
+     *
+     * Es la pregunta que se hace de verdad cuando hay que completar fichas: no
+     * "búscame a Fulano", sino "cuáles están incompletos y cuántos son". Sin esto,
+     * la única forma de saberlo era ir pasando páginas a ojo.
+     *
+     * Cada uno trata el vacío igual que el nulo. En estos datos hay de los dos —lo
+     * que llega del consolidado viene con cadenas vacías— y para quien mira la ficha
+     * significan exactamente lo mismo: que ahí no hay nada.
+     */
+    const falta = (req.query.falta as string)?.trim();
+    const VACIO = (campo: string) => ({ OR: [{ [campo]: null }, { [campo]: '' }] });
+    const FALTANTES: Record<string, any> = {
+      telefono: VACIO('telefono'),
+      // La ubicación es la que impide cotizar el domicilio: sin ella no hay reparto.
+      geo: { OR: [{ latitud: null }, { longitud: null }] },
+      direccion: VACIO('direccion'),
+      municipio: VACIO('municipio'),
+      zona: VACIO('zona'),
+      codigo: VACIO('codigo'),
+    };
+    if (falta && FALTANTES[falta]) Object.assign(where, FALTANTES[falta]);
+
     const vendedorId = (req.query.vendedorId as string)?.trim();
 
     if (vendedorId) {
@@ -323,6 +347,23 @@ router.get('/', async (req, res) => {
     ]);
 
     const totalPages = Math.ceil(total / limit);
+
+    /**
+     * Cuántos clientes le falta cada dato, con los MISMOS filtros que la lista.
+     *
+     * Van con el listado y no en otra llamada porque la pregunta es la misma: quien
+     * ve "sin teléfono: 812" ya sabe si vale la pena entrar. Y respetan la sucursal y
+     * el vendedor elegidos, que si no, el número diría una cosa y la lista otra.
+     */
+    const baseConteo = { ...where };
+    delete (baseConteo as any).OR;   // el OR es del buscador y del filtro de faltantes
+    const [sinTelefono, sinGeo, sinDireccion, sinMunicipio] = await Promise.all([
+      prisma.cliente.count({ where: { ...baseConteo, ...FALTANTES.telefono } }),
+      prisma.cliente.count({ where: { ...baseConteo, ...FALTANTES.geo } }),
+      prisma.cliente.count({ where: { ...baseConteo, ...FALTANTES.direccion } }),
+      prisma.cliente.count({ where: { ...baseConteo, ...FALTANTES.municipio } }),
+    ]);
+    const faltantes = { telefono: sinTelefono, geo: sinGeo, direccion: sinDireccion, municipio: sinMunicipio };
 
     // Quién trajo a cada cliente: el vendedor de su pedido MÁS ANTIGUO. No hay
     // relación directa cliente->vendedor, la unión son los pedidos. Con los datos
@@ -388,6 +429,7 @@ router.get('/', async (req, res) => {
       data: clientesConVendedor,
       pagination: { page, limit, total, totalPages },
       municipios: municipiosRaw.map((m) => m.municipio).filter(Boolean),
+      faltantes,
     });
   } catch (error) {
     console.error('Error fetching clientes:', error);

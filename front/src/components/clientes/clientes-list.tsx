@@ -50,6 +50,15 @@ const PAGINACION_VACIA = {
   totalPages: 1,
 };
 
+/** Los datos que se pueden echar en falta, en el orden en que estorban. */
+const FALTANTES: Array<{ clave: string; etiqueta: string }> = [
+  { clave: "telefono", etiqueta: "teléfono" },
+  // Sin ubicación no se puede cotizar el domicilio: es la que de verdad frena trabajo.
+  { clave: "geo", etiqueta: "ubicación" },
+  { clave: "direccion", etiqueta: "dirección" },
+  { clave: "municipio", etiqueta: "municipio" },
+];
+
 const traerClientes =
   (
     page: number,
@@ -57,6 +66,7 @@ const traerClientes =
     municipio: string,
     estadoCompra: string,
     vendedorId: string,
+    falta: string,
   ) =>
   async (signal: AbortSignal): Promise<RespuestaClientes> => {
     const params = new URLSearchParams({
@@ -68,6 +78,7 @@ const traerClientes =
     if (municipio) params.append("municipio", municipio);
     if (estadoCompra) params.append("estadoCompra", estadoCompra);
     if (vendedorId) params.append("vendedorId", vendedorId);
+    if (falta) params.append("falta", falta);
 
     const r = await fetch(`${getApiBaseUrl()}/clientes?${params}`, { signal });
 
@@ -93,6 +104,8 @@ export const ClientesList = () => {
   // Quien trajo al cliente. Los clientes los traen los vendedores, asi que
   // filtrar por vendedor es la forma natural de mirar esta lista.
   const [vendedorId, setVendedorId] = useState<string>("");
+  // Qué dato falta: "", "telefono", "geo", "direccion", "municipio".
+  const [falta, setFalta] = useState<string>("");
   const [vendedores, setVendedores] = useState<
     Array<{ id: string; nombre: string; clientes: number }>
   >([]);
@@ -116,8 +129,8 @@ export const ClientesList = () => {
     error,
     recargar: fetchClientes,
   } = usarClientes(
-    `clientes:${activeSucursalId ?? "todas"}:${page}:${debouncedSearch}:${municipio}:${estadoCompra}:${vendedorId}`,
-    traerClientes(page, debouncedSearch, municipio, estadoCompra, vendedorId),
+    `clientes:${activeSucursalId ?? "todas"}:${page}:${debouncedSearch}:${municipio}:${estadoCompra}:${vendedorId}:${falta}`,
+    traerClientes(page, debouncedSearch, municipio, estadoCompra, vendedorId, falta),
   );
 
   const clientes = datos?.data ?? SIN_CLIENTES;
@@ -183,7 +196,7 @@ export const ClientesList = () => {
   // significa nada en la siguiente. El store se encarga de pedir lo que falte.
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearch, municipio, estadoCompra]);
+  }, [debouncedSearch, municipio, estadoCompra, falta]);
 
   return (
     <div className="flex flex-col gap-4 w-full">
@@ -260,6 +273,37 @@ export const ClientesList = () => {
               <SelectItem key="Compra">Compra</SelectItem>
               <SelectItem key="No Compra">No Compra</SelectItem>
             </Select>
+          </div>
+          {/*
+            Filtros por DATO QUE FALTA.
+            Van como fichas y no como otro desplegable a propósito: aquí el número ES
+            la información. "sin teléfono: 812" ya responde solo, sin tener que abrir
+            nada — y si sale 0, la ficha se apaga en vez de esconderse, para que se vea
+            que se comprobó y no hay ninguno.
+          */}
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <span className="text-sm text-default-500">Les falta:</span>
+            {FALTANTES.map((f) => {
+              const n = datos?.faltantes?.[f.clave] ?? 0;
+              const activo = falta === f.clave;
+
+              return (
+                <Chip
+                  key={f.clave}
+                  className={n === 0 && !activo ? "opacity-50" : "cursor-pointer"}
+                  color={activo ? "primary" : "default"}
+                  variant={activo ? "solid" : "flat"}
+                  onClick={() => setFalta(activo ? "" : f.clave)}
+                >
+                  {f.etiqueta}: {n}
+                </Chip>
+              );
+            })}
+            {falta ? (
+              <Button size="sm" variant="light" onPress={() => setFalta("")}>
+                Quitar filtro
+              </Button>
+            ) : null}
           </div>
         </CardBody>
       </Card>
@@ -451,6 +495,22 @@ export const ClientesList = () => {
 
                   {/* Datos del Consolidado de Parranda */}
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    {/*
+                      El teléfono sale del pedido más reciente que traiga uno. Se enseña
+                      SIEMPRE, aunque esté vacío, al revés que los demás campos: aquí
+                      "no tenemos su número" es justo lo que se viene a mirar, y un
+                      hueco que desaparece no se distingue de uno que nadie miró.
+                    */}
+                    <div className="p-3 rounded-lg bg-default-50">
+                      <p className="mb-1 text-xs text-default-500">Teléfono</p>
+                      {selectedCliente?.telefono ? (
+                        <code className="block w-full p-2 text-sm bg-white border rounded select-all">
+                          {selectedCliente.telefono}
+                        </code>
+                      ) : (
+                        <p className="text-sm text-default-400">no lo tenemos</p>
+                      )}
+                    </div>
                     {selectedCliente?.direccion && (
                       <div className="p-3 rounded-lg bg-default-50 sm:col-span-2">
                         <p className="mb-1 text-xs text-default-500">

@@ -12,6 +12,7 @@ import { payloadDomicilio, EVENTO_DOMICILIO } from './lib/domicilio';
 import { processBulkImport } from './routes/orders';
 import { processParrandaSync } from './lib/parranda';
 import { arrancarSondeoVentra } from './lib/sondeoVentra';
+import { arrancarTelefonos } from './lib/telefonoCliente';
 import { arrancarTasaCambio } from './lib/tasaCambio';
 
 /**
@@ -101,6 +102,10 @@ async function main() {
   // La tasa de cambio, de la API de Amado. Aquí por lo mismo que el catálogo: es
   // trabajo de fondo y la API no tiene por qué esperarlo.
   arrancarTasaCambio();
+
+  // El teléfono del cliente, sacado de sus propios pedidos. Aquí y no en la API porque
+  // es un repaso a toda la tabla: no puede colgar del arranque de quien atiende.
+  arrancarTelefonos();
 
   arrancarWebhooks();
 }

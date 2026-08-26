@@ -10,6 +10,8 @@ export interface Cliente {
   municipio?: string | null;
   tipoCliente?: string | null;
   estadoCompra?: string | null;
+  /** Sale del pedido más reciente que traiga uno: antes sólo vivía en el pedido. */
+  telefono?: string | null;
   // La lat/lng es la que usa delivery para calcular el costo del domicilio:
   // sin ella, ese cliente no se puede cotizar.
   latitud?: number | null;
@@ -33,6 +35,8 @@ export interface RespuestaClientes {
   data: Cliente[];
   pagination: PaginacionClientes;
   municipios?: string[];
+  /** Cuántos clientes echan en falta cada dato, con los filtros que estén puestos. */
+  faltantes?: Record<string, number>;
 }
 
 /** Store de clientes. Se refresca con los eventos SSE de tipo "cliente". */
