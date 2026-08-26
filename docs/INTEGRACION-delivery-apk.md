@@ -47,12 +47,10 @@ El secret es el mismo en los dos lados. En PEDIDO se configura en
     {
       "folio": "PAP25-4821",
       "costo": 14.44,
-      "tasa": 415,
       "distanciaKm": 3.2,
       "distanciaDesde": "almacen:HAB",
       "latitud": 23.1085,
-      "longitud": -82.3421,
-      "direccion": "Calle 23 #456 e/ 4 y 6, Vedado"
+      "longitud": -82.3421
     }
   ]
 }
@@ -66,20 +64,17 @@ Hasta 500 entregas por llamada. Una sola también vale sin envolver en `entregas
 |---|---|---|
 | `folio` | sí* | El número de pedido que tecleó el repartidor. `pedidoId` vale igual y es más seguro si lo tiene. |
 | `costo` | sí | El costo del domicilio **en USD**. Se rechaza si no es un número o si es negativo. |
-| `tasa` | no | La tasa CUP/USD con la que delivery-apk calculó ese costo. |
 | `distanciaKm` | no | Distancia medida. Se guarda **en el cliente**, no en el pedido. |
 | `distanciaDesde` | no | Desde dónde se midió, p. ej. `almacen:HAB`. |
 | `latitud` / `longitud` | no | Dónde está el cliente de verdad. |
-| `direccion` | no | La dirección tal como la encontró el repartidor. |
 
 \* `folio` o `pedidoId`: hace falta uno de los dos.
 
-### Por qué la tasa y no el importe en CUP
+### La moneda
 
-El costo viaja en USD y PEDIDO guarda **la tasa** con la que se cotizó, no un segundo
-importe en pesos. Con dos importes hay dos verdades que se separan en cuanto cambie la
-tasa, y ninguna forma de saber cuál es la buena. Con la tasa, el CUP se reproduce exacto
-—el mismo que vio quien cobró— y queda constancia de a cómo estaba el cambio ese día.
+El costo va **en USD** y nada más. delivery-apk no manda tasa de cambio: PEDIDO la trae
+por su cuenta y estampa la del momento junto al costo, para que el importe en CUP se
+pueda reproducir exacto más adelante.
 
 ### La ubicación: delivery-apk puede corregirla
 
@@ -92,6 +87,9 @@ PEDIDO guarda el valor anterior antes de cambiarlo, así que una corrección equ
 puede deshacer. Y si el cliente se movió, borra la distancia guardada: se midió a un
 sitio donde ya no está.
 
+Sólo se escribe si el cliente se movió de verdad. Mandar las mismas coordenadas en cada
+entrega no deja rastro ni ensucia nada.
+
 Dos coordenadas se descartan sin dar error: las que caen **fuera de Cuba** (latitud
 19–24, longitud −85 a −73). Un dígito de más pone al cliente en otro continente y el
 domicilio se cobraría por miles de kilómetros.
@@ -99,8 +97,8 @@ domicilio se cobraría por miles de kilómetros.
 ## Qué contesta PEDIDO
 
 La respuesta dice **qué se guardó de cada entrega**, no sólo que se aceptó. Cada campo
-entra por su cuenta y cualquiera puede descartarse solo — una tasa en cero, una
-coordenada fuera de Cuba, una ubicación idéntica a la que ya había. Con un «ok» pelado,
+entra por su cuenta y cualquiera puede descartarse solo — una coordenada fuera de Cuba,
+una ubicación idéntica a la que ya había, una distancia que no vino. Con un «ok» pelado,
 delivery-apk daría por guardado algo que no lo está.
 
 ```json
@@ -111,7 +109,7 @@ delivery-apk daría por guardado algo que no lo está.
     {
       "folio": "PAP25-4821",
       "pedidoId": "clx...",
-      "guardado": ["costo", "tasa", "distancia", "ubicacionCliente"]
+      "guardado": ["costo", "distancia", "ubicacionCliente"]
     },
     {
       "folio": "PAP25-4822",
@@ -123,12 +121,10 @@ delivery-apk daría por guardado algo que no lo está.
 }
 ```
 
-Los valores posibles de `guardado`: `costo`, `tasa`, `distancia`, `ubicacionCliente`,
-`direccionCliente`.
+Los valores posibles de `guardado`: `costo`, `distancia`, `ubicacionCliente`.
 
-**Un campo que no aparece en `guardado` no se guardó.** Si delivery-apk mandó `tasa` y no
-vuelve en la lista, esa tasa se descartó. Si mandó coordenadas y no aparece
-`ubicacionCliente`, o eran las mismas que ya había o caían fuera de Cuba.
+**Un campo que no aparece en `guardado` no se guardó.** Si delivery-apk mandó coordenadas
+y no aparece `ubicacionCliente`, o eran las mismas que ya había o caían fuera de Cuba.
 
 ### Las rechazadas
 
@@ -197,13 +193,16 @@ siempre viene y siempre es único) en vez de `codigo`. Recupera unos 2.490 clien
    `ProcesarPedidoDomicilio`. Ya no llega nada por ahí.
 2. El `Schedule::command(PedidoEnviarPendientes)->everyMinute()` de `routes/console.php`
    **se queda**: es lo único que hace falta.
-3. Añadir `tasa` al cuerpo que manda `PedidoClient::enviarEntregas`.
-4. Añadir `direccion` cuando el repartidor la corrija (ya se mandan
-   `latitud`/`longitud`).
-5. Leer `guardado` de la respuesta y no dar por bueno lo que no aparezca.
-6. Cambiar el upsert de clientes a `external_id`.
+3. Leer `guardado` de la respuesta y no dar por bueno lo que no aparezca.
+4. Cambiar el upsert de clientes a `external_id`.
 
-## Pendiente por parte de PEDIDO
+## Más adelante
 
-Hace falta la URL de la API de delivery-apk que da la **tasa de cambio**, para
-configurarla en PEDIDO (`TASA_CAMBIO_URL`). PEDIDO la consulta cada 12 horas.
+Dos cosas que hoy delivery-apk no manda y que se añadirán cuando pueda:
+
+- **La dirección** corregida por el repartidor, junto con las coordenadas. PEDIDO ya
+  tiene sitio donde guardarla.
+- **La tasa de cambio** por su API, si en algún momento conviene que sea la suya en vez
+  de la que trae PEDIDO.
+
+Ninguna de las dos hace falta para empezar.

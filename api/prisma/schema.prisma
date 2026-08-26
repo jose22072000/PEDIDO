@@ -129,12 +129,13 @@ model Pedido {
     pedido_cobrado     String?      @map("paymentStatus")
     requiere_domicilio Boolean?     @map("requiresDelivery")
     costoDomicilio     Float?       @map("deliveryCost")  // en USD, lo escribe la APK de domicilio
-    /// La tasa CUP/USD con la que se cotizó ESE domicilio.
+    /// La tasa CUP/USD del momento en que se guardó ESE domicilio.
     ///
-    /// Se guarda la tasa y no un segundo importe en CUP a propósito. Con dos importes
-    /// habría dos verdades que se separan en cuanto cambie la tasa, y ninguna forma de
-    /// saber cuál es la buena. Con la tasa, el CUP se reproduce exacto —el mismo que
-    /// vio quien cobró— y además queda registrado a cómo estaba el cambio ese día.
+    /// La pone PEDIDO de su propia fuente: delivery-apk manda el costo en USD y nada
+    /// más. Se guarda la tasa y no un segundo importe en CUP a propósito: con dos
+    /// importes habría dos verdades que se separan en cuanto cambie la tasa, y ninguna
+    /// forma de saber cuál es la buena. Con la tasa, el CUP se reproduce exacto —el
+    /// mismo que vio quien cobró— y queda registrado a cómo estaba el cambio ese día.
     tasaDomicilio      Float?
     createdAt          DateTime     @default(now())
     // Cuándo se tocó por última vez. Es lo que hace posible la sincronización
@@ -386,10 +387,14 @@ model TasaCambio {
 
 /// Cada vez que alguien cambia dónde está un cliente, se guarda lo que había.
 ///
-/// La APK de domicilio puede corregir la ubicación y la dirección: quien lleva el
-/// pedido es quien sabe dónde es. Pero una corrección se puede equivocar igual que el
-/// dato original, y sin el valor anterior no hay forma de volver atrás ni de saber si
-/// el cliente "se movió" tres veces en una semana.
+/// delivery-apk puede corregir la ubicación: quien lleva el pedido es quien sabe dónde
+/// es. Pero una corrección se puede equivocar igual que el dato original, y sin el valor
+/// anterior no hay forma de volver atrás ni de saber si el cliente "se movió" tres veces
+/// en una semana.
+///
+/// Las columnas de dirección están y hoy no se usan: delivery-apk todavía no la manda.
+/// Se dejan puestas porque la corrección de dirección va a venir, y añadirlas entonces
+/// significaría una migración sobre una tabla que ya tiene historia dentro.
 ///
 /// Es un registro, no un histórico completo: sólo se escribe cuando algo cambia de
 /// verdad, así que no crece por las sincronizaciones que dejan todo igual.

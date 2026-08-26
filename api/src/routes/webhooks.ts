@@ -119,12 +119,9 @@ router.post('/domicilio', async (req, res) => {
         // único que se sabe con certeza.
         distanciaDesde: e.distanciaDesde ?? e.distancia_desde ?? null,
         // Dónde está el cliente de verdad, según quien fue a llevarle el pedido. Puede
-        // corregir lo que ya teníamos; lo anterior queda guardado.
+        // corregir lo que ya teníamos; lo anterior queda guardado en ClienteGeoCambio.
         latitud: e.latitud ?? e.lat ?? e.clienteLatitud ?? null,
         longitud: e.longitud ?? e.lng ?? e.clienteLongitud ?? null,
-        direccion: e.direccion ?? e.clienteDireccion ?? e.address ?? null,
-        // La tasa CUP/USD con la que se calculó este costo.
-        tasa: e.tasa ?? e.tasaCambio ?? e.tasa_cambio ?? e.rate ?? null,
       });
       if (r.ok) {
         const c = r.cambios;
@@ -133,7 +130,6 @@ router.post('/domicilio', async (req, res) => {
         if (c?.tasa) guardado.push('tasa');
         if (c?.distancia) guardado.push('distancia');
         if (c?.ubicacionCliente) guardado.push('ubicacionCliente');
-        if (c?.direccionCliente) guardado.push('direccionCliente');
         aplicadas.push({ pedidoId: r.pedidoId, folio: r.folio, guardado });
       }
       else rechazadas.push({ pedidoId: r.pedidoId, folio: r.folio, motivo: r.motivo || 'no aplicada' });

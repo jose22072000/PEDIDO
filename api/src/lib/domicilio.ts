@@ -5,6 +5,7 @@
 // ellos saben cuánto cuesta llevarlo. Por eso el pedido sale de aquí con el total de
 // la mercancía ya hecho y sin la línea de domicilio, y vuelve sólo con esa línea.
 import prisma from '../prismaClient';
+import { tasaActual } from './tasaCambio';
 import { normalizarProducto, variantesProducto, porContenido } from './nombreProducto';
 import { readConfiguredSucursalId } from './sucursalLocal';
 import { encolarWebhook } from './queues';
@@ -38,7 +39,6 @@ export type CambiosDomicilio = {
   tasa: boolean;
   distancia: boolean;
   ubicacionCliente: boolean;
-  direccionCliente: boolean;
 };
 
 export type ResultadoCosto = {
@@ -82,22 +82,6 @@ export async function aplicarCostoDomicilio(u: {
    */
   latitud?: number | null;
   longitud?: number | null;
-  /**
-   * La dirección tal como la encontró quien fue a llevar el pedido.
-   *
-   * Va junto con las coordenadas y no por separado: si el repartidor corrige el punto
-   * del mapa pero la dirección escrita sigue diciendo otra cosa, el siguiente que lea
-   * la ficha no sabe a cuál de las dos hacerle caso.
-   */
-  direccion?: string | null;
-  /**
-   * La tasa CUP/USD con la que la APK calculó ese costo.
-   *
-   * El costo viaja en USD. La tasa la pone Amado, que es quien la tiene de primera
-   * mano, y se guarda con el pedido para que el importe en CUP se pueda reproducir
-   * exacto el día que haga falta —aunque para entonces la tasa sea otra.
-   */
-  tasa?: number | null;
 }): Promise<ResultadoCosto> {
   const local = readConfiguredSucursalId();
   const costo = Number(u.costo);
@@ -106,13 +90,20 @@ export async function aplicarCostoDomicilio(u: {
   }
 
   /**
-   * La tasa sólo se guarda si es creíble.
+   * La tasa CUP/USD del momento, de NUESTRA fuente.
    *
-   * Un cero o un nulo colado aquí no daría error: dejaría el pedido con una tasa que
-   * al reproducir el importe en CUP da cero, y eso se descubre cobrando.
+   * delivery-apk no la manda: manda el costo en USD y ya. La tasa la trae PEDIDO por su
+   * cuenta cada 12 h, y se estampa aquí junto al costo para que el importe en CUP se
+   * pueda reproducir exacto —el mismo que vio quien cobró— aunque para entonces la tasa
+   * sea otra. Guardar un segundo importe en pesos, en vez de la tasa, dejaría dos
+   * verdades que se separan en cuanto cambie el cambio.
+   *
+   * Si no hay tasa todavía se guarda en nulo y no pasa nada: el costo en USD, que es lo
+   * que se cobra, entra igual. Poner un cero sería peor —un CUP calculado a cero no
+   * parece un dato que falta, parece un domicilio gratis.
    */
-  const t = u.tasa == null ? null : Number(u.tasa);
-  const tasaValida = t != null && Number.isFinite(t) && t > 0 ? t : null;
+  const tasa = await tasaActual();
+  const tasaValida = tasa && tasa.cupPorUsd > 0 ? tasa.cupPorUsd : null;
 
   const alcance = local ? { sucursalId: local } : {};
 
@@ -144,71 +135,58 @@ export async function aplicarCostoDomicilio(u: {
    * cliente "se mudó" tres veces en una semana, que es como se nota que algo va mal.
    */
   const cambios: CambiosDomicilio = {
-    costo: false, tasa: false, distancia: false,
-    ubicacionCliente: false, direccionCliente: false,
+    costo: false, tasa: false, distancia: false, ubicacionCliente: false,
   };
 
   const guardarUbicacion = async (pedidoId: string) => {
     const lat = u.latitud == null ? null : Number(u.latitud);
     const lng = u.longitud == null ? null : Number(u.longitud);
-    const dir = (u.direccion || '').trim() || null;
-
-    const hayPunto = lat != null && lng != null && Number.isFinite(lat) && Number.isFinite(lng);
-    if (!hayPunto && !dir) return;
+    if (lat == null || lng == null) return;
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
 
     // Cuba entera cae aquí. Un dígito de más pone al cliente en otro continente y el
     // domicilio se cobraría por miles de kilómetros.
-    const puntoValido =
-      hayPunto && lat! >= 19 && lat! <= 24 && lng! >= -85 && lng! <= -73;
-    if (hayPunto && !puntoValido) return;
+    if (lat < 19 || lat > 24 || lng < -85 || lng > -73) return;
 
     const pedido = await prisma.pedido.findUnique({
       where: { id: pedidoId },
-      select: {
-        cliente: {
-          select: { id: true, latitud: true, longitud: true, direccion: true },
-        },
-      },
+      select: { cliente: { select: { id: true, latitud: true, longitud: true } } },
     });
     const c = pedido?.cliente;
     if (!c) return;
 
-    // Sólo se escribe si algo cambia de verdad. La APK manda estos datos en cada
-    // cotización; sin esta comprobación, el registro de cambios se llenaría de líneas
-    // donde no cambió nada y dejaría de servir para ver los cambios de verdad.
-    const movio =
-      puntoValido && (redondear(c.latitud) !== redondear(lat) || redondear(c.longitud) !== redondear(lng));
-    const cambioDir = dir != null && dir !== (c.direccion || '').trim();
-    if (!movio && !cambioDir) return;
+    // Sólo se escribe si el cliente se movió de verdad. delivery-apk manda las
+    // coordenadas en cada entrega; sin esta comprobación, el registro de cambios se
+    // llenaría de líneas donde no cambió nada y dejaría de servir para ver los cambios
+    // que sí importan.
+    if (redondear(c.latitud) === redondear(lat) && redondear(c.longitud) === redondear(lng)) return;
 
-    cambios.ubicacionCliente = movio;
-    cambios.direccionCliente = cambioDir;
+    cambios.ubicacionCliente = true;
     await prisma.$transaction([
       prisma.clienteGeoCambio.create({
         data: {
           clienteId: c.id,
           latitudAnterior: c.latitud,
           longitudAnterior: c.longitud,
-          direccionAnterior: c.direccion,
-          latitudNueva: movio ? lat : c.latitud,
-          longitudNueva: movio ? lng : c.longitud,
-          direccionNueva: cambioDir ? dir : c.direccion,
+          latitudNueva: lat,
+          longitudNueva: lng,
           fuente: 'apk',
         },
       }),
       prisma.cliente.update({
         where: { id: c.id },
         data: {
-          ...(movio
-            ? { latitud: lat, longitud: lng, geolocalizacion: `${lat},${lng}` }
-            : {}),
-          ...(cambioDir ? { direccion: dir } : {}),
+          latitud: lat,
+          longitud: lng,
+          geolocalizacion: `${lat},${lng}`,
           geoFuente: 'apk',
           geoAt: new Date(),
-          // La distancia guardada se midió desde donde el cliente ESTABA. Si se movió,
-          // ya no vale: se borra para que se vuelva a calcular en vez de cobrar por una
+          // La distancia guardada se midió desde donde el cliente ESTABA. Al moverse ya
+          // no vale: se borra para que se vuelva a calcular, en vez de cobrar por una
           // distancia a un sitio donde el cliente no está.
-          ...(movio ? { distanciaKm: null, distanciaDesde: null, distanciaAt: null } : {}),
+          distanciaKm: null,
+          distanciaDesde: null,
+          distanciaAt: null,
         },
       }),
     ]);
