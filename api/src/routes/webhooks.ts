@@ -92,7 +92,15 @@ router.post('/domicilio', async (req, res) => {
     return res.status(413).json({ error: 'Máximo 500 entregas por llamada.' });
   }
 
-  const aplicadas: Array<{ pedidoId?: string; folio?: string }> = [];
+  /**
+   * Lo que se contesta a delivery-apk: por cada entrega, QUÉ se guardó.
+   *
+   * No vale con decir "aplicada". delivery-apk manda varias cosas juntas y cada una
+   * puede entrar o no: una tasa en cero se descarta, una coordenada fuera de Cuba se
+   * descarta, y una ubicación idéntica a la que ya había no se toca. Si la respuesta
+   * no lo dijera, del otro lado se daría por guardado algo que no lo está.
+   */
+  const aplicadas: Array<{ pedidoId?: string; folio?: string; guardado: string[] }> = [];
   const rechazadas: Array<{ folio?: string; pedidoId?: string; motivo: string }> = [];
 
   for (const e of entregas) {
@@ -118,7 +126,16 @@ router.post('/domicilio', async (req, res) => {
         // La tasa CUP/USD con la que se calculó este costo.
         tasa: e.tasa ?? e.tasaCambio ?? e.tasa_cambio ?? e.rate ?? null,
       });
-      if (r.ok) aplicadas.push({ pedidoId: r.pedidoId, folio: r.folio });
+      if (r.ok) {
+        const c = r.cambios;
+        const guardado: string[] = [];
+        if (c?.costo) guardado.push('costo');
+        if (c?.tasa) guardado.push('tasa');
+        if (c?.distancia) guardado.push('distancia');
+        if (c?.ubicacionCliente) guardado.push('ubicacionCliente');
+        if (c?.direccionCliente) guardado.push('direccionCliente');
+        aplicadas.push({ pedidoId: r.pedidoId, folio: r.folio, guardado });
+      }
       else rechazadas.push({ pedidoId: r.pedidoId, folio: r.folio, motivo: r.motivo || 'no aplicada' });
     } catch (err) {
       rechazadas.push({ folio: e.folio, pedidoId: e.pedidoId, motivo: (err as Error).message });
@@ -137,7 +154,14 @@ router.post('/domicilio', async (req, res) => {
   }
 
   console.log(`[webhook:domicilio] entrada: ${aplicadas.length} aplicadas, ${rechazadas.length} rechazadas`);
-  res.json({ recibidas: entregas.length, aplicadas: aplicadas.length, rechazadas });
+  res.json({
+    ok: rechazadas.length === 0,
+    recibidas: entregas.length,
+    // El detalle de cada una, no sólo el número: es lo que deja ver que la ubicación
+    // que mandó el repartidor entró de verdad, y no sólo que el costo se guardó.
+    aplicadas,
+    rechazadas,
+  });
 });
 
 export default router;

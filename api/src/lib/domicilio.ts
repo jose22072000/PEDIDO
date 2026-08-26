@@ -9,176 +9,45 @@ import { normalizarProducto, variantesProducto, porContenido } from './nombrePro
 import { readConfiguredSucursalId } from './sucursalLocal';
 import { encolarWebhook } from './queues';
 
-/** Todo lo que la APK necesita para cotizar un domicilio y para saber a quién apuntarlo. */
-export async function payloadDomicilio(pedidoId: string) {
-  const p = await prisma.pedido.findUnique({
-    where: { id: pedidoId },
-    include: {
-      items: true,
-      sucursal: { select: { id: true, codigo: true, nombre: true } },
-      cliente: {
-        select: {
-          id: true, codigo: true, nombre: true, direccion: true, municipio: true,
-          zona: true, latitud: true, longitud: true,
-        },
-      },
-      vendedor: {
-        select: {
-          id: true, codigo: true, nombre: true,
-          sucursal: { select: { codigo: true, nombre: true } },
-          gestor: {
-            select: {
-              id: true, username: true,
-              sucursal: { select: { codigo: true, nombre: true } },
-            },
-          },
-        },
-      },
-    },
-  });
-  if (!p) return null;
+/**
+ * PEDIDO ya no le manda pedidos a delivery-apk. Esto está borrado entero.
+ *
+ * El repartidor teclea el folio en delivery-apk y elige al cliente, que delivery-apk ya
+ * tiene sincronizado desde /integration/clients. O sea que delivery-apk no necesita que
+ * PEDIDO le avise de nada: cuando llega el pedido, ya lo tiene delante.
+ *
+ * Aquí vivía el payload de salida, la cola que lo mandaba y el relleno de pendientes.
+ * Todo eso resolvía un problema que no existe, y mientras estuviera, PEDIDO seguiría
+ * gastando trabajo y arriesgando fallos por avisar de algo a quien ya lo sabe.
+ *
+ * Queda UN solo webhook en PEDIDO, y es de ENTRADA: delivery-apk manda folio, costo y
+ * distancia, y PEDIDO contesta qué hizo con cada uno.
+ */
 
-  // Precio y peso salen del catálogo de SU sucursal: el mismo producto no pesa distinto
-  // en Camagüey, pero sí vale distinto, y el stock es de allí.
-  const nombres = [...new Set(p.items.map((i) => i.producto).filter(Boolean))];
-  const catalogo = p.sucursalId && nombres.length
-    ? await prisma.productoSucursal.findMany({
-        // El catálogo ENTERO, no filtrado por nombre: los nombres de Parranda y los
-        // de Ventra NO coinciden ("ALIMENTOS ARROZ BLANCO 25KG SACO" contra "ARROZ
-        // BLANCO 25 KG SACO"), así que filtrar por nombre exacto devolvía CERO filas.
-        //
-        // Aquí eso era peor que en la lista de pedidos: sin catálogo, `pesoTotalKg`
-        // salía 0, y la APK calcula el costo como tarifa × distancia × peso. Le
-        // habríamos mandado peso cero y le habría salido CADA DOMICILIO A CERO, sin
-        // que nada fallara por ninguna de las dos partes.
-        where: { sucursalId: p.sucursalId },
-        select: { sku: true, nombre: true, precio: true, pesoKg: true },
-      })
-    : [];
-  // Mismo cruce que en la lista de pedidos: normalizado, y gana el que tiene precio
-  // (Ventra manda el producto duplicado, uno con precio y otro sin).
-  const porNombre = new Map<string, (typeof catalogo)[number]>();
-  for (const c of catalogo) {
-    const k = normalizarProducto(c.nombre);
-    const previo = porNombre.get(k);
-    if (!previo || (previo.precio == null && c.precio != null)) porNombre.set(k, c);
-  }
+/**
+ * Lo que PEDIDO hizo de verdad con una entrega de delivery-apk.
+ *
+ * No basta con "ok": delivery-apk manda varias cosas a la vez (costo, tasa, distancia,
+ * ubicación corregida) y cada una puede guardarse o no por su cuenta. Una tasa en cero
+ * se descarta, una coordenada fuera de Cuba se descarta, y una ubicación igual a la que
+ * ya había no se toca. Si la respuesta sólo dijera "aplicada", del otro lado se daría
+ * por guardado algo que no lo está, y nadie se enteraría hasta cobrar mal.
+ */
+export type CambiosDomicilio = {
+  costo: boolean;
+  tasa: boolean;
+  distancia: boolean;
+  ubicacionCliente: boolean;
+  direccionCliente: boolean;
+};
 
-  let totalMercancia = 0;
-  let sinPrecio = 0;
-  let pesoTotalKg = 0;
-  let sinPeso = 0;
-
-  const items = p.items.map((i) => {
-    const c = variantesProducto(i.producto || '').map((v) => porNombre.get(v)).find(Boolean)
-      // Último recurso: el nombre del pedido contenido en uno de Ventra, y en uno solo.
-      ?? (() => {
-        const k = porContenido(i.producto || '', [...porNombre.keys()]);
-        return k ? porNombre.get(k) : undefined;
-      })();
-    // El precio y el peso de Ventra son por UNIDAD DE VENTA (el pack o la caja), no por
-    // botella. Multiplicarlos por las unidades sueltas da cifras absurdas.
-    const cantidad = i.packs && i.packs > 0 ? i.packs : i.unidades;
-    const importe = c?.precio != null ? Number((c.precio * cantidad).toFixed(2)) : null;
-    const peso = c?.pesoKg != null ? Number((c.pesoKg * cantidad).toFixed(3)) : null;
-
-    if (importe == null) sinPrecio++; else totalMercancia += importe;
-    if (peso == null) sinPeso++; else pesoTotalKg += peso;
-
-    return {
-      // El producto YA RESUELTO contra Ventra: su sku y su nombre tal cual están allí.
-      //
-      // Va así para que quien recibe esto no tenga que emparejar nada. Los nombres de
-      // Parranda y los de Ventra no coinciden —"ALIMENTOS ARROZ BLANCO 25KG SACO"
-      // contra "ARROZ BLANCO 25 KG SACO"— y el cruce ya lo hicimos aquí: repetirlo del
-      // otro lado sería resolver dos veces el mismo problema, y con dos criterios
-      // distintos que un día dejarían de coincidir.
-      //
-      // `producto` se mantiene con el nombre de Parranda porque es el que aparece en
-      // el pedido y el que la gente reconoce al mirarlo.
-      sku: c?.sku ?? null,
-      productoVentra: c?.nombre ?? null,
-      producto: i.producto,
-      unidades: i.unidades,
-      packs: i.packs,
-      pesoUnidadKg: c?.pesoKg ?? null,
-      pesoKg: peso,
-      precioUnidad: c?.precio ?? null,
-      importe,
-    };
-  });
-
-  return {
-    evento: 'domicilio.solicitado',
-    pedidoId: p.id,
-    folio: p.folio,
-    estado: p.estado,
-    requiereDomicilio: p.requiere_domicilio ?? false,
-    fecha: p.fecha ? p.fecha.toISOString() : null,
-    fechaComprometida: p.fecha_comprometida ? p.fecha_comprometida.toISOString() : null,
-    updatedAt: p.updatedAt ? p.updatedAt.toISOString() : null,
-
-    sucursalId: p.sucursal?.id ?? null,
-    sucursalCodigo: p.sucursal?.codigo ?? null,
-    sucursalNombre: p.sucursal?.nombre ?? null,
-
-    // A quién se le atribuye la entrega: sucursal -> gestor -> vendedor.
-    vendedor: p.vendedor
-      ? {
-          id: p.vendedor.id,
-          codigo: p.vendedor.codigo,
-          nombre: p.vendedor.nombre,
-          sucursalCodigo: p.vendedor.sucursal?.codigo ?? null,
-          gestor: p.vendedor.gestor
-            ? {
-                id: p.vendedor.gestor.id,
-                usuario: p.vendedor.gestor.username,
-                sucursalCodigo: p.vendedor.gestor.sucursal?.codigo ?? null,
-              }
-            : null,
-        }
-      : null,
-
-    // Dónde hay que llevarlo. La dirección del pedido manda sobre la del cliente: es la
-    // que se escribió para ESTA entrega.
-    cliente: p.cliente
-      ? {
-          codigo: p.cliente.codigo,
-          nombre: p.cliente.nombre,
-          direccion: p.direccion || p.cliente.direccion,
-          municipio: p.cliente.municipio,
-          zona: p.cliente.zona,
-          telefono: p.telefono,
-          latitud: p.cliente.latitud,
-          longitud: p.cliente.longitud,
-          /**
-           * Le decimos a la APK qué le falta a este cliente, en vez de que lo deduzca.
-           *
-           * "sinUbicacion" no es lo mismo que un fallo: es un encargo. Significa que
-           * hace falta que alguien ponga dónde vive, y que si nos devuelven lat/lng se
-           * guardan. Sin esta marca, la APK recibe un cliente con las coordenadas en
-           * nulo y no puede distinguir "no la tenemos" de "se perdió por el camino".
-           */
-          sinUbicacion: p.cliente.latitud == null || p.cliente.longitud == null,
-        }
-      : null,
-    encargado: p.encargado,
-
-    items,
-    pesoTotalKg: Number(pesoTotalKg.toFixed(3)),
-    lineasSinPeso: sinPeso,
-    // El total de la MERCANCÍA, sin domicilio: eso es justo lo que ellos añaden.
-    totalMercancia: sinPrecio === p.items.length ? null : Number(totalMercancia.toFixed(2)),
-    lineasSinPrecio: sinPrecio,
-    // Lo que ya tuviera puesto, para que reenviar un aviso no se lea como "sin cotizar".
-    costoDomicilio: p.costoDomicilio,
-    // Los importes van en USD. Si la APK manda la tasa con la que cotizó, se guarda con
-    // el pedido y el CUP se reproduce exacto el día que haga falta.
-    moneda: 'USD',
-  };
-}
-
-export type ResultadoCosto = { ok: boolean; pedidoId?: string; folio?: string; motivo?: string };
+export type ResultadoCosto = {
+  ok: boolean;
+  pedidoId?: string;
+  folio?: string;
+  motivo?: string;
+  cambios?: CambiosDomicilio;
+};
 
 /**
  * Escribe el costo que nos devuelve la APK.
@@ -274,6 +143,11 @@ export async function aplicarCostoDomicilio(u: {
    * dato original —y sin el valor viejo no hay forma de volver atrás ni de ver que un
    * cliente "se mudó" tres veces en una semana, que es como se nota que algo va mal.
    */
+  const cambios: CambiosDomicilio = {
+    costo: false, tasa: false, distancia: false,
+    ubicacionCliente: false, direccionCliente: false,
+  };
+
   const guardarUbicacion = async (pedidoId: string) => {
     const lat = u.latitud == null ? null : Number(u.latitud);
     const lng = u.longitud == null ? null : Number(u.longitud);
@@ -307,6 +181,8 @@ export async function aplicarCostoDomicilio(u: {
     const cambioDir = dir != null && dir !== (c.direccion || '').trim();
     if (!movio && !cambioDir) return;
 
+    cambios.ubicacionCliente = movio;
+    cambios.direccionCliente = cambioDir;
     await prisma.$transaction([
       prisma.clienteGeoCambio.create({
         data: {
@@ -355,6 +231,7 @@ export async function aplicarCostoDomicilio(u: {
         distanciaAt: new Date(),
       },
     });
+    cambios.distancia = true;
   };
 
   if (u.pedidoId) {
@@ -366,8 +243,12 @@ export async function aplicarCostoDomicilio(u: {
       await guardarUbicacion(String(u.pedidoId));
       await guardarDistancia(String(u.pedidoId));
     }
+    if (r.count > 0) {
+      cambios.costo = true;
+      cambios.tasa = tasaValida != null;
+    }
     return r.count > 0
-      ? { ok: true, pedidoId: String(u.pedidoId) }
+      ? { ok: true, pedidoId: String(u.pedidoId), cambios }
       : { ok: false, pedidoId: String(u.pedidoId), motivo: 'no existe o es de otra sucursal' };
   }
 
@@ -395,60 +276,11 @@ export async function aplicarCostoDomicilio(u: {
     });
     await guardarUbicacion(candidatos[0].id);
     await guardarDistancia(candidatos[0].id);
-    return { ok: true, pedidoId: candidatos[0].id, folio: String(u.folio) };
+    cambios.costo = true;
+    cambios.tasa = tasaValida != null;
+
+    return { ok: true, pedidoId: candidatos[0].id, folio: String(u.folio), cambios };
   }
 
   return { ok: false, motivo: 'falta pedidoId o folio' };
-}
-
-export const EVENTO_DOMICILIO = 'domicilio.solicitado';
-
-/** Un pedido concreto: avisa de que hay que cotizarlo. Best-effort, nunca lanza. */
-export function pedirCotizacion(pedidoId: string): void {
-  void encolarWebhook(EVENTO_DOMICILIO, pedidoId);
-}
-
-/**
- * Encola TODOS los que están esperando cotización.
- *
- * Declarativo a propósito —"los que requieren domicilio, no tienen costo y sabemos
- * dónde vive el cliente"— en vez de intentar enganchar cada camino por el que puede
- * nacer un pedido. Se cura solo: si la APK estuvo caída un día, la siguiente
- * importación (o el botón de Configuración) vuelve a encolar lo que quedó sin cotizar,
- * y el jobId evita que se dupliquen los que ya estaban esperando.
- */
-export async function encolarPendientesDeDomicilio(opts: {
-  sucursalId?: string | null;
-  limite?: number;
-} = {}): Promise<number> {
-  const pendientes = await prisma.pedido.findMany({
-    where: {
-      requiere_domicilio: true,
-      costoDomicilio: null,
-      archivedAt: null,
-      ...(opts.sucursalId ? { sucursalId: opts.sucursalId } : {}),
-      /**
-       * Los clientes SIN coordenadas también van. Antes se filtraban, y era un error:
-       * la APK es justamente la que pone la ubicación de quien no la tiene, así que
-       * dejarlos fuera los condenaba a no tenerla nunca. Granma tiene hoy 362 clientes
-       * sin geolocalizar y ninguno se podía cotizar; sacándolos de aquí, se quedaban
-       * así para siempre.
-       *
-       * Lo que sí hace falta es una dirección: sin coordenadas y sin dirección no hay
-       * nada por donde empezar a buscar, y eso se arregla en Clientes, no en la APK.
-       */
-      OR: [
-        { cliente: { latitud: { not: null }, longitud: { not: null } } },
-        { cliente: { direccion: { not: null } } },
-        { direccion: { not: null } },
-      ],
-    },
-    select: { id: true },
-    orderBy: { fecha: 'desc' },
-    take: Math.min(opts.limite ?? 1000, 5000),
-  });
-
-  // Relleno: va por detrás de lo que esté pasando ahora mismo.
-  for (const p of pendientes) await encolarWebhook(EVENTO_DOMICILIO, p.id, { relleno: true });
-  return pendientes.length;
 }

@@ -107,40 +107,7 @@ export const WebhookDomicilio = () => {
     }
   };
 
-  const probar = async () => {
-    setCargando("probar");
-    try {
-      const res = await fetch(`${base}/mantenimiento/webhook/domicilio/probar`, { method: "POST" });
-      const j = await res.json();
 
-      if (!res.ok) throw new Error(j.error || "No contestó");
-      ok("Conectado", `${j.url} respondió en ${j.ms} ms`);
-    } catch (e) {
-      err(e instanceof Error ? e.message : "No se pudo probar");
-    } finally {
-      setCargando(null);
-    }
-  };
-
-  const reencolar = async () => {
-    setCargando("reencolar");
-    try {
-      const res = await fetch(`${base}/mantenimiento/webhook/domicilio/reencolar`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      const j = await res.json();
-
-      if (!res.ok) throw new Error(j.error || "Error");
-      ok("Reencolados", `${j.encolados} pedidos vuelven a la cola`);
-      cargar();
-    } catch (e) {
-      err(e instanceof Error ? e.message : "No se pudo reencolar");
-    } finally {
-      setCargando(null);
-    }
-  };
 
   const urlEntrada = `${base.replace(/\/$/, "")}/webhooks/domicilio`;
 
@@ -157,58 +124,41 @@ export const WebhookDomicilio = () => {
         </Switch>
       </div>
       <p className="mb-3 text-sm text-default-500">
-        Cuando un pedido pide domicilio, se le avisa a la APK con el peso, las coordenadas
-        del cliente y el total sin domicilio. Ella devuelve el costo por la URL de entrada.
-        El mismo secret firma la ida y verifica la vuelta.
+        delivery-apk manda a PEDIDO el folio con el costo del domicilio, la distancia y,
+        si el repartidor la corrigió, la ubicación del cliente. PEDIDO lo guarda y le
+        contesta qué hizo con cada uno. El secret firma el envío y PEDIDO lo verifica.
       </p>
 
-      {/* SALIDA */}
-      <div className="mb-3 flex flex-col gap-2">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-          <Input
-            className="min-w-0 flex-1"
-            label="URL de la APK (salida)"
-            placeholder="https://…/webhooks/pedido"
-            size="sm"
-            value={cfg.url}
-            onValueChange={(v) => setCfg((c) => ({ ...c, url: v }))}
-          />
-          <Input
-            className="w-full sm:w-40"
-            label="Key"
-            size="sm"
-            value={cfg.key}
-            onValueChange={(v) => setCfg((c) => ({ ...c, key: v }))}
-          />
-        </div>
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-          <Input
-            className="min-w-0 flex-1"
-            label="Secret (compartido)"
-            placeholder={cfg.tieneSecret ? "•••• (sin cambios)" : "pega uno o genéralo"}
-            size="sm"
-            type="password"
-            value={cfg.secret}
-            onValueChange={(v) => setCfg((c) => ({ ...c, secret: v }))}
-          />
-          <div className="flex gap-2">
-            <Button isLoading={cargando === "secret"} size="sm" variant="flat" onPress={generarSecret}>
-              Generar
-            </Button>
-            <Button color="primary" isLoading={cargando === "guardar"} size="sm" onPress={guardar}>
-              Guardar
-            </Button>
-            <Button isDisabled={!cfg.url} isLoading={cargando === "probar"} size="sm" variant="flat" onPress={probar}>
-              Probar
-            </Button>
-          </div>
+      {/*
+        Aquí había una "URL de la APK (salida)": PEDIDO le avisaba de cada pedido.
+        Se quitó porque no hacía falta. En delivery-apk el repartidor teclea el número
+        de pedido y elige al cliente de la lista que ya tiene bajada, así que cuando
+        llega el pedido ya lo tiene delante: avisarle era contarle algo que ya sabía.
+      */}
+      <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-end">
+        <Input
+          className="min-w-0 flex-1"
+          label="Secret (el mismo en delivery-apk)"
+          placeholder={cfg.tieneSecret ? "•••• (sin cambios)" : "pega uno o genéralo"}
+          size="sm"
+          type="password"
+          value={cfg.secret}
+          onValueChange={(v) => setCfg((c) => ({ ...c, secret: v }))}
+        />
+        <div className="flex gap-2">
+          <Button isLoading={cargando === "secret"} size="sm" variant="flat" onPress={generarSecret}>
+            Generar
+          </Button>
+          <Button color="primary" isLoading={cargando === "guardar"} size="sm" onPress={guardar}>
+            Guardar
+          </Button>
         </div>
       </div>
 
       {secretNuevo && (
         <div className="mb-3 rounded-lg border border-warning-200 bg-warning-50 p-3">
           <p className="mb-2 text-sm font-medium">
-            Cópialo y pásaselo al de la APK. No se vuelve a mostrar.
+            Cópialo y pásaselo al de delivery-apk. No se vuelve a mostrar.
           </p>
           {/* Se envuelve para que un secret de 64 caracteres no estire la tarjeta
               fuera de la pantalla en un teléfono. */}
@@ -220,7 +170,9 @@ export const WebhookDomicilio = () => {
 
       {/* ENTRADA */}
       <div className="mb-3">
-        <p className="mb-1 text-sm font-medium">URL de entrada (la que ellos llaman)</p>
+        <p className="mb-1 text-sm font-medium">
+          URL de entrada (la que llama delivery-apk)
+        </p>
         <Snippet hideSymbol className="max-w-full" size="sm" variant="bordered">
           <span className="break-all">{urlEntrada}</span>
         </Snippet>
@@ -230,7 +182,7 @@ export const WebhookDomicilio = () => {
       {estado && (
         <div className="flex flex-wrap items-center gap-2">
           <Chip color={estado.configurado ? "success" : "warning"} size="sm" variant="flat">
-            {estado.configurado ? "Configurado" : "Falta URL o secret"}
+            {estado.configurado ? "Configurado" : "Falta el secret"}
           </Chip>
           <Chip size="sm" variant="flat">
             <span className="inline-flex items-center gap-1">
@@ -251,33 +203,6 @@ export const WebhookDomicilio = () => {
               {estado.sinGeolocalizar} sin geolocalizar
             </Chip>
           )}
-          {/* Lo que tarda de verdad un aviso desde que se encola hasta que sale. Sin
-              este número, "va en tiempo real" es algo que hay que creerse.
-              Sólo los EN VIVO: un reencolado de 250 drena en ráfaga y sus últimos
-              salen a los segundos, que es normal y no dice nada del tiempo real. */}
-          {estado.latencia?.muestras > 0 && (
-            <Chip
-              color={estado.latencia.medianaMs < 1000 ? "success" : "warning"}
-              size="sm"
-              variant="flat"
-            >
-              en vivo: salen en {estado.latencia.medianaMs} ms
-            </Chip>
-          )}
-          {estado.latenciaRelleno?.muestras > 0 && (
-            <Chip size="sm" variant="flat">
-              relleno: {(estado.latenciaRelleno.medianaMs / 1000).toFixed(1)} s
-            </Chip>
-          )}
-          <Button
-            isDisabled={!estado.sinCotizar}
-            isLoading={cargando === "reencolar"}
-            size="sm"
-            variant="flat"
-            onPress={reencolar}
-          >
-            Reencolar pendientes
-          </Button>
         </div>
       )}
     </div>

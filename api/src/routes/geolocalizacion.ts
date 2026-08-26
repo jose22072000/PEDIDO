@@ -5,7 +5,6 @@ import xlsx from 'xlsx';
 
 import prisma from '../prismaClient';
 import { getRequesterContext, resolveSucursalScope } from '../lib/sucursalContext';
-import { encolarPendientesDeDomicilio } from '../lib/domicilio';
 
 /**
  * Subida del "Consolidado de Geolocalización" que entrega Parranda.
@@ -185,7 +184,6 @@ router.post('/', upload.single('file') as any, async (req, res) => {
     if (!dry && total.actualizados > 0) {
       // Clientes que acaban de estrenar coordenadas: sus pedidos con domicilio ya se
       // pueden cotizar, y hasta ahora no se podían.
-      void encolarPendientesDeDomicilio({});
     }
     res.json({ dry, total, detalle, clientesConGeo: conGeoAhora, clientesTotal: totalClientes });
   } catch (err) {

@@ -511,6 +511,65 @@ export const ClientesList = () => {
                         <p className="text-sm text-default-400">no lo tenemos</p>
                       )}
                     </div>
+                    {/*
+                      Todo lo que manda Parranda en el consolidado, aunque esté vacío.
+                      Antes sólo se enseñaba lo que tenía valor, y eso hacía imposible
+                      distinguir "Parranda no lo manda" de "está vacío para este
+                      cliente" — que es justo lo que hay que saber para arreglarlo.
+                    */}
+                    {selectedCliente?.sucursalNombre && (
+                      <div className="p-3 rounded-lg bg-default-50">
+                        <p className="mb-1 text-xs text-default-500">
+                          Provincia / Sucursal
+                        </p>
+                        <p className="font-semibold">
+                          {selectedCliente.sucursalNombre}
+                          {selectedCliente.sucursalCodigo
+                            ? ` (${selectedCliente.sucursalCodigo})`
+                            : ""}
+                        </p>
+                      </div>
+                    )}
+                    {selectedCliente?.geolocalizacion && (
+                      <div className="p-3 rounded-lg bg-default-50 sm:col-span-2">
+                        <p className="mb-1 text-xs text-default-500">
+                          Geolocalización (cruda de Parranda)
+                        </p>
+                        <code className="block w-full p-2 text-sm bg-white border rounded break-all select-all">
+                          {selectedCliente.geolocalizacion}
+                        </code>
+                      </div>
+                    )}
+                    {selectedCliente?.distanciaKm != null && (
+                      <div className="p-3 rounded-lg bg-default-50">
+                        <p className="mb-1 text-xs text-default-500">
+                          Distancia al almacén
+                        </p>
+                        <p className="font-semibold">
+                          {selectedCliente.distanciaKm.toFixed(2)} km
+                        </p>
+                        {/* Desde dónde se midió: sin esto el número no dice nada, porque
+                            si el almacén cambia de sitio la distancia queda mal y no
+                            habría forma de saber cuáles hay que rehacer. */}
+                        {selectedCliente.distanciaDesde && (
+                          <p className="text-xs text-default-400">
+                            medida desde {selectedCliente.distanciaDesde}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    {selectedCliente?.geoFuente && (
+                      <div className="p-3 rounded-lg bg-default-50">
+                        <p className="mb-1 text-xs text-default-500">
+                          Origen de la ubicación
+                        </p>
+                        <p className="font-semibold">
+                          {selectedCliente.geoFuente === "apk"
+                            ? "corregida en delivery-apk"
+                            : selectedCliente.geoFuente}
+                        </p>
+                      </div>
+                    )}
                     {selectedCliente?.direccion && (
                       <div className="p-3 rounded-lg bg-default-50 sm:col-span-2">
                         <p className="mb-1 text-xs text-default-500">

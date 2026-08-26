@@ -43,3 +43,18 @@ export function importe(usd: number | null | undefined, moneda: Moneda, tasa: nu
   }
   return `$${usd.toFixed(2)}`;
 }
+
+/**
+ * El mismo importe pero PELADO, para copiar y pegar.
+ *
+ * `importe` da texto para leer: lleva el símbolo y separador de miles. Eso está bien en
+ * pantalla y mal en el portapapeles — al pegar "1.234 CUP" en una caja que espera un
+ * número, o no entra o entra otra cifra. Aquí va sólo el número, con los decimales que
+ * corresponden a cada moneda: dos en dólares, ninguno en pesos.
+ */
+export function importeCrudo(usd: number | null | undefined, moneda: Moneda, tasa: number | null): string {
+  if (usd == null) return "";
+  if (moneda === "CUP" && tasa && tasa > 0) return String(Math.round(usd * tasa));
+
+  return usd.toFixed(2);
+}

@@ -15,7 +15,6 @@ import { notifyPedidoCompletado } from '../lib/webhook';
 import { emitEvent } from '../lib/events';
 import { redisEnabled, publishJSON, getSubscriber, CH_IMPORT_DONE, CH_IMPORT_FAILED } from '../lib/redis';
 import { importQueue } from '../lib/queues';
-import { pedirCotizacion, encolarPendientesDeDomicilio } from '../lib/domicilio';
 import { mintSseTicket, consumeSseTicket } from '../lib/sseTickets';
 import { ingestaAuth } from '../middleware/ingestaAuth';
 
@@ -534,7 +533,8 @@ router.post('/', async (req, res) => {
     // Si hay que llevarlo a casa, la APK tiene que cotizarlo. Va por la cola: el aviso
     // no puede hacer esperar a quien está creando el pedido, ni fallar si la APK está
     // caída.
-    if (order.requiere_domicilio) pedirCotizacion(order.id);
+    // Antes aquí se avisaba a delivery-apk del pedido nuevo. Ya no hace falta: el
+    // repartidor teclea el folio allí y el cliente lo tiene sincronizado.
     // El pedido viaja COMPLETO (misma forma que la lista) para que las vistas lo
     // inserten arriba sin volver a pedir la página entera.
     emitEvent('pedido', {
@@ -888,7 +888,8 @@ router.patch('/:id/estado', async (req, res) => {
     // pulse "Reencolar" —o sea, a que alguien se acuerde—, que es justo lo que no puede
     // pasar con un pedido que acaba de volver a estar activo.
     if (estado !== 'completada' && order.requiere_domicilio && order.costoDomicilio == null) {
-      pedirCotizacion(order.id);
+    // Antes aquí se avisaba a delivery-apk del pedido nuevo. Ya no hace falta: el
+    // repartidor teclea el folio allí y el cliente lo tiene sincronizado.
     }
 
     emitEvent('pedido', {
@@ -1138,7 +1139,6 @@ export async function processBulkImport(
 
   // Se importaron pedidos: los que pidan domicilio entran en la cola de cotización.
   if (results.created > 0 || results.updated > 0) {
-    void encolarPendientesDeDomicilio({ sucursalId: uploaderSucursalId });
     emitEvent('pedido', { sucursalId: uploaderSucursalId ?? null, accion: 'bulk' });
     emitEvent('cliente', { sucursalId: uploaderSucursalId ?? null, accion: 'bulk' });
   }

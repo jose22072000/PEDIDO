@@ -6,7 +6,6 @@ import prisma from '../prismaClient';
 import { getRequesterContext } from '../lib/sucursalContext';
 import { invalidarWebhookCache, entregarWebhook, getConfig, type Destino } from '../lib/webhook';
 import { webhooksQueue } from '../lib/queues';
-import { encolarPendientesDeDomicilio } from '../lib/domicilio';
 import { resumenLatencias } from '../lib/redis';
 
 const upload = multer({ dest: 'uploads/temp' });
@@ -216,29 +215,8 @@ router.get('/webhook/domicilio/estado', async (_req, res) => {
   });
 });
 
-/**
- * POST /mantenimiento/webhook/domicilio/reencolar
- * Vuelve a mandar todo lo que sigue sin cotizar. Para el día que la APK estuvo caída:
- * los avisos de entonces ya se dieron por perdidos y nadie los va a reintentar solo.
- */
-router.post('/webhook/domicilio/reencolar', async (req, res) => {
-  // Primero se barren los completados. Bull no vuelve a admitir un jobId que ya existe
-  // aunque esté terminado, así que sin esto el botón contestaría "681 encolados" y no
-  // habría encolado ninguno. (Los que se encolen a partir de ahora se borran solos al
-  // completarse; esto limpia los que quedaron del historial viejo.)
-  const q = webhooksQueue();
-  if (q) {
-    try {
-      await q.clean(0, 'completed');
-      await q.clean(0, 'failed');
-    } catch (e) {
-      console.error('[mantenimiento] no se pudo limpiar la cola de webhooks:', (e as Error).message);
-    }
-  }
-  const n = await encolarPendientesDeDomicilio({ limite: Number(req.body?.limite) || 1000 });
-  auditar(req, 'webhook-reencolar', { destino: 'domicilio', encolados: n });
-  res.json({ ok: true, encolados: n });
-});
+// El botón de "reencolar domicilios" se va con la cola de salida: no queda nada que
+// encolar. PEDIDO ya no le manda pedidos a delivery-apk, sólo recibe sus costos.
 
 // Mismo criterio de código que el import del CSV (nombre.primer_apellido, sin tildes
 // ni caracteres de control). Si cambia allí, cambia aquí.

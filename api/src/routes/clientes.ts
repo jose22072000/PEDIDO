@@ -412,11 +412,18 @@ router.get('/', async (req, res) => {
       }
     }
 
+    // La sucursal es la PROVINCIA del consolidado de Parranda: el mismo dato con otro
+    // nombre. Se manda con el cliente para que la ficha no tenga que adivinarla.
+    const sucursalesTodas = await prisma.sucursal.findMany({ select: { id: true, nombre: true, codigo: true } });
+    const porSucursal = new Map(sucursalesTodas.map((x) => [x.id, x]));
+
     const clientesConVendedor = clientes.map((c) => ({
       ...c,
       vendedorNombre: porCliente.get(c.id)?.vendedor ?? null,
       vendedorCodigo: porCliente.get(c.id)?.codigo ?? null,
       otrosVendedores: porCliente.get(c.id)?.otros ?? 0,
+      sucursalNombre: c.sucursalId ? porSucursal.get(c.sucursalId)?.nombre ?? null : null,
+      sucursalCodigo: c.sucursalId ? porSucursal.get(c.sucursalId)?.codigo ?? null : null,
     }));
 
     // Municipios distintos del scope actual (para poblar el dropdown del filtro).

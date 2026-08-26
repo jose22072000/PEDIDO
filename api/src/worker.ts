@@ -8,7 +8,6 @@ import { redisEnabled, publishJSON, anotarLatencia, CH_IMPORT_DONE, CH_IMPORT_FA
 import { importQueue, parrandaQueue, webhooksQueue, QUEUE_IMPORT, QUEUE_PARRANDA, QUEUE_WEBHOOKS } from './lib/queues';
 import { entregarWebhook } from './lib/webhook';
 import { emitEvent } from './lib/events';
-import { payloadDomicilio, EVENTO_DOMICILIO } from './lib/domicilio';
 import { processBulkImport } from './routes/orders';
 import { processParrandaSync } from './lib/parranda';
 import { arrancarSondeoVentra } from './lib/sondeoVentra';
@@ -122,44 +121,10 @@ async function main() {
  * foto de cuando se encoló.
  */
 function arrancarWebhooks() {
-  const wq = webhooksQueue();
-  if (!wq) return;
-
-  // Ocho a la vez. Con tres, un reencolado de 681 tardaba minutos en drenar y todo lo
-  // que entrara mientras tanto quedaba detrás; ahora además la prioridad hace que lo de
-  // ahora adelante al relleno, pero drenar rápido sigue importando para no tener nunca
-  // cola de verdad.
-  const concurrencia = Number(process.env.WEBHOOK_CONCURRENCY || 8);
-  wq.process(concurrencia, async (job) => {
-    const { evento, pedidoId, encoladoEn, relleno } = job.data as {
-      evento: string; pedidoId: string; encoladoEn?: number; relleno?: boolean;
-    };
-    if (evento !== EVENTO_DOMICILIO) return { saltado: `evento desconocido: ${evento}` };
-
-    const payload = await payloadDomicilio(pedidoId);
-    // Borrado mientras esperaba en la cola. No es un fallo que haya que reintentar.
-    if (!payload) return { saltado: 'el pedido ya no existe' };
-    // Dejó de requerir domicilio, o ya se lo cotizaron por otra vía.
-    if (!payload.requiereDomicilio) return { saltado: 'ya no requiere domicilio' };
-
-    await entregarWebhook('domicilio', payload);
-    // Desde que se encoló hasta que salió. Es el número que dice si esto va en tiempo
-    // real o no, y se enseña en Configuración para no tener que creérselo.
-    if (encoladoEn) await anotarLatencia(Date.now() - encoladoEn, !!relleno);
-    // Y se avisa a las pantallas abiertas. El worker es otro proceso que la API, pero
-    // emitEvent publica en el MISMO Redis y el SSE de la API lo reenvía: por eso
-    // Configuración se mueve sola, sin preguntar cada pocos segundos.
-    avisarPantallas(payload.folio, !!relleno);
-    return { folio: payload.folio };
-  });
-
-  wq.on('failed', (job, err) => {
-    console.error(`[worker] webhook ${job?.data?.evento} ${job?.data?.pedidoId} falló:`, err.message);
-    // Un fallo se avisa SIEMPRE, sin limitar: es lo único de aquí que alguien tiene que
-    // mirar, y enterarse tarde de que la APK dejó de contestar no sirve de nada.
-    emitEvent('webhook', { accion: 'fallado', id: job?.data?.pedidoId ?? null, datos: { error: err.message.slice(0, 200) } });
-  });
-  console.log(`[worker] escuchando ${QUEUE_WEBHOOKS} (concurrency=${concurrencia})`);
+  // La cola de salida ya no existe: delivery-apk no necesita que PEDIDO le avise de
+  // los pedidos, porque el repartidor teclea el folio y el cliente ya lo tiene bajado.
+  // Lo único que queda del domicilio es el webhook de ENTRADA, y ése lo atiende la API.
+  return;
 }
 
 /**

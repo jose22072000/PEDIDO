@@ -2,6 +2,7 @@ import {
   Card,
   CardBody,
   Chip,
+  Snippet,
   Pagination,
   Button,
   Input,
@@ -32,7 +33,13 @@ import { cn, copyTextToClipboard } from "@/lib/utils";
 import { registrarCopia } from "@/lib/registrar-copia";
 import { esFechaEnviable } from "@/lib/fecha-enviable";
 import { getApiBaseUrl } from "@/config";
-import { importe, monedaGuardada, guardarMoneda, type Moneda } from "@/lib/moneda";
+import {
+  importe,
+  importeCrudo,
+  monedaGuardada,
+  guardarMoneda,
+  type Moneda,
+} from "@/lib/moneda";
 import { useAuthStore } from "@/stores/authStore";
 import { useLiveStatus } from "@/hooks/use-live-events";
 import { aplicarLote } from "@/hooks/aplicar-eventos";
@@ -1361,11 +1368,25 @@ export const OrdersList = () => {
                               </p>
                             </div>
                           </div>
-                          <div className="flex gap-2">
+                          <div className="flex items-center gap-2">
                             {selectedOrder?.costoDomicilio != null ? (
-                              <Chip color="success" size="sm" variant="flat">
-                                {$$(selectedOrder.costoDomicilio)}
-                              </Chip>
+                              /* Copiable de un toque: este número se teclea en otro
+                                 sitio para cobrar, y volver a escribirlo a mano es la
+                                 forma más fácil de equivocarse en el importe. Va el
+                                 número pelado, sin símbolo de moneda ni miles, que es
+                                 lo que se pega en una caja de texto. */
+                              <Snippet
+                                hideSymbol
+                                classNames={{ pre: "text-base font-semibold" }}
+                                size="sm"
+                                variant="flat"
+                              >
+                                {importeCrudo(
+                                  selectedOrder.costoDomicilio,
+                                  moneda,
+                                  tasa,
+                                )}
+                              </Snippet>
                             ) : (
                               <Chip color="warning" size="sm" variant="flat">
                                 Sin calcular todavía
