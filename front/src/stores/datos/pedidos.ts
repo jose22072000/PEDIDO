@@ -9,6 +9,24 @@ export interface OrderItem {
   unidades: number;
   packs?: number | null;
   descripcion?: string | null;
+  /**
+   * Precio, peso y stock de ESTA sucursal, que los pone la API cruzando el producto
+   * con el catálogo traído de Ventra.
+   *
+   * Son por sucursal a propósito: el mismo producto no vale igual en Camagüey que en
+   * Santiago, así que una lista única daría totales falsos en siete de las diez.
+   *
+   * `precioUnidad` es por unidad de VENTA —el formato o caja—, no por unidad suelta.
+   * Por eso `importe` multiplica por los formatos: si multiplicara por las unidades,
+   * una caja de 60 saldría sesenta veces su precio.
+   *
+   * Nulos cuando el producto no está en el catálogo de esa sucursal. No es un fallo:
+   * es que Ventra no lo tiene, y hay que verlo en vez de contarlo como cero.
+   */
+  precioUnidad?: number | null;
+  importe?: number | null;
+  pesoKg?: number | null;
+  stock?: number | null;
 }
 
 export interface Cliente {
@@ -26,6 +44,15 @@ export interface Vendedor {
 
 export interface Order {
   id: string;
+  /**
+   * Lo que suma el pedido con los precios de su sucursal, domicilio incluido.
+   *
+   * `null` si no se pudo calcular ninguna línea. `lineasSinPrecio` dice cuántas
+   * faltaron: un total al que le falta un producto es peor que no tener total, porque
+   * parece bueno y nadie lo comprueba.
+   */
+  total?: number | null;
+  lineasSinPrecio?: number;
   folio: string;
   vendedorId?: string | null;
   vendedor?: Vendedor | null;

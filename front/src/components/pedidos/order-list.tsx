@@ -1223,7 +1223,7 @@ export const OrdersList = () => {
                               )}
                             </div>
                           </div>
-                          <div className="flex gap-2">
+                          <div className="flex items-center gap-2">
                             {item.packs != null && item.packs > 0 && (
                               <Chip size="sm" variant="flat">
                                 {item.packs} formato
@@ -1233,6 +1233,29 @@ export const OrdersList = () => {
                             <Chip size="sm" variant="flat">
                               {item.unidades} unidades
                             </Chip>
+                            {/* El precio, que ya venía de la API y no se pintaba.
+                                Sale de Ventra y es POR SUCURSAL: el mismo producto no
+                                vale igual en Camagüey que en Santiago, así que no se
+                                puede tener una lista única.
+                                Y es por unidad de venta —el formato/caja—, no por
+                                unidad suelta; por eso el importe multiplica por los
+                                formatos y no por las 60 unidades. */}
+                            {item.importe != null ? (
+                              <div className="text-right leading-tight">
+                                <p className="text-sm font-semibold tabular-nums">
+                                  ${fmtUsd(item.importe)}
+                                </p>
+                                {item.precioUnidad != null && (
+                                  <p className="text-[11px] text-default-400 tabular-nums">
+                                    ${fmtUsd(item.precioUnidad)} c/u
+                                  </p>
+                                )}
+                              </div>
+                            ) : (
+                              <Chip color="warning" size="sm" variant="flat">
+                                sin precio
+                              </Chip>
+                            )}
                           </div>
                         </div>
                       ))}
@@ -1267,6 +1290,33 @@ export const OrdersList = () => {
                           </div>
                         </div>
                       )}
+
+                      {/* EL TOTAL. Lo calcula la API sumando cada línea por el precio
+                          de Ventra de ESA sucursal, más el domicilio.
+                          Si alguna línea no tiene precio se dice cuántas, en vez de
+                          enseñar un total que parece bueno y está incompleto: un total
+                          al que le falta un producto es peor que no tener total,
+                          porque nadie lo comprueba. */}
+                      <div className="mt-1 flex items-center justify-between rounded-lg border-2 border-default-200 bg-default-50 p-3">
+                        <div>
+                          <p className="font-semibold">Total</p>
+                          {(selectedOrder?.lineasSinPrecio ?? 0) > 0 && (
+                            <p className="text-xs text-warning-600">
+                              Faltan {selectedOrder?.lineasSinPrecio} producto
+                              {selectedOrder?.lineasSinPrecio !== 1 ? "s" : ""} por precio
+                            </p>
+                          )}
+                        </div>
+                        {selectedOrder?.total != null ? (
+                          <p className="text-xl font-bold tabular-nums">
+                            ${fmtUsd(selectedOrder.total)}
+                          </p>
+                        ) : (
+                          <Chip color="warning" size="sm" variant="flat">
+                            sin precios de esta sucursal
+                          </Chip>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
