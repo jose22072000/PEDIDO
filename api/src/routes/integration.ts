@@ -307,11 +307,22 @@ router.get('/clients', async (req, res) => {
     : null;
   const cursor = typeof req.query.cursor === 'string' && req.query.cursor ? req.query.cursor : null;
 
+  // TODOS los clientes, no sólo los geolocalizados.
+  //
+  // Antes se filtraban por tener coordenadas, con el argumento de que sin ellas no hay
+  // domicilio que calcular. Pero eso mezcla dos cosas: quién ES cliente de la sucursal,
+  // y a quién se le puede cotizar hoy. En La Habana son 783 clientes y salían 599 — los
+  // otros 184 sencillamente no existían para quien consumiera esto, y no había forma de
+  // saber que faltaban.
+  //
+  // Quien necesite sólo los cotizables mira `latitud`, que viene en cada fila, o pide
+  // `?conGeo=1`. Es mejor que le llegue el cliente y decida, a que se lo escondamos.
+  const soloConGeo = req.query.conGeo === '1' || req.query.conGeo === 'true';
+
   const clientes = await prisma.cliente.findMany({
     where: {
       ...sucursalScope,
-      latitud: { not: null },
-      longitud: { not: null },
+      ...(soloConGeo ? { latitud: { not: null }, longitud: { not: null } } : {}),
       ...(since ? { updatedAt: { gt: new Date(since) } } : {}),
       // Por vendedor: los que tienen ALGÚN pedido suyo.
       ...(vendedor

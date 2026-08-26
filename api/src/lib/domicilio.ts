@@ -5,6 +5,7 @@
 // ellos saben cuánto cuesta llevarlo. Por eso el pedido sale de aquí con el total de
 // la mercancía ya hecho y sin la línea de domicilio, y vuelve sólo con esa línea.
 import prisma from '../prismaClient';
+import { normalizarProducto, variantesProducto } from './nombreProducto';
 import { readConfiguredSucursalId } from './sucursalLocal';
 import { encolarWebhook } from './queues';
 
@@ -42,11 +43,26 @@ export async function payloadDomicilio(pedidoId: string) {
   const nombres = [...new Set(p.items.map((i) => i.producto).filter(Boolean))];
   const catalogo = p.sucursalId && nombres.length
     ? await prisma.productoSucursal.findMany({
-        where: { sucursalId: p.sucursalId, nombre: { in: nombres } },
+        // El catálogo ENTERO, no filtrado por nombre: los nombres de Parranda y los
+        // de Ventra NO coinciden ("ALIMENTOS ARROZ BLANCO 25KG SACO" contra "ARROZ
+        // BLANCO 25 KG SACO"), así que filtrar por nombre exacto devolvía CERO filas.
+        //
+        // Aquí eso era peor que en la lista de pedidos: sin catálogo, `pesoTotalKg`
+        // salía 0, y la APK calcula el costo como tarifa × distancia × peso. Le
+        // habríamos mandado peso cero y le habría salido CADA DOMICILIO A CERO, sin
+        // que nada fallara por ninguna de las dos partes.
+        where: { sucursalId: p.sucursalId },
         select: { sku: true, nombre: true, precio: true, pesoKg: true },
       })
     : [];
-  const porNombre = new Map(catalogo.map((c) => [c.nombre.trim().toUpperCase(), c]));
+  // Mismo cruce que en la lista de pedidos: normalizado, y gana el que tiene precio
+  // (Ventra manda el producto duplicado, uno con precio y otro sin).
+  const porNombre = new Map<string, (typeof catalogo)[number]>();
+  for (const c of catalogo) {
+    const k = normalizarProducto(c.nombre);
+    const previo = porNombre.get(k);
+    if (!previo || (previo.precio == null && c.precio != null)) porNombre.set(k, c);
+  }
 
   let totalMercancia = 0;
   let sinPrecio = 0;
@@ -54,7 +70,7 @@ export async function payloadDomicilio(pedidoId: string) {
   let sinPeso = 0;
 
   const items = p.items.map((i) => {
-    const c = porNombre.get((i.producto || '').trim().toUpperCase());
+    const c = variantesProducto(i.producto || '').map((v) => porNombre.get(v)).find(Boolean);
     // El precio y el peso de Ventra son por UNIDAD DE VENTA (el pack o la caja), no por
     // botella. Multiplicarlos por las unidades sueltas da cifras absurdas.
     const cantidad = i.packs && i.packs > 0 ? i.packs : i.unidades;
@@ -65,7 +81,18 @@ export async function payloadDomicilio(pedidoId: string) {
     if (peso == null) sinPeso++; else pesoTotalKg += peso;
 
     return {
+      // El producto YA RESUELTO contra Ventra: su sku y su nombre tal cual están allí.
+      //
+      // Va así para que quien recibe esto no tenga que emparejar nada. Los nombres de
+      // Parranda y los de Ventra no coinciden —"ALIMENTOS ARROZ BLANCO 25KG SACO"
+      // contra "ARROZ BLANCO 25 KG SACO"— y el cruce ya lo hicimos aquí: repetirlo del
+      // otro lado sería resolver dos veces el mismo problema, y con dos criterios
+      // distintos que un día dejarían de coincidir.
+      //
+      // `producto` se mantiene con el nombre de Parranda porque es el que aparece en
+      // el pedido y el que la gente reconoce al mirarlo.
       sku: c?.sku ?? null,
+      productoVentra: c?.nombre ?? null,
       producto: i.producto,
       unidades: i.unidades,
       packs: i.packs,
