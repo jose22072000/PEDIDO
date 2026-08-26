@@ -1326,8 +1326,8 @@ export const OrdersList = () => {
                                 )}
                               </div>
                             ) : (
-                              {/* Sin precio NI stock en esta sucursal = no lo hay
-                                  aquí. Se deja la línea porque el pedido lo pidió. */}
+                              // Sin precio NI stock en esta sucursal = no lo hay aquí.
+                              // La línea se queda porque el pedido lo pidió igual.
                               <Chip size="sm" variant="flat">
                                 no hay en esta sucursal
                               </Chip>
