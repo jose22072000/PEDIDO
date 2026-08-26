@@ -5,7 +5,7 @@
 // ellos saben cuánto cuesta llevarlo. Por eso el pedido sale de aquí con el total de
 // la mercancía ya hecho y sin la línea de domicilio, y vuelve sólo con esa línea.
 import prisma from '../prismaClient';
-import { normalizarProducto, variantesProducto } from './nombreProducto';
+import { normalizarProducto, variantesProducto, porContenido } from './nombreProducto';
 import { readConfiguredSucursalId } from './sucursalLocal';
 import { encolarWebhook } from './queues';
 
@@ -70,7 +70,12 @@ export async function payloadDomicilio(pedidoId: string) {
   let sinPeso = 0;
 
   const items = p.items.map((i) => {
-    const c = variantesProducto(i.producto || '').map((v) => porNombre.get(v)).find(Boolean);
+    const c = variantesProducto(i.producto || '').map((v) => porNombre.get(v)).find(Boolean)
+      // Último recurso: el nombre del pedido contenido en uno de Ventra, y en uno solo.
+      ?? (() => {
+        const k = porContenido(i.producto || '', [...porNombre.keys()]);
+        return k ? porNombre.get(k) : undefined;
+      })();
     // El precio y el peso de Ventra son por UNIDAD DE VENTA (el pack o la caja), no por
     // botella. Multiplicarlos por las unidades sueltas da cifras absurdas.
     const cantidad = i.packs && i.packs > 0 ? i.packs : i.unidades;

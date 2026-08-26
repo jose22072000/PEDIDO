@@ -20,6 +20,8 @@ import {
   addToast,
   Tooltip,
   Switch,
+  Tab,
+  Tabs,
 } from "@heroui/react";
 import { useEffect, useState, useCallback } from "react";
 
@@ -30,6 +32,7 @@ import { cn, copyTextToClipboard } from "@/lib/utils";
 import { registrarCopia } from "@/lib/registrar-copia";
 import { esFechaEnviable } from "@/lib/fecha-enviable";
 import { getApiBaseUrl } from "@/config";
+import { importe, monedaGuardada, guardarMoneda, type Moneda } from "@/lib/moneda";
 import { useAuthStore } from "@/stores/authStore";
 import { useLiveStatus } from "@/hooks/use-live-events";
 import { aplicarLote } from "@/hooks/aplicar-eventos";
@@ -64,13 +67,6 @@ const estadoOptions = [
   { value: "completada", label: "Completado" },
   { value: "expirada", label: "Expirado" },
 ];
-
-// Formatea el costo de domicilio (USD) a 2 decimales para mostrar.
-const fmtUsd = (v: number) =>
-  v.toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
 
 const domicilioOptions = [
   { value: "todos", label: "Todos" },
@@ -235,6 +231,44 @@ export const OrdersList = () => {
   }, []);
   const [debouncedSearch, setDebouncedSearch] = useState<string>("");
   const [searchValue, setSearchValue] = useState<string>("");
+  // La moneda en la que se enseñan los importes. Es preferencia de quien mira, no del
+
+  // pedido: quien factura quiere CUP y quien mira márgenes, USD.
+
+  const [moneda, setMoneda] = useState<Moneda>("USD");
+
+  const [tasa, setTasa] = useState<number | null>(null);
+
+  const [tasaVieja, setTasaVieja] = useState<string | null>(null);
+
+  
+
+  useEffect(() => {
+
+    setMoneda(monedaGuardada());
+
+    fetch(`${getApiBaseUrl()}/tasa`)
+
+      .then((r) => r.json())
+
+      .then((d) => {
+
+        setTasa(d?.cupPorUsd ?? null);
+
+        setTasaVieja(d?.aviso ?? null);
+
+      })
+
+      .catch(() => { /* sin tasa se sigue viendo en USD */ });
+
+  }, []);
+
+  
+
+  // El importe, ya en la moneda elegida.
+
+  const $$ = (usd: number | null | undefined) => importe(usd, moneda, tasa);
+
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null);
   const [orderToComplete, setOrderToComplete] = useState<Order | null>(null);
@@ -585,6 +619,37 @@ export const OrdersList = () => {
 
   return (
     <div className="flex flex-col w-full gap-4">
+      {/* En qué moneda se ven los importes.
+          Arriba del todo y siempre visible: si estuviera escondido en un menú, alguien
+          leería un total en CUP creyendo que son dólares. La diferencia son dos órdenes
+          de magnitud. */}
+      <div className="flex items-center justify-end gap-2">
+        {tasaVieja && (
+          <Chip color="warning" size="sm" variant="flat">
+            {tasaVieja}
+          </Chip>
+        )}
+        {tasa != null && moneda === "CUP" && (
+          <span className="text-xs text-default-400">1 USD = {tasa} CUP</span>
+        )}
+        <Tabs
+          aria-label="Moneda"
+          selectedKey={moneda}
+          size="sm"
+          onSelectionChange={(k: React.Key) => {
+            const m = String(k) as Moneda;
+
+            setMoneda(m);
+            guardarMoneda(m);
+          }}
+        >
+          <Tab key="USD" title="USD" />
+          {/* Sin tasa no se ofrece CUP: enseñar la pestaña y que al pulsarla no cambie
+              nada es peor que no tenerla. */}
+          <Tab key="CUP" isDisabled={!tasa} title="CUP" />
+        </Tabs>
+      </div>
+
       {/* Filters */}
       <Card className={cn(cards({ border: "default" }))}>
         <CardBody className="gap-4">
@@ -841,7 +906,7 @@ export const OrdersList = () => {
                           inútil la lista. */}
                       {order.total != null && (
                         <Chip color="default" size="sm" variant="flat">
-                          Total: ${fmtUsd(order.total)}
+                          Total: {$$(order.total)}
                           {(order.lineasSinPrecio ?? 0) > 0 && " *"}
                         </Chip>
                       )}
@@ -853,7 +918,7 @@ export const OrdersList = () => {
                         variant="flat"
                       >
                         {order.costoDomicilio != null
-                          ? `Domicilio: $${fmtUsd(order.costoDomicilio)}`
+                          ? `Domicilio: ${$$(order.costoDomicilio)}`
                           : "Domicilio sin calcular"}
                       </Chip>
                     </div>
@@ -1252,11 +1317,11 @@ export const OrdersList = () => {
                             {item.importe != null ? (
                               <div className="text-right leading-tight">
                                 <p className="text-sm font-semibold tabular-nums">
-                                  ${fmtUsd(item.importe)}
+                                  {$$(item.importe)}
                                 </p>
                                 {item.precioUnidad != null && (
                                   <p className="text-[11px] text-default-400 tabular-nums">
-                                    ${fmtUsd(item.precioUnidad)} c/u
+                                    {$$(item.precioUnidad)} c/u
                                   </p>
                                 )}
                               </div>
@@ -1289,7 +1354,7 @@ export const OrdersList = () => {
                           <div className="flex gap-2">
                             {selectedOrder?.costoDomicilio != null ? (
                               <Chip color="success" size="sm" variant="flat">
-                                ${fmtUsd(selectedOrder.costoDomicilio)}
+                                {$$(selectedOrder.costoDomicilio)}
                               </Chip>
                             ) : (
                               <Chip color="warning" size="sm" variant="flat">
@@ -1318,7 +1383,7 @@ export const OrdersList = () => {
                         </div>
                         {selectedOrder?.total != null ? (
                           <p className="text-xl font-bold tabular-nums">
-                            ${fmtUsd(selectedOrder.total)}
+                            {$$(selectedOrder.total)}
                           </p>
                         ) : (
                           <Chip color="warning" size="sm" variant="flat">

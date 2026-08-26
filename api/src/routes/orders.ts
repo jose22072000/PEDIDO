@@ -1,7 +1,7 @@
 import { Router, type Request } from 'express';
 import { Prisma } from '@prisma/client';
 import prisma from '../prismaClient';
-import { normalizarProducto, variantesProducto } from '../lib/nombreProducto';
+import { normalizarProducto, variantesProducto, porContenido } from '../lib/nombreProducto';
 import { mapCsvRecords, type OrderRecordDto } from '../dto/orderRecord.dto';
 import {
   requireSucursalId,
@@ -128,7 +128,14 @@ export async function conPrecios<T extends PedidoConLineas>(pedido: T) {
       const claves = variantesProducto(i.producto || '');
       const aMano = claves.map((k) => vinculos.get(k)).find(Boolean);
       const c = (aMano ? porNombre.get(aMano) : undefined)
-        ?? claves.map((k) => porNombre.get(k)).find(Boolean);
+        ?? claves.map((k) => porNombre.get(k)).find(Boolean)
+        // Y si nada cruzó, el último recurso: que el nombre del pedido esté contenido
+        // en uno de Ventra, y en UNO SOLO. Así entra "PARRANDA 0.33L" en "CERVEZA
+        // PARRANDA 330 ML BLISTER 6U".
+        ?? (() => {
+          const k = porContenido(i.producto || '', [...porNombre.keys()]);
+          return k ? porNombre.get(k) : undefined;
+        })();
     const precioUnidad = c?.precio ?? null;
     // El precio de Ventra es por UNIDAD DE VENTA (el pack/caja), igual que el peso.
     // Multiplicarlo por las unidades sueltas daría un total disparatado.

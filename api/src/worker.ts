@@ -12,6 +12,7 @@ import { payloadDomicilio, EVENTO_DOMICILIO } from './lib/domicilio';
 import { processBulkImport } from './routes/orders';
 import { processParrandaSync } from './lib/parranda';
 import { arrancarSondeoVentra } from './lib/sondeoVentra';
+import { arrancarTasaCambio } from './lib/tasaCambio';
 
 /**
  * Avisar a las pantallas de que salió un aviso, como mucho una vez cada pocos segundos.
@@ -96,6 +97,10 @@ async function main() {
   // doce horas— y la API está atendiendo a ocho sucursales. Aquí puede tardar lo que
   // haga falta sin frenar a nadie.
   arrancarSondeoVentra();
+
+  // La tasa de cambio, de la API de Amado. Aquí por lo mismo que el catálogo: es
+  // trabajo de fondo y la API no tiene por qué esperarlo.
+  arrancarTasaCambio();
 
   arrancarWebhooks();
 }

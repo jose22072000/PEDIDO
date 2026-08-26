@@ -333,3 +333,25 @@ model ProductoVinculo {
 
     @@index([nombrePedido])
 }
+
+
+/// La tasa de cambio, para poder ver los importes en CUP además de en USD.
+///
+/// Se guarda con su ORIGEN y su FECHA, y eso no es adorno: una tasa sin saber de cuándo
+/// es ni de dónde salió no se puede usar para cobrar. En Cuba se mueve a diario, así
+/// que un importe en CUP calculado con la tasa de la semana pasada está mal y nadie
+/// puede saberlo mirando el número.
+///
+/// Los precios se GUARDAN siempre en USD —es lo que da Ventra— y el CUP se calcula al
+/// mostrarlo. Guardar los dos sería tener dos verdades que se separan en cuanto cambie
+/// la tasa.
+model TasaCambio {
+    id        String   @id @default("actual")
+    /// Cuántos CUP vale un USD.
+    cupPorUsd Float
+    /// De dónde salió: "amado", "manual", el nombre de quien la puso.
+    fuente    String?
+    /// Cuándo se trajo. Si esto envejece, el CUP deja de ser fiable y hay que decirlo.
+    traidoAt  DateTime @default(now())
+    updatedAt DateTime @updatedAt @default(now())
+}

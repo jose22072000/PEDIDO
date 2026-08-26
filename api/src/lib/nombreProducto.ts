@@ -25,8 +25,13 @@ export function normalizarProducto(nombre: string): string {
   return (nombre || '')
     .normalize('NFD').replace(/[̀-ͯ]/g, '')
     .toUpperCase()
-    // La unidad pegada al número es la diferencia más común: 25KG / 15M / 0.33L.
-    .replace(/(\d)\s*(KG|ML|LT|L|G|M|U)\b/g, '$1 $2')
+    // Litros a mililitros: el pedido dice "0.33L" y Ventra "330 ML". Es el MISMO
+    // producto y sin esto no cruzaban ni la cerveza Parranda ni la malta —los dos
+    // productos de la casa, que sí tienen precio en Ventra—.
+    .replace(/(\d+(?:[.,]\d+)?)\s*L\b/g, (_m, n: string) =>
+      `${Math.round(parseFloat(n.replace(',', '.')) * 1000)} ML`)
+    // La unidad pegada al número es la otra diferencia: 25KG / 15M.
+    .replace(/(\d)\s*(KG|ML|LT|G|M|U)\b/g, '$1 $2')
     .replace(/[^A-Z0-9 ]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -48,4 +53,25 @@ export function variantesProducto(nombre: string): string[] {
   // final a propósito: es la más agresiva y sólo se usa si no acertó ninguna antes.
   if (p.length > 1) out.push(p.slice(1).join(' '));
   return [...new Set(out.filter(Boolean))];
+}
+
+/**
+ * Último recurso: el nombre del pedido está CONTENIDO en el de Ventra.
+ *
+ * "PARRANDA 330 ML" dentro de "CERVEZA PARRANDA 330 ML BLISTER 6U". Ventra añade el
+ * tipo delante y el formato detrás, y eso ninguna normalización lo arregla porque no es
+ * una forma distinta de escribir: son palabras que en un sitio están y en el otro no.
+ *
+ * Sólo vale si hay UN candidato. Con dos o más no se elige: "PARRANDA 330 ML" podría
+ * caer en el blíster de 6 y en la caja de 24, y acertar a medias es peor que no
+ * acertar — un precio equivocado no falla, sale mal y cuadra.
+ */
+export function porContenido(nombre: string, candidatos: string[]): string | null {
+  const t = new Set(normalizarProducto(nombre).split(' ').filter(Boolean));
+  if (!t.size) return null;
+  const caben = candidatos.filter((k) => {
+    const s = new Set(k.split(' '));
+    return [...t].every((w) => s.has(w));
+  });
+  return caben.length === 1 ? caben[0] : null;
 }
