@@ -112,6 +112,9 @@ router.post('/domicilio', async (req, res) => {
         // Desde qué punto se midió. Si no lo mandan, se apunta la sucursal, que es lo
         // único que se sabe con certeza.
         distanciaDesde: e.distanciaDesde ?? e.distancia_desde ?? null,
+        // Dónde está el cliente, si la APK lo averiguó y nosotros no lo teníamos.
+        latitud: e.latitud ?? e.lat ?? e.clienteLatitud ?? null,
+        longitud: e.longitud ?? e.lng ?? e.clienteLongitud ?? null,
       });
       if (r.ok) aplicadas.push({ pedidoId: r.pedidoId, folio: r.folio });
       else rechazadas.push({ pedidoId: r.pedidoId, folio: r.folio, motivo: r.motivo || 'no aplicada' });

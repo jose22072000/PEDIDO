@@ -155,6 +155,15 @@ export async function aplicarCostoDomicilio(u: {
   distanciaKm?: number | null;
   /** Desde dónde se midió la distancia. Ej: "almacen:HAB". */
   distanciaDesde?: string | null;
+  /**
+   * Dónde está el cliente de verdad, si la APK lo averiguó.
+   *
+   * Hay clientes que llegan de Parranda SIN coordenadas —123 ahora mismo— y a ésos
+   * no se les puede cotizar el domicilio. Quien va a llevar el pedido sí sabe dónde
+   * es, así que se le deja apuntarlo.
+   */
+  latitud?: number | null;
+  longitud?: number | null;
 }): Promise<ResultadoCosto> {
   const local = readConfiguredSucursalId();
   const costo = Number(u.costo);
@@ -178,6 +187,39 @@ export async function aplicarCostoDomicilio(u: {
    * Con esta marca se sabe cuáles hay que rehacer; sin ella, o se rehacen todas o no
    * se fía uno de ninguna.
    */
+  /**
+   * La ubicación del cliente, cuando la APK la trae y NO la teníamos.
+   *
+   * Sólo se rellena lo que está vacío: NO se pisa una coordenada existente. Las que ya
+   * están vienen del consolidado de Parranda, que es el dato oficial; si la APK pudiera
+   * sobreescribirlas, un error de un repartidor movería a un cliente de sitio para
+   * todos los sistemas —rutas incluido— y nadie sabría de dónde salió el cambio.
+   *
+   * Para corregir una que esté mal, se corrige en Clientes, que es donde se ve quién
+   * lo hizo.
+   */
+  const guardarUbicacion = async (pedidoId: string) => {
+    const lat = u.latitud == null ? null : Number(u.latitud);
+    const lng = u.longitud == null ? null : Number(u.longitud);
+    if (lat == null || lng == null) return;
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    // Cuba entera cae aquí. Un dígito de más pone al cliente en otro continente y el
+    // domicilio se cobraría por miles de kilómetros.
+    if (lat < 19 || lat > 24 || lng < -85 || lng > -73) return;
+
+    const pedido = await prisma.pedido.findUnique({
+      where: { id: pedidoId },
+      select: { cliente: { select: { id: true, latitud: true, longitud: true } } },
+    });
+    const c = pedido?.cliente;
+    if (!c || c.latitud != null || c.longitud != null) return;   // ya la tenía: no se toca
+
+    await prisma.cliente.update({
+      where: { id: c.id },
+      data: { latitud: lat, longitud: lng, geolocalizacion: `${lat},${lng}` },
+    });
+  };
+
   const guardarDistancia = async (pedidoId: string) => {
     if (u.distanciaKm == null) return;
     const km = Number(u.distanciaKm);
@@ -202,7 +244,10 @@ export async function aplicarCostoDomicilio(u: {
       where: { id: String(u.pedidoId), ...alcance },
       data: { costoDomicilio: costo },
     });
-    if (r.count > 0) await guardarDistancia(String(u.pedidoId));
+    if (r.count > 0) {
+      await guardarUbicacion(String(u.pedidoId));
+      await guardarDistancia(String(u.pedidoId));
+    }
     return r.count > 0
       ? { ok: true, pedidoId: String(u.pedidoId) }
       : { ok: false, pedidoId: String(u.pedidoId), motivo: 'no existe o es de otra sucursal' };
@@ -227,6 +272,7 @@ export async function aplicarCostoDomicilio(u: {
       };
     }
     await prisma.pedido.update({ where: { id: candidatos[0].id }, data: { costoDomicilio: costo } });
+    await guardarUbicacion(candidatos[0].id);
     await guardarDistancia(candidatos[0].id);
     return { ok: true, pedidoId: candidatos[0].id, folio: String(u.folio) };
   }
