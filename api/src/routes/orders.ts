@@ -87,7 +87,22 @@ export async function conPrecios<T extends PedidoConLineas>(pedido: T) {
   // El catálogo, indexado por su nombre normalizado. Sin normalizar no cruza NI UNO:
   // Parranda antepone la categoría y pega las unidades ("ALIMENTOS ARROZ BLANCO 25KG
   // SACO" contra "ARROZ BLANCO 25 KG SACO").
-  const porNombre = new Map(catalogo.map((c) => [normalizarProducto(c.nombre), c]));
+  //
+  // Y GANA EL QUE TIENE PRECIO. Ventra manda el mismo producto por duplicado —19 casos
+  // por sucursal—, una fila con precio y otra sin él:
+  //
+  //     ARROZ BLANCO 25 KG SACO | 25.5
+  //     ARROZ BLANCO 25 KG SACO |          <- y ésta llegaba la última
+  //
+  // Quedándose con la última, el precio existente se perdía y TODOS los pedidos salían
+  // sin total aunque el dato estuviera en la base. Costó encontrarlo porque no falla
+  // nada: simplemente no hay precio, y parece que Ventra no lo tiene.
+  const porNombre = new Map<string, (typeof catalogo)[number]>();
+  for (const c of catalogo) {
+    const k = normalizarProducto(c.nombre);
+    const previo = porNombre.get(k);
+    if (!previo || (previo.precio == null && c.precio != null)) porNombre.set(k, c);
+  }
 
   // Y los que alguien vinculó a mano, porque el nombre no se parecía lo bastante.
   // Éstos MANDAN sobre el cruce automático: si una persona dijo cuál es, es ése.
