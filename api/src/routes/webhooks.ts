@@ -67,7 +67,7 @@ router.post('/ping', async (req, res) => {
 
 /**
  * POST /webhooks/domicilio
- * Body: { entregas: [{ pedidoId? , folio?, vendedorCodigo?, costo, distanciaKm? }] }
+ * Body: { entregas: [{ pedidoId? , folio?, vendedorCodigo?, costo, distanciaKm?, distanciaDesde? }] }
  *
  * En LOTE e idempotente: mandar dos veces lo mismo deja lo mismo, así que ante la duda
  * se reintenta y ya. Cada entrega se responde por separado —lo que se aplicó y lo que
@@ -109,6 +109,9 @@ router.post('/domicilio', async (req, res) => {
         vendedorCodigo: e.vendedorCodigo ?? e.vendedor ?? null,
         costo: e.costo ?? e.costoDomicilio ?? e.precio,
         distanciaKm: e.distanciaKm ?? e.distancia_km ?? null,
+        // Desde qué punto se midió. Si no lo mandan, se apunta la sucursal, que es lo
+        // único que se sabe con certeza.
+        distanciaDesde: e.distanciaDesde ?? e.distancia_desde ?? null,
       });
       if (r.ok) aplicadas.push({ pedidoId: r.pedidoId, folio: r.folio });
       else rechazadas.push({ pedidoId: r.pedidoId, folio: r.folio, motivo: r.motivo || 'no aplicada' });

@@ -153,6 +153,8 @@ export async function aplicarCostoDomicilio(u: {
   vendedorCodigo?: string | null;
   costo: number;
   distanciaKm?: number | null;
+  /** Desde dónde se midió la distancia. Ej: "almacen:HAB". */
+  distanciaDesde?: string | null;
 }): Promise<ResultadoCosto> {
   const local = readConfiguredSucursalId();
   const costo = Number(u.costo);
@@ -162,11 +164,45 @@ export async function aplicarCostoDomicilio(u: {
 
   const alcance = local ? { sucursalId: local } : {};
 
+  /**
+   * La distancia se guarda en el CLIENTE, no sólo en el pedido.
+   *
+   * Del almacén a un cliente hay la distancia que hay: no cambia de un pedido al
+   * siguiente. Guardándola en el cliente, calcularla una vez sirve para todos sus
+   * pedidos — y el día que haya que cotizar sin poder preguntarle a la APK, el dato
+   * ya está.
+   *
+   * Se apunta también DESDE DÓNDE se midió. Sin eso es un número sin contexto: siete
+   * de los diez almacenes tienen hoy la ubicación puesta en el centro de la ciudad, y
+   * el día que se corrijan, las distancias medidas desde el punto viejo quedan mal.
+   * Con esta marca se sabe cuáles hay que rehacer; sin ella, o se rehacen todas o no
+   * se fía uno de ninguna.
+   */
+  const guardarDistancia = async (pedidoId: string) => {
+    if (u.distanciaKm == null) return;
+    const km = Number(u.distanciaKm);
+    if (!Number.isFinite(km) || km < 0) return;
+    const pedido = await prisma.pedido.findUnique({
+      where: { id: pedidoId },
+      select: { clienteId: true },
+    });
+    if (!pedido?.clienteId) return;
+    await prisma.cliente.update({
+      where: { id: pedido.clienteId },
+      data: {
+        distanciaKm: km,
+        distanciaDesde: u.distanciaDesde ? String(u.distanciaDesde).slice(0, 120) : null,
+        distanciaAt: new Date(),
+      },
+    });
+  };
+
   if (u.pedidoId) {
     const r = await prisma.pedido.updateMany({
       where: { id: String(u.pedidoId), ...alcance },
       data: { costoDomicilio: costo },
     });
+    if (r.count > 0) await guardarDistancia(String(u.pedidoId));
     return r.count > 0
       ? { ok: true, pedidoId: String(u.pedidoId) }
       : { ok: false, pedidoId: String(u.pedidoId), motivo: 'no existe o es de otra sucursal' };
@@ -191,6 +227,7 @@ export async function aplicarCostoDomicilio(u: {
       };
     }
     await prisma.pedido.update({ where: { id: candidatos[0].id }, data: { costoDomicilio: costo } });
+    await guardarDistancia(candidatos[0].id);
     return { ok: true, pedidoId: candidatos[0].id, folio: String(u.folio) };
   }
 

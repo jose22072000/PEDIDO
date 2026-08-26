@@ -434,6 +434,13 @@ router.get('/clients', async (req, res) => {
     latitud: c.latitud,
     longitud: c.longitud,
     geolocalizacion: c.geolocalizacion,
+    // La distancia que ya se calculó para este cliente, si alguien la calculó. Se
+    // devuelve para que la APK no vuelva a medir lo que ya está medido — y para que
+    // sepa DESDE DÓNDE se midió: si el almacén cambió de sitio, ese número hay que
+    // rehacerlo.
+    distanciaKm: c.distanciaKm,
+    distanciaDesde: c.distanciaDesde,
+    distanciaAt: c.distanciaAt,
     sucursalId: c.sucursalId,
     sucursalCodigo: c.sucursal?.codigo || null,
     sucursalNombre: c.sucursal?.nombre || null,

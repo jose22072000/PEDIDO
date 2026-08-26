@@ -246,6 +246,26 @@ model Cliente {
     latitud         Float?                           // usado por delivery para el cálculo de domicilio
     longitud        Float?
     geolocalizacion String?  @map("geoRaw")          // "lat,lng" crudo del consolidado
+
+    /// Distancia por carretera desde el ALMACÉN hasta este cliente, en kilómetros.
+    ///
+    /// La calcula la APK de domicilio y nos la devuelve. Se guarda en el CLIENTE y no
+    /// sólo en el pedido porque no cambia entre pedidos: el almacén está donde está y
+    /// el cliente también. Calculada una vez, sirve para todos sus pedidos.
+    ///
+    /// No es la distancia en línea recta —eso se saca de las coordenadas en dos
+    /// líneas—: es la que se recorre de verdad, que es por la que se cobra.
+    distanciaKm     Float?
+
+    /// Desde qué punto se midió, y cuándo.
+    ///
+    /// Sin esto la distancia es un número sin contexto: el día que se corrija la
+    /// ubicación de un almacén —siete de las diez la tienen puesta en el centro de la
+    /// ciudad— todas las distancias medidas desde el punto viejo quedan mal, y sin
+    /// saber cuál es cuál habría que recalcularlas TODAS o fiarse de ninguna.
+    distanciaDesde  String?
+    distanciaAt     DateTime?
+
     createdAt DateTime @default(now())
     // Fecha de la última sincronización (Parranda) del cliente. La setea Prisma en cada
     // update/create -> refleja "cuándo se sincronizó por última vez".
