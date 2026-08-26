@@ -20,7 +20,6 @@ import mantenimientoRouter from './routes/mantenimiento';
 import eventsRouter from './routes/events';
 import prisma from './prismaClient';
 import { iniciarArchivadoAutomatico } from './lib/archivador';
-import { arrancarSondeoVentra } from './lib/sondeoVentra';
 import apiKeysRouter from './routes/apiKeys';
 import webhooksRouter from './routes/webhooks';
 import { sembrarConfigDesdeEntorno } from './lib/webhook';
@@ -126,7 +125,15 @@ app.listen(port, '0.0.0.0', async () => {
   iniciarArchivadoAutomatico();
   // Y trae de Ventra el catálogo de cada sucursal —precio, existencias y peso— cada
   // media hora. Solo lee: en Ventra no se escribe nada nunca.
-  arrancarSondeoVentra();
+  // El sondeo de Ventra ya NO corre aquí: lo hace el worker.
+  //
+  // La API atiende peticiones de ocho sucursales a la vez; traerse diez catálogos del
+  // almacén por VPN y escribirlos es trabajo de fondo que no tiene por qué competir con
+  // eso. El worker es otro proceso, en otro contenedor: si el sondeo tarda o se atasca,
+  // la aplicación ni se entera.
+  //
+  // La API sigue LEYENDO la tabla para poner precios, y `POST /productos/sondear` sigue
+  // existiendo para forzarlo a mano.
   // Deja la config de los webhooks puesta si viene por entorno y todavía está vacía.
   // No pisa lo que se haya cambiado desde Configuración.
   void sembrarConfigDesdeEntorno();

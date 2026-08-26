@@ -11,6 +11,7 @@ import { emitEvent } from './lib/events';
 import { payloadDomicilio, EVENTO_DOMICILIO } from './lib/domicilio';
 import { processBulkImport } from './routes/orders';
 import { processParrandaSync } from './lib/parranda';
+import { arrancarSondeoVentra } from './lib/sondeoVentra';
 
 /**
  * Avisar a las pantallas de que salió un aviso, como mucho una vez cada pocos segundos.
@@ -88,6 +89,13 @@ async function main() {
 
     await programarSyncDiario(pq);
   }
+
+  // El catálogo de Ventra: precio, peso y stock por sucursal.
+  //
+  // Vive aquí y no en la API porque es trabajo de fondo —diez catálogos por VPN cada
+  // doce horas— y la API está atendiendo a ocho sucursales. Aquí puede tardar lo que
+  // haga falta sin frenar a nadie.
+  arrancarSondeoVentra();
 
   arrancarWebhooks();
 }

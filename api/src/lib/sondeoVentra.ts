@@ -17,13 +17,26 @@ import prisma from '../prismaClient';
 import { catalogoDeSucursal, databases } from './ventra';
 
 /** Cada cuánto se pregunta. El catálogo cambia poco; 30 min es de sobra. */
-const CADA_MS = Number(process.env.VENTRA_SONDEO_MS || 30 * 60 * 1000);
+/**
+ * Cada 12 horas.
+ *
+ * Los precios de Ventra cambian, pero no cada media hora. Sondear tan seguido eran 48
+ * pasadas al día contra la API del almacén —diez sucursales cada una— por un dato que
+ * se mueve un par de veces al día como mucho. Y el almacén se llega por VPN: es un
+ * enlace que conviene no cargar por gusto.
+ *
+ * Doce horas deja el precio con medio día de antigüedad como peor caso, y eso es lo que
+ * hay: el precio con el que se cotiza sale de aquí, no de un cálculo en vivo.
+ */
+const CADA_MS = Number(process.env.VENTRA_SONDEO_MS || 12 * 60 * 60 * 1000);
 
 export interface ResultadoSondeo {
   sucursal: string;
   database: string;
   leidos: number;
   escritos: number;
+  /** Filas que venían igual que la última vez y no se tocaron. */
+  sinCambio: number;
   conPrecio: number;
   conStock: number;
   error?: string;
@@ -61,7 +74,7 @@ export async function sondearUnaVez(): Promise<ResultadoSondeo[]> {
     );
 
     const r: ResultadoSondeo = {
-      sucursal: suc.nombre, database: base?.database || '', leidos: 0, escritos: 0,
+      sucursal: suc.nombre, database: base?.database || '', leidos: 0, escritos: 0, sinCambio: 0,
       conPrecio: 0, conStock: 0,
     };
 
@@ -83,10 +96,36 @@ export async function sondearUnaVez(): Promise<ResultadoSondeo[]> {
       const filas = await catalogoDeSucursal(database);
       r.leidos = filas.length;
 
+      // Lo que ya tenemos de esta sucursal, para comparar antes de escribir. Una sola
+      // consulta contra las 127 escrituras que se ahorra.
+      const yaEstaban = new Map(
+        (await prisma.productoSucursal.findMany({
+          where: { sucursalId: suc.id },
+          select: { sku: true, nombre: true, precio: true, stock: true, pesoKg: true },
+        })).map((x) => [x.sku, x]),
+      );
+
       for (const f of filas) {
         if (!f.sku || !f.name) continue;
         if (f.price != null) r.conPrecio++;
         if (f.stock != null) r.conStock++;
+
+
+        // Sólo se escribe lo que CAMBIÓ.
+        //
+        // El catálogo son 127 filas por sucursal y de una pasada a otra cambia un puñado de
+        // precios. Reescribirlas todas eran 1.270 escrituras cada vez para actualizar cinco
+        // —y con `@updatedAt`, además, dejaba a todas con fecha de ahora mismo, así que no
+        // había forma de saber cuál se había movido de verdad.
+        const previo = yaEstaban.get(f.sku);
+        const igual =
+          previo &&
+          previo.nombre === f.name &&
+          previo.precio === (f.price ?? null) &&
+          previo.stock === (f.stock ?? null) &&
+          previo.pesoKg === (f.weightKg ?? null);
+        if (igual) { r.sinCambio++; continue; }
+        r.escritos++;
 
         await prisma.productoSucursal.upsert({
           where: { sucursalId_sku: { sucursalId: suc.id, sku: f.sku } },
@@ -101,7 +140,6 @@ export async function sondearUnaVez(): Promise<ResultadoSondeo[]> {
             activo: f.isActive ?? true,
           },
         });
-        r.escritos++;
       }
     } catch (e) {
       // Una sucursal que falla no para las demás: puede ser que su base de Axis esté
@@ -140,5 +178,5 @@ export function arrancarSondeoVentra(): void {
   // todavía, y un fallo en el primer segundo no dice nada.
   setTimeout(correr, 60_000);
   setInterval(correr, CADA_MS);
-  console.log(`[ventra] sondeo del catálogo cada ${Math.round(CADA_MS / 60000)} min`);
+  console.log(`[ventra] sondeo del catálogo cada ${(CADA_MS / 3600000).toFixed(1)} h`);
 }
