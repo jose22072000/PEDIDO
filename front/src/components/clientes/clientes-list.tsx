@@ -5,6 +5,8 @@ import {
   Pagination,
   Button,
   Input,
+  Autocomplete,
+  AutocompleteItem,
   Select,
   SelectItem,
   Spinner,
@@ -221,26 +223,31 @@ export const ClientesList = () => {
                 ...municipios.map((m) => <SelectItem key={m}>{m}</SelectItem>),
               ]}
             </Select>
-            <Select
+            <Autocomplete
+              // Con buscador: hay 82 vendedores y en una lista desplegable eso son
+              // muchas vueltas de rueda para llegar a uno. Escribir tres letras es
+              // lo que ya se hace con los productos, aquí igual.
+              defaultItems={[
+                { id: "", nombre: "Todos los vendedores", clientes: null },
+                ...vendedores,
+              ]}
               label="Vendedor"
               placeholder="Todos los vendedores"
-              selectedKeys={vendedorId ? [vendedorId] : []}
+              selectedKey={vendedorId}
               size="lg"
               startContent={<Icons.user className="size-5 text-default-400" />}
               variant="bordered"
-              onChange={(e) => setVendedorId(e.target.value)}
+              onSelectionChange={(k) => setVendedorId((k as string) ?? "")}
             >
-              {[
-                <SelectItem key="">Todos los vendedores</SelectItem>,
-                ...vendedores.map((v) => (
-                  // El numero al lado responde de un vistazo "cuantos clientes
-                  // tiene cada uno", que es para lo que se pidio esto.
-                  <SelectItem key={v.id} textValue={v.nombre}>
-                    {v.nombre} · {v.clientes}
-                  </SelectItem>
-                )),
-              ]}
-            </Select>
+              {(v: { id: string; nombre: string; clientes: number | null }) => (
+                // El numero al lado responde de un vistazo "cuantos clientes
+                // tiene cada uno", que es para lo que se pidio esto.
+                <AutocompleteItem key={v.id} textValue={v.nombre}>
+                  {v.nombre}
+                  {v.clientes != null ? ` · ${v.clientes}` : ""}
+                </AutocompleteItem>
+              )}
+            </Autocomplete>
             <Select
               label="Compra"
               placeholder="Todos"

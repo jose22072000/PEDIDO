@@ -748,27 +748,35 @@ export const OrdersList = () => {
                 <SelectItem key={option.value}>{option.label}</SelectItem>
               ))}
             </Select>
-            <Select
+            <Autocomplete
+              // Con buscador: hay 82 vendedores y en una lista desplegable eso son
+              // muchas vueltas de rueda para llegar a uno. Escribir tres letras es
+              // lo que ya se hace con los productos, aquí igual.
               className="w-full sm:w-56"
+              defaultItems={
+                [
+                  { id: "todos", nombre: "Todos los vendedores" },
+                  ...vendedores,
+                ] as VendedorOpt[]
+              }
               label="Vendedor"
-              selectedKeys={[vendedorFilter]}
+              // Sin esto, borrar el texto para buscar deja el filtro en el aire: la
+              // caja se ve vacía pero la lista sigue filtrada por el de antes.
+              selectedKey={vendedorFilter}
               size="lg"
               startContent={
                 <Icons.workers className="size-5 text-default-400" />
               }
               variant="bordered"
-              onChange={(e) => setVendedorFilter(e.target.value || "todos")}
+              onSelectionChange={(k) => setVendedorFilter((k as string) || "todos")}
             >
-              {[
-                <SelectItem key="todos">Todos los vendedores</SelectItem>,
-                ...vendedores.map((v) => (
-                  <SelectItem key={v.id}>
-                    {v.nombre}
-                    {v.codigo ? ` (${v.codigo})` : ""}
-                  </SelectItem>
-                )),
-              ]}
-            </Select>
+              {(v: VendedorOpt) => (
+                <AutocompleteItem key={v.id} textValue={v.nombre}>
+                  {v.nombre}
+                  {v.codigo ? ` (${v.codigo})` : ""}
+                </AutocompleteItem>
+              )}
+            </Autocomplete>
           </div>
           <div className="flex flex-col gap-4 sm:flex-row">
             <Input

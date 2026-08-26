@@ -5,6 +5,8 @@ import {
   CardBody,
   CardHeader,
   Input,
+  Autocomplete,
+  AutocompleteItem,
   Select,
   SelectItem,
   Spinner,
@@ -310,24 +312,24 @@ export default function ReporteProductosVendedorPage() {
                 value={fechaFin}
                 onChange={(e) => setFechaFin(e.target.value)}
               />
-              <Select
-                isLoading={isLoadingVendedores}
-                items={[
+              {/* Con buscador: son 82 vendedores y bajar la rueda hasta el que
+                  buscas es más trabajo que escribir tres letras. */}
+              <Autocomplete
+                defaultItems={[
                   { id: "all", nombre: "Todos los vendedores" },
                   ...vendedores,
                 ]}
+                isLoading={isLoadingVendedores}
                 label="Vendedor"
                 labelPlacement="outside"
                 placeholder="Selecciona un vendedor"
-                selectedKeys={[vendedorId]}
-                onSelectionChange={(keys) => {
-                  const selected = Array.from(keys)[0] as string;
-
-                  setVendedorId(selected || "all");
-                }}
+                selectedKey={vendedorId}
+                onSelectionChange={(k) => setVendedorId((k as string) || "all")}
               >
-                {(item) => <SelectItem key={item.id}>{item.nombre}</SelectItem>}
-              </Select>
+                {(item: { id: string; nombre: string }) => (
+                  <AutocompleteItem key={item.id}>{item.nombre}</AutocompleteItem>
+                )}
+              </Autocomplete>
               <Select
                 label="Estado"
                 labelPlacement="outside"
