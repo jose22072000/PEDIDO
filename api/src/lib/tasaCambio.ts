@@ -13,7 +13,10 @@ import prisma from '../prismaClient';
  */
 
 const URL = process.env.TASA_CAMBIO_URL || '';
-const CADA_MS = Number(process.env.TASA_CAMBIO_MS || 6 * 60 * 60 * 1000);
+// Cada 12 h, igual que el catálogo. La tasa cambia a diario, así que mirarla dos veces
+// al día la deja con medio día de antigüedad como peor caso — y Amado avisa cuando se
+// mueve, así que esto es la red por si el aviso no llega.
+const CADA_MS = Number(process.env.TASA_CAMBIO_MS || 12 * 60 * 60 * 1000);
 
 /** Cuántas horas puede tener la tasa antes de que deje de ser de fiar. */
 export const HORAS_FRESCA = Number(process.env.TASA_CAMBIO_HORAS || 24);
