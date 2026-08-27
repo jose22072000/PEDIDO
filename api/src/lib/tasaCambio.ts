@@ -12,7 +12,28 @@ import prisma from '../prismaClient';
  * pasada está mal sin que el número lo diga.
  */
 
-const URL = process.env.TASA_CAMBIO_URL || '';
+/**
+ * La API de tasas de delivery-apk, por la RED INTERNA del servidor.
+ *
+ * `http://delivery_api_apk` y no su dominio público a propósito. Los dos contenedores
+ * están en la misma máquina, así que salir a internet para volver a entrar sería dar la
+ * vuelta al mundo — y ahora mismo ni siquiera se puede: su dominio público no negocia
+ * TLS (el certificado de Cloudflare no cubre dos niveles de subdominio) y por
+ * api.procovar.cloud contesta 526. Por dentro no hay certificado que valga ni salida a
+ * internet de la que depender.
+ */
+const URL = process.env.TASA_CAMBIO_URL || 'http://delivery_api_apk/api/v1/tasas/consulta';
+
+/** El token que pide en la cabecera X-API-Token. Sin él contesta 401. */
+const TOKEN = process.env.TASA_CAMBIO_TOKEN || '';
+
+/**
+ * Su tasa es POR SUCURSAL, así que hay que decirle cuál.
+ *
+ * Se usa el código de la sucursal de esta instalación de PEDIDO. Si no hay ninguna
+ * configurada —el super admin viendo todas— se cae a HAB, que es donde está el volumen.
+ */
+const SUCURSAL = process.env.TASA_CAMBIO_SUCURSAL || process.env.SUCURSAL_CODIGO || 'HAB';
 // Cada 12 h, igual que el catálogo. La tasa cambia a diario, así que mirarla dos veces
 // al día la deja con medio día de antigüedad como peor caso — y Amado avisa cuando se
 // mueve, así que esto es la red por si el aviso no llega.
@@ -52,20 +73,40 @@ export async function ponerTasa(cupPorUsd: number, fuente = 'manual'): Promise<T
  */
 export async function traerTasa(): Promise<{ ok: boolean; valor?: number; error?: string }> {
   if (!URL) return { ok: false, error: 'sin TASA_CAMBIO_URL configurada' };
+  if (!TOKEN) return { ok: false, error: 'sin TASA_CAMBIO_TOKEN configurado' };
   try {
-    const r = await fetch(URL, { signal: AbortSignal.timeout(15000) });
-    if (!r.ok) return { ok: false, error: `la API contestó ${r.status}` };
+    const u = `${URL}?codigoSucursal=${encodeURIComponent(SUCURSAL)}`;
+    const r = await fetch(u, {
+      // En la cabecera y no en la URL: un token en el query string queda escrito en los
+      // logs de todo lo que haya por el camino, y ahí ya no se borra.
+      headers: { 'X-API-Token': TOKEN, Accept: 'application/json' },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!r.ok) {
+      // Los suyos, dichos como se entienden. Un 404 aquí casi siempre es que esa
+      // sucursal no tiene tasa cargada todavía, no que la API esté mal.
+      const porQue: Record<number, string> = {
+        401: 'token rechazado (X-API-Token)',
+        404: `sin tasa vigente para la sucursal ${SUCURSAL}`,
+        422: 'falta codigoSucursal o la fecha va mal',
+        503: 'su API no tiene el token configurado',
+      };
+      return { ok: false, error: porQue[r.status] || `la API contestó ${r.status}` };
+    }
     const b = await r.json().catch(() => null);
     const v = Number(
       typeof b === 'number' ? b
-        : b?.cupPorUsd ?? b?.cup_por_usd ?? b?.cup ?? b?.tasa ?? b?.rate ?? b?.valor ?? b?.data?.tasa,
+        : b?.tasa_cup ?? b?.cupPorUsd ?? b?.cup_por_usd ?? b?.cup ?? b?.tasa ?? b?.rate ?? b?.valor ?? b?.data?.tasa,
     );
     // Una tasa de 0 o negativa no es una tasa: es un fallo que llegó con forma de dato.
     // Guardarla dejaría todos los importes en CUP a cero sin que nada avisara.
     if (!Number.isFinite(v) || v <= 0) {
       return { ok: false, error: `no entendí la respuesta: ${JSON.stringify(b).slice(0, 120)}` };
     }
-    await ponerTasa(v, 'amado');
+    // Se apunta de dónde salió, con la fecha desde la que él la da por vigente: al
+    // reproducir un importe hace falta saber no sólo cuánto era, sino desde cuándo.
+    const desde = typeof b?.vigente_desde === 'string' ? ` desde ${b.vigente_desde}` : '';
+    await ponerTasa(v, `delivery-apk:${SUCURSAL}${desde}`);
     return { ok: true, valor: v };
   } catch (e) {
     return { ok: false, error: (e as Error).message };
@@ -74,8 +115,8 @@ export async function traerTasa(): Promise<{ ok: boolean; valor?: number; error?
 
 /** Arranca el refresco periódico. Lo llama el worker, no la API. */
 export function arrancarTasaCambio(): void {
-  if (!URL) {
-    console.log('[tasa] sin TASA_CAMBIO_URL: no se trae la tasa (se usa la que se ponga a mano)');
+  if (!URL || !TOKEN) {
+    console.log('[tasa] sin URL o sin token: no se trae (se usa la que se ponga a mano)');
     return;
   }
   const tirar = async () => {
