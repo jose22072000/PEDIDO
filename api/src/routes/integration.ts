@@ -365,6 +365,11 @@ router.get('/clients', async (req, res) => {
   // resuelve aquí, para la página que se va a devolver, en UNA consulta: pedirlo
   // cliente por cliente serían 500 consultas para pintar 500 filas.
   //
+  // OJO: ver la nota "PENDIENTE DE DECISIÓN" en routes/clientes.ts. Este `vendedor` es
+  // el que delivery-apk guarda como `usuario_vendedor`, así que si allí se cambia el
+  // criterio hay que cambiarlo aquí en la misma tanda: si no, el panel y la APK dirán
+  // cosas distintas del mismo cliente y nadie sabrá cuál creer.
+  //
   // `vendedor` es quien lo TRAJO —el de su pedido más antiguo—, que es el criterio
   // que ya usa la lista de clientes del panel. `vendedores` son todos los que le han
   // vendido: un cliente puede comprarle a dos, y quedarse solo con uno sería decidir
@@ -431,6 +436,8 @@ router.get('/clients', async (req, res) => {
 
   const porId = new Map(vendedores.map((v) => [v.id, comoSale(v)]));
 
+  // OJO: ver la nota "PENDIENTE DE DECISIÓN" en routes/clientes.ts.
+  //
   // `vendedor` es quien lo TRAJO —el del pedido más antiguo—, que es el criterio que
   // ya usa la lista de clientes del panel. `vendedores` son todos los que le han
   // vendido: un cliente puede comprarle a dos, y quedarnos con uno sería decidir desde

@@ -365,6 +365,39 @@ router.get('/', async (req, res) => {
     ]);
     const faltantes = { telefono: sinTelefono, geo: sinGeo, direccion: sinDireccion, municipio: sinMunicipio };
 
+    /**
+     * PENDIENTE DE DECISIÓN — a quién pertenece un cliente
+     *
+     * Hoy: al vendedor de su pedido MÁS ANTIGUO. O sea «quien lo trajo».
+     *
+     * El problema es que Parranda reparte clientes entre vendedores —los que tienen muchos
+     * le pasan a los que tienen pocos—, y esta regla se queda anclada al dueño anterior para
+     * siempre. Medido el 27 de agosto de 2026 sobre los datos de producción:
+     *
+     *     Santiago    3.147 clientes ->  377 atribuidos a quien ya no les vende
+     *     Las Tunas     967          ->  249
+     *     Camagüey    1.284          ->   74
+     *     Habana        782          ->   30
+     *     TOTAL       9.155          ->  849   (casi 1 de cada 10)
+     *
+     * Ejemplos reales de La Habana: raydel.mesa figura con 8 clientes que atiende
+     * fidel.palma; xenia.cordiez con 7 que atiende diana.acosta; leisy.besada con 6 que
+     * atiende javier.franganillo.
+     *
+     * Esto NO es un fallo que se pueda arreglar sin decidir antes, porque «de quién es un
+     * cliente» significa dos cosas distintas según para qué se pregunte:
+     *
+     *   - Para repartir rutas, contar carteras y para lo que se le manda a delivery-apk,
+     *     lo que importa es QUIÉN LE VENDE AHORA -> el pedido más RECIENTE.
+     *   - Para comisiones puede seguir importando quién lo trajo -> el más ANTIGUO.
+     *
+     * Si la decisión llega y es «quien le vende ahora», el cambio es invertir el orden de
+     * los pedidos aquí (`fecha: 'desc'`) y en integration.ts, donde se calcula lo mismo para
+     * el payload de delivery-apk. Los dos sitios tienen que cambiar a la vez o el panel y la
+     * APK dirán cosas distintas del mismo cliente.
+     *
+     * Mientras tanto se queda como está, a propósito y no por olvido.
+     */
     // Quién trajo a cada cliente: el vendedor de su pedido MÁS ANTIGUO. No hay
     // relación directa cliente->vendedor, la unión son los pedidos. Con los datos
     // actuales el 91% de los clientes tiene un solo vendedor (6918 de 7579), así

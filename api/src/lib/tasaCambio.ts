@@ -35,7 +35,16 @@ const TOKEN = process.env.TASA_CAMBIO_TOKEN || '';
  * bajo la clave "actual", para las pantallas que aún no mandan sucursal. Sin ese respaldo
  * verían un precio en CUP sin saber de dónde salió.
  */
-const RESPALDO = process.env.TASA_CAMBIO_SUCURSAL || 'HAB';
+const RESPALDO = (process.env.TASA_CAMBIO_SUCURSAL || 'HAB').toUpperCase();
+
+/**
+ * La clave de la fila que ven las pantallas que NO dicen de qué sucursal preguntan.
+ *
+ * Va en minúsculas y sin pasar por toUpperCase, que es donde me equivoqué antes: guardaba
+ * la fila como "ACTUAL" y la leía como "actual", así que nunca se encontraban y quedaban
+ * dos filas con el mismo dato y distinta caja.
+ */
+const CLAVE_RESPALDO = 'actual';
 // Cada 12 h, igual que el catálogo. La tasa cambia a diario, así que mirarla dos veces
 // al día la deja con medio día de antigüedad como peor caso — y Amado avisa cuando se
 // mueve, así que esto es la red por si el aviso no llega.
@@ -59,11 +68,20 @@ export interface Tasa {
  * creíble y equivocado — que es peor que no dar ninguno, porque nadie lo cuestiona.
  */
 export async function tasaActual(codigoSucursal?: string | null): Promise<Tasa | null> {
-  const clave = (codigoSucursal || '').trim().toUpperCase() || 'actual';
-  const t = (await prisma.tasaCambio.findUnique({ where: { id: clave } }))
-    // Si esa sucursal aún no tiene la suya, se cae a la de respaldo antes que dejar la
-    // pantalla sin poder enseñar CUP. El campo `fuente` dice de cuál es, para que se vea.
-    ?? (clave !== 'actual' ? await prisma.tasaCambio.findUnique({ where: { id: 'actual' } }) : null);
+  const clave = codigoSucursal ? codigoSucursal.trim().toUpperCase() : CLAVE_RESPALDO;
+
+  /**
+   * Si esa sucursal no tiene tasa, se devuelve NADA. No la de otra.
+   *
+   * Tenía puesto un respaldo que caía a la tasa general, y era un error de los que más
+   * daño hacen: Granma enseñaba "1 USD = 685 CUP" —la de La Habana— como si fuera suya.
+   * Un importe convertido con la tasa de otra provincia es creíble, se lee bien y nadie
+   * lo cuestiona; queda mal en la caja, no en la pantalla.
+   *
+   * Sin tasa, el selector CUP se queda apagado y dice de qué sucursal falta. Eso se
+   * arregla; un número equivocado no, porque nadie sabe que lo está.
+   */
+  const t = await prisma.tasaCambio.findUnique({ where: { id: clave } });
   if (!t) return null;
   const horas = (Date.now() - t.traidoAt.getTime()) / 3600000;
   return { cupPorUsd: t.cupPorUsd, fuente: t.fuente, traidoAt: t.traidoAt, fresca: horas <= HORAS_FRESCA };
@@ -71,7 +89,7 @@ export async function tasaActual(codigoSucursal?: string | null): Promise<Tasa |
 
 /** La escribe a mano quien administra. Queda marcada como manual, para saberlo. */
 export async function ponerTasa(cupPorUsd: number, fuente = 'manual', codigoSucursal?: string | null): Promise<Tasa> {
-  const clave = (codigoSucursal || '').trim().toUpperCase() || 'actual';
+  const clave = codigoSucursal ? codigoSucursal.trim().toUpperCase() : CLAVE_RESPALDO;
   const antes = await prisma.tasaCambio.findUnique({ where: { id: clave } });
   const t = await prisma.tasaCambio.upsert({
     where: { id: clave },
@@ -179,8 +197,9 @@ export async function traerTasa(): Promise<{ ok: boolean; valor?: number; error?
     }
 
     // La de respaldo se guarda además bajo "actual", para las pantallas que todavía no
-    // mandan sucursal. Sin esto verían el selector CUP en gris teniendo tasa de sobra.
-    if (respaldo != null) await ponerTasa(respaldo, `delivery-apk:${RESPALDO}`, 'actual');
+    // dicen de qué sucursal preguntan. Se apunta de cuál es: si alguien la ve sin saber
+    // de dónde salió, la va a dar por suya.
+    if (respaldo != null) await ponerTasa(respaldo, `delivery-apk:${RESPALDO} (general)`, null);
 
     if (logradas === 0) return { ok: false, error: fallos.join('; ').slice(0, 200) };
 

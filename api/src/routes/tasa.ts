@@ -28,7 +28,18 @@ router.get('/', async (req, res) => {
   const pedida = codigoDirecto
     || (id ? (await prisma.sucursal.findUnique({ where: { id }, select: { codigo: true } }))?.codigo ?? null : null);
   const t = await tasaActual(pedida);
-  if (!t) return res.json({ tasa: null, aviso: 'todavía no hay tasa configurada' });
+
+  if (!t) {
+    // Se dice DE QUÉ sucursal falta. "No hay tasa" a secas hace pensar que no hay
+    // ninguna en el sistema, cuando lo normal va a ser que falte la de esa provincia.
+    return res.json({
+      tasa: null,
+      sucursal: pedida || null,
+      aviso: pedida
+        ? `Todavía no hay tasa para ${pedida}. No se usa la de otra sucursal: un importe convertido con la tasa de otra provincia se lee bien y está mal.`
+        : 'todavía no hay tasa configurada',
+    });
+  }
   res.json({
     ...t,
     sucursal: pedida || null,

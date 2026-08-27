@@ -268,6 +268,10 @@ export const OrdersList = () => {
     fetch(`${getApiBaseUrl()}/tasa${q}`)
       .then((r) => r.json())
       .then((d) => {
+        // Sin tasa de ESTA sucursal, el selector CUP se queda apagado con el motivo a la
+        // vista. Antes caía a la general y Granma enseñaba los 685 de La Habana como si
+        // fueran suyos: un importe así se lee bien y está mal, que es lo peor que puede
+        // pasarle a un número que alguien va a cobrar.
         setTasa(d?.cupPorUsd ?? null);
         setTasaVieja(d?.aviso ?? null);
       })
