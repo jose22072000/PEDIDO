@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import prisma from '../prismaClient';
+import { normalizarProducto, variantesProducto, porContenido } from '../lib/nombreProducto';
 import { serviceAuth } from '../middleware/serviceAuth';
 
 // Endpoints de integración servidor-a-servidor con delivery (todos con x-api-key).
@@ -158,6 +159,59 @@ router.get('/orders', async (req, res) => {
     orderBy: { fecha: 'desc' },
   });
 
+  /**
+   * Los pesos de Ventra, resueltos AQUÍ y no por quien recibe.
+   *
+   * Antes se mandaba sólo el nombre del producto, así que cada aplicación que necesitara
+   * el peso tenía que mantener su propio catálogo contra Ventra. Eso son dos catálogos
+   * que se desincronizan sin que nadie lo note, y un domicilio cobrado por un peso que
+   * no es el nuestro.
+   *
+   * El emparejado no es trivial —los nombres de Parranda no coinciden con los de Ventra,
+   * "0.33L" contra "330 ML"— y ya lo hacemos para el panel. Hacerlo una vez aquí evita
+   * que cada uno lo repita mal por su cuenta.
+   *
+   * Se cargan los catálogos de las sucursales que aparecen en ESTA página, no los diez:
+   * una consulta por sucursal presente y no una por pedido.
+   */
+  const sucursalesEnPagina = [...new Set(pedidos.map((p) => p.sucursalId).filter(Boolean))] as string[];
+  const catalogos = new Map<string, Map<string, number | null>>();
+
+  for (const sid of sucursalesEnPagina) {
+    const filas = await prisma.productoSucursal.findMany({
+      where: { sucursalId: sid },
+      select: { nombre: true, pesoKg: true },
+    });
+    const porNombre = new Map<string, number | null>();
+
+    for (const f of filas) {
+      const k = normalizarProducto(f.nombre);
+      // Gana el que TIENE peso: Ventra manda el mismo producto duplicado, uno con peso
+      // y otro sin él, y quedarse con el último perdía el dato que sí estaba.
+      if (!porNombre.has(k) || (porNombre.get(k) == null && f.pesoKg != null)) {
+        porNombre.set(k, f.pesoKg);
+      }
+    }
+    catalogos.set(sid, porNombre);
+  }
+
+  const pesoDe = (sucursalId: string | null, producto: string | null): number | null => {
+    if (!sucursalId || !producto) return null;
+    const cat = catalogos.get(sucursalId);
+
+    if (!cat) return null;
+
+    const porVariante = variantesProducto(producto)
+      .map((k) => (cat.has(k) ? cat.get(k) : undefined))
+      .find((v) => v !== undefined);
+
+    if (porVariante !== undefined) return porVariante ?? null;
+
+    const k = porContenido(producto, [...cat.keys()]);
+
+    return k ? cat.get(k) ?? null : null;
+  };
+
   // Se devuelve el pedido y el cliente COMPLETOS (todos sus datos), para que
   // delivery lo tenga todo y no se pierda nada.
   const orders = pedidos.map((p) => ({
@@ -220,6 +274,23 @@ router.get('/orders', async (req, res) => {
       unidades: i.unidades,
       packs: i.packs,
       descripcion: i.descripcion,
+      /**
+       * El PESO y el PRECIO de cada línea, ya resueltos aquí.
+       *
+       * Antes se mandaba sólo el nombre del producto, y quien recibía esto tenía que
+       * mantener su propio catálogo para saber cuánto pesa una caja de malta. Eso es un
+       * segundo catálogo que se desincroniza del nuestro sin que nadie lo note: dos
+       * sistemas con pesos distintos para el mismo producto, y un domicilio cobrado por
+       * un peso que no es.
+       *
+       * El emparejado con Ventra ya lo hacemos para el panel, y no es trivial —los
+       * nombres no coinciden, "0.33L" contra "330 ML"—. Hacerlo una vez aquí y mandar el
+       * resultado ahorra que cada aplicación lo repita mal por su cuenta.
+       *
+       * `null` significa que en esa sucursal no hay ese producto ahora mismo, no que
+       * falte el dato: se manda igual para que se vea la línea completa.
+       */
+      pesoKg: pesoDe(p.sucursalId, i.producto),
     })),
   }));
 
