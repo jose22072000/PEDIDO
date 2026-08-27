@@ -30,14 +30,17 @@ router.get('/', async (req, res) => {
   const t = await tasaActual(pedida);
 
   if (!t) {
-    // Se dice DE QUÉ sucursal falta. "No hay tasa" a secas hace pensar que no hay
-    // ninguna en el sistema, cuando lo normal va a ser que falte la de esa provincia.
+    /**
+     * Corto: esto se pinta en una etiqueta al lado del selector de moneda.
+     *
+     * Dice DE QUÉ sucursal falta, que es lo único accionable — "no hay tasa" a secas
+     * hace pensar que no hay ninguna en el sistema. El porqué de no usar la de otra
+     * sucursal está en el comentario de `tasaActual`, que es donde hace falta leerlo.
+     */
     return res.json({
       tasa: null,
       sucursal: pedida || null,
-      aviso: pedida
-        ? `Todavía no hay tasa para ${pedida}. No se usa la de otra sucursal: un importe convertido con la tasa de otra provincia se lee bien y está mal.`
-        : 'todavía no hay tasa configurada',
+      aviso: pedida ? `sin tasa para ${pedida}` : 'todavía no hay tasa configurada',
     });
   }
   res.json({
