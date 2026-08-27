@@ -90,6 +90,30 @@ export async function aplicarCostoDomicilio(u: {
   }
 
   /**
+   * Un tope, porque un domicilio nunca cuesta cientos de dólares.
+   *
+   * Pasó de verdad: llegó un costo de 763.26 y se guardó tal cual. Al enseñarlo en CUP
+   * salían 522.833 — más que el pedido entero. El origen era que del otro lado la
+   * tarifa está en CUP y su fórmula de respaldo daba el resultado en CUP, pero el campo
+   * que viaja hasta aquí es USD: un número unas 685 veces más grande de lo que debía.
+   *
+   * Es el error que peor se detecta solo, porque el número es válido —positivo, con
+   * decimales, con pinta de precio— y sólo se nota comparándolo con algo. Así que se
+   * compara: por encima de este tope no se guarda y se devuelve el motivo, para que
+   * quien lo mandó lo vea en la respuesta en vez de descubrirlo cobrando.
+   */
+  const TOPE_USD = Number(process.env.DOMICILIO_MAX_USD || 100);
+
+  if (costo > TOPE_USD) {
+    return {
+      ok: false,
+      pedidoId: u.pedidoId ? String(u.pedidoId) : undefined,
+      folio: u.folio ? String(u.folio) : undefined,
+      motivo: `costo de ${costo} USD: pasa del máximo de ${TOPE_USD}. Suele significar que el importe viene en CUP y este campo es USD.`,
+    };
+  }
+
+  /**
    * La tasa CUP/USD del momento, de NUESTRA fuente.
    *
    * delivery-apk no la manda: manda el costo en USD y ya. La tasa la trae PEDIDO por su
