@@ -119,11 +119,49 @@ export function arrancarTasaCambio(): void {
     console.log('[tasa] sin URL o sin token: no se trae (se usa la que se ponga a mano)');
     return;
   }
-  const tirar = async () => {
-    const r = await traerTasa();
-    console.log(r.ok ? `[tasa] USD->CUP = ${r.valor}` : `[tasa] no se pudo traer: ${r.error}`);
+  /**
+   * Cada 12 h cuando va bien, pero mucho antes cuando falla.
+   *
+   * Con un intervalo fijo, un fallo condena a PEDIDO a estar medio día sin tasa aunque el
+   * problema se arregle a los cinco minutos — que es exactamente lo que pasó: la API de
+   * tasas se desplegó justo después del primer intento y aquí nadie se iba a enterar
+   * hasta la mañana siguiente.
+   *
+   * Reintenta a los 2, 5, 15 y 30 minutos y luego se queda en 30. Sin castigar a nadie
+   * con un martilleo, pero atento: el día que la tasa vuelva, se coge sola.
+   */
+  const ESPERAS = [2, 5, 15, 30].map((m) => m * 60000);
+  let fallos = 0;
+  let temporizador: NodeJS.Timeout | null = null;
+
+  const programar = (ms: number) => {
+    if (temporizador) clearTimeout(temporizador);
+    temporizador = setTimeout(tirar, ms);
+    temporizador.unref?.();
   };
-  setTimeout(tirar, 20000);
-  setInterval(tirar, CADA_MS);
-  console.log(`[tasa] refresco cada ${(CADA_MS / 3600000).toFixed(1)} h`);
+
+  async function tirar() {
+    const r = await traerTasa();
+
+    if (r.ok) {
+      if (fallos > 0) console.log(`[tasa] recuperada tras ${fallos} intento(s) fallido(s)`);
+      fallos = 0;
+      console.log(`[tasa] USD->CUP = ${r.valor}`);
+      programar(CADA_MS);
+      return;
+    }
+
+    const espera = ESPERAS[Math.min(fallos, ESPERAS.length - 1)];
+
+    fallos++;
+    // El primer fallo se cuenta entero; a partir del tercero se resume, para no llenar
+    // el log con la misma línea cada media hora si esto va a estar días caído.
+    if (fallos <= 2 || fallos % 10 === 0) {
+      console.log(`[tasa] no se pudo traer (${r.error}); reintento en ${espera / 60000} min`);
+    }
+    programar(espera);
+  }
+
+  programar(20000);
+  console.log(`[tasa] cada ${(CADA_MS / 3600000).toFixed(1)} h, y antes si falla`);
 }
