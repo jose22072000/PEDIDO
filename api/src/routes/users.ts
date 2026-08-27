@@ -22,7 +22,7 @@ router.get('/', async (req, res) => {
       preferUserSucursal: true,
       defaultAllForAdmin: true,
     });
-    if (sucursalError) return res.status(403).json({ error: sucursalError });
+    if (sucursalError) return res.status(400).json({ error: sucursalError });
     if (!sucursalId && !requester.isGlobalAdmin) {
       return res.status(400).json({ error: 'Debes tener una sucursal asignada para consultar usuarios.' });
     }
@@ -88,7 +88,7 @@ router.get('/:id', async (req, res) => {
       preferUserSucursal: true,
       defaultAllForAdmin: true,
     });
-    if (sucursalError) return res.status(403).json({ error: sucursalError });
+    if (sucursalError) return res.status(400).json({ error: sucursalError });
     if (!sucursalId && !requester.isGlobalAdmin) {
       return res.status(400).json({ error: 'Debes tener una sucursal asignada para consultar usuarios.' });
     }
@@ -134,7 +134,7 @@ router.post('/', async (req, res) => {
       defaultAllForAdmin: false,
     });
     if (sucursalError) {
-      return res.status(403).json({ error: sucursalError });
+      return res.status(400).json({ error: sucursalError });
     }
     if (!requester.isGlobalAdmin && !sucursalId) {
       return res.status(400).json({ error: 'Debes tener una sucursal asignada para crear usuarios.' });
@@ -268,7 +268,7 @@ router.patch('/:id', async (req, res) => {
       defaultAllForAdmin: true,
     });
     if (sucursalError) {
-      return res.status(403).json({ error: sucursalError });
+      return res.status(400).json({ error: sucursalError });
     }
     if (!requester.isGlobalAdmin && !activeSucursalId) {
       return res.status(400).json({ error: 'Debes tener una sucursal asignada para actualizar usuarios.' });
@@ -378,7 +378,7 @@ router.delete('/:id', async (req, res) => {
       defaultAllForAdmin: true,
     });
     if (sucursalError) {
-      return res.status(403).json({ error: sucursalError });
+      return res.status(400).json({ error: sucursalError });
     }
     if (!getRequesterContext(req).isGlobalAdmin && !sucursalId) {
       return res.status(400).json({ error: 'Debes tener una sucursal asignada para eliminar usuarios.' });

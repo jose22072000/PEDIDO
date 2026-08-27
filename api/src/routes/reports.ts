@@ -63,9 +63,9 @@ router.get('/pedidos-por-fecha', async (req, res) => {
     // Mismo scope que /orders: el usuario no-Super-Admin queda forzado a SU sucursal
     // y una peticion sin sucursal resoluble (p. ej. sin token) se rechaza en vez de
     // devolver los datos de todas las sucursales.
-    const { sucursalId, error: sucursalError } = resolveSucursalFilter(req);
+    const { sucursalId, error: sucursalError, status: sucursalStatus } = resolveSucursalFilter(req);
     if (sucursalError) {
-      return res.status(403).json({ error: sucursalError });
+      return res.status(sucursalStatus ?? 400).json({ error: sucursalError });
     }
 
     const { fechaInicio, fechaFin } = req.query;
@@ -126,9 +126,9 @@ router.get('/pedidos-por-vendedor', async (req, res) => {
     // Mismo scope que /orders: el usuario no-Super-Admin queda forzado a SU sucursal
     // y una peticion sin sucursal resoluble (p. ej. sin token) se rechaza en vez de
     // devolver los datos de todas las sucursales.
-    const { sucursalId, error: sucursalError } = resolveSucursalFilter(req);
+    const { sucursalId, error: sucursalError, status: sucursalStatus } = resolveSucursalFilter(req);
     if (sucursalError) {
-      return res.status(403).json({ error: sucursalError });
+      return res.status(sucursalStatus ?? 400).json({ error: sucursalError });
     }
 
     const { vendedorId, fechaInicio, fechaFin } = req.query;
@@ -215,9 +215,9 @@ router.get('/pedidos-por-estado', async (req, res) => {
     // Mismo scope que /orders: el usuario no-Super-Admin queda forzado a SU sucursal
     // y una peticion sin sucursal resoluble (p. ej. sin token) se rechaza en vez de
     // devolver los datos de todas las sucursales.
-    const { sucursalId, error: sucursalError } = resolveSucursalFilter(req);
+    const { sucursalId, error: sucursalError, status: sucursalStatus } = resolveSucursalFilter(req);
     if (sucursalError) {
-      return res.status(403).json({ error: sucursalError });
+      return res.status(sucursalStatus ?? 400).json({ error: sucursalError });
     }
 
     const { estado, vendedorId, fechaInicio, fechaFin } = req.query;
@@ -297,9 +297,9 @@ router.get('/productos-por-vendedor', async (req, res) => {
     // Mismo scope que /orders: el usuario no-Super-Admin queda forzado a SU sucursal
     // y una peticion sin sucursal resoluble (p. ej. sin token) se rechaza en vez de
     // devolver los datos de todas las sucursales.
-    const { sucursalId, error: sucursalError } = resolveSucursalFilter(req);
+    const { sucursalId, error: sucursalError, status: sucursalStatus } = resolveSucursalFilter(req);
     if (sucursalError) {
-      return res.status(403).json({ error: sucursalError });
+      return res.status(sucursalStatus ?? 400).json({ error: sucursalError });
     }
 
     const { vendedorId, fechaInicio, fechaFin, estado } = req.query;
@@ -452,9 +452,9 @@ router.get('/vendedores', async (req, res) => {
     // Mismo scope que /orders: el usuario no-Super-Admin queda forzado a SU sucursal
     // y una peticion sin sucursal resoluble (p. ej. sin token) se rechaza en vez de
     // devolver los datos de todas las sucursales.
-    const { sucursalId, error: sucursalError } = resolveSucursalFilter(req);
+    const { sucursalId, error: sucursalError, status: sucursalStatus } = resolveSucursalFilter(req);
     if (sucursalError) {
-      return res.status(403).json({ error: sucursalError });
+      return res.status(sucursalStatus ?? 400).json({ error: sucursalError });
     }
 
     const vendedores = await prisma.vendedor.findMany({

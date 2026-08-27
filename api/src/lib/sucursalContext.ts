@@ -205,7 +205,23 @@ export function resolveSucursalId(req: Request): string | null {
  * Los endpoints de ESCRITURA siguen usando requireSucursalId: nunca se crea nada sin
  * saber a qué sucursal pertenece.
  */
-export function resolveSucursalFilter(req: Request): { sucursalId?: string; error?: string } {
+/**
+ * Distingue "no has entrado" de "entraste pero no sé de qué sucursal".
+ *
+ * Los dos acababan en 400, y son cosas distintas: un 400 le dice al navegador que la
+ * petición está mal escrita, así que no reintenta ni manda a iniciar sesión — se queda
+ * la pantalla en blanco. Con 401 sabe qué hacer.
+ *
+ * Y en las métricas se veían igual: 127 respuestas de 4xx en un día que parecían fallos
+ * de la aplicación y en realidad eran pestañas con la sesión caducada.
+ */
+function sinSesion(req: Request): boolean {
+  const c = getRequesterContext(req);
+
+  return !c.userId;
+}
+
+export function resolveSucursalFilter(req: Request): { sucursalId?: string; error?: string; status?: number } {
   const { sucursalId, error } = resolveSucursalScope(req, {
     allowAllForAdmin: true,
     preferUserSucursal: true,
@@ -215,15 +231,18 @@ export function resolveSucursalFilter(req: Request): { sucursalId?: string; erro
   if (error) return { error };
 
   if (!sucursalId && !getRequesterContext(req).isGlobalAdmin) {
+    if (sinSesion(req)) return { error: 'Inicia sesión.', status: 401 };
+
     return {
       error: 'No hay sucursal disponible para esta solicitud. Inicia sesion con un usuario asignado a sucursal o envia sucursalId en body/query/header x-sucursal-id.',
+      status: 400,
     };
   }
 
   return { sucursalId: sucursalId ?? undefined };
 }
 
-export function requireSucursalId(req: Request): { sucursalId?: string; error?: string } {
+export function requireSucursalId(req: Request): { sucursalId?: string; error?: string; status?: number } {
   const { sucursalId, error } = resolveSucursalScope(req, {
     allowAllForAdmin: false,
     preferUserSucursal: true,
@@ -234,7 +253,12 @@ export function requireSucursalId(req: Request): { sucursalId?: string; error?: 
   }
 
   if (!sucursalId) {
-    return { error: 'No hay sucursal disponible para esta solicitud. Inicia sesion con un usuario asignado a sucursal o envia sucursalId en body/query/header x-sucursal-id.' };
+    if (sinSesion(req)) return { error: 'Inicia sesión.', status: 401 };
+
+    return {
+      error: 'No hay sucursal disponible para esta solicitud. Inicia sesion con un usuario asignado a sucursal o envia sucursalId en body/query/header x-sucursal-id.',
+      status: 400,
+    };
   }
 
   return { sucursalId };

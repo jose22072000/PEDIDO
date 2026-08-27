@@ -10,8 +10,12 @@ const router = Router();
 
 // POST /events/sse-ticket -> ticket efímero con el scope de sucursal ya resuelto.
 router.post('/sse-ticket', async (req, res) => {
-  const { sucursalId, error } = resolveSucursalFilter(req);
-  if (error) return res.status(400).json({ error });
+  const { sucursalId, error, status } = resolveSucursalFilter(req);
+
+  // 401 cuando no hay sesión, no 400. El front reintenta este ticket cada vez que
+  // reconecta el SSE, así que una pestaña abierta con la sesión caducada generaba
+  // decenas de 4xx al día que parecían un fallo de la aplicación.
+  if (error) return res.status(status ?? 400).json({ error });
   const ticket = await mintSseTicket({ sucursalId: sucursalId ?? null });
   return res.json({ ticket });
 });

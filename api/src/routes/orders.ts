@@ -189,9 +189,9 @@ async function pedidoParaLista(id: string) {
 // se enfoca solo en esa. El resto de usuarios, siempre la suya.
 router.get('/', async (req, res) => {
   try {
-    const { sucursalId, error: sucursalError } = resolveSucursalFilter(req);
+    const { sucursalId, error: sucursalError, status: sucursalStatus } = resolveSucursalFilter(req);
     if (sucursalError) {
-      return res.status(400).json({ error: sucursalError });
+      return res.status(sucursalStatus ?? 400).json({ error: sucursalError });
     }
 
     const page = parseInt(req.query.page as string) || 1;
@@ -516,9 +516,9 @@ router.post('/sse-ticket', async (req, res) => {
 // Create a new order (basic)
 router.post('/', async (req, res) => {
   try {
-    const { sucursalId, error: sucursalError } = requireSucursalId(req);
+    const { sucursalId, error: sucursalError, status: sucursalStatus } = requireSucursalId(req);
     if (sucursalError || !sucursalId) {
-      return res.status(400).json({ error: sucursalError });
+      return res.status(sucursalStatus ?? 400).json({ error: sucursalError });
     }
 
     const { folio, sellerId, clientId, direccion, encargado, telefono, fecha, fecha_comprometida, items } = req.body;
@@ -1438,9 +1438,9 @@ async function processOrderRecord(
 // Get dashboard statistics
 router.get('/stats', async (req, res) => {
   try {
-    const { sucursalId, error: sucursalError } = resolveSucursalFilter(req);
+    const { sucursalId, error: sucursalError, status: sucursalStatus } = resolveSucursalFilter(req);
     if (sucursalError) {
-      return res.status(400).json({ error: sucursalError });
+      return res.status(sucursalStatus ?? 400).json({ error: sucursalError });
     }
 
     // El GESTOR ve SOLO sus números (pedidos de SUS vendedores), no los de toda la

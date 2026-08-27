@@ -47,9 +47,9 @@ async function emitirVendedor(id: string, accion: string, sucursalAnterior?: str
 // GET /vendedores - List all vendedores
 router.get('/', async (req, res) => {
   try {
-    const { sucursalId, error: sucursalError } = resolveSucursalFilter(req);
+    const { sucursalId, error: sucursalError, status: sucursalStatus } = resolveSucursalFilter(req);
     if (sucursalError) {
-      return res.status(400).json({ error: sucursalError });
+      return res.status(sucursalStatus ?? 400).json({ error: sucursalError });
     }
 
     const vendedores = await prisma.vendedor.findMany({
@@ -75,9 +75,9 @@ router.get('/', async (req, res) => {
 // pedidos (GET /orders?usuarioId=) usa este id (vendedor.gestorId = usuario.id).
 router.get('/usuarios', async (req, res) => {
   try {
-    const { sucursalId, error: sucursalError } = resolveSucursalFilter(req);
+    const { sucursalId, error: sucursalError, status: sucursalStatus } = resolveSucursalFilter(req);
     if (sucursalError) {
-      return res.status(400).json({ error: sucursalError });
+      return res.status(sucursalStatus ?? 400).json({ error: sucursalError });
     }
 
     const usuarios = await prisma.usuario.findMany({
@@ -509,9 +509,9 @@ router.get('/:id/stats', async (req, res) => {
   try {
     const { id } = req.params;
     const { year } = req.query;
-    const { sucursalId, error: sucursalError } = resolveSucursalFilter(req);
+    const { sucursalId, error: sucursalError, status: sucursalStatus } = resolveSucursalFilter(req);
     if (sucursalError) {
-      return res.status(400).json({ error: sucursalError });
+      return res.status(sucursalStatus ?? 400).json({ error: sucursalError });
     }
 
     let whereClause: any = {
