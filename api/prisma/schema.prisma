@@ -373,7 +373,15 @@ model ProductoVinculo {
 /// Los precios se GUARDAN siempre en USD —es lo que da Ventra— y el CUP se calcula al
 /// mostrarlo. Guardar los dos sería tener dos verdades que se separan en cuanto cambie
 /// la tasa.
+/// La tasa CUP/USD, UNA POR SUCURSAL.
+///
+/// Era una sola fila global y estaba mal: delivery-apk lleva la tasa por sucursal, y una
+/// tasa de La Habana aplicada a Santiago convierte todos sus importes con un número que
+/// no es el suyo. No falla nada — sale un precio en CUP perfectamente creíble y
+/// equivocado.
 model TasaCambio {
+    /// El CÓDIGO de la sucursal: "HAB", "STG"… La fila "actual" es la de antes, que se
+    /// conserva como respaldo para las pantallas que aún no eligen sucursal.
     id        String   @id @default("actual")
     /// Cuántos CUP vale un USD.
     cupPorUsd Float

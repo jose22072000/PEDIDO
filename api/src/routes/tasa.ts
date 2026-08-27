@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import prisma from '../prismaClient';
 import { getRequesterContext } from '../lib/sucursalContext';
 import { tasaActual, ponerTasa, traerTasa, HORAS_FRESCA } from '../lib/tasaCambio';
 
@@ -11,11 +12,26 @@ import { tasaActual, ponerTasa, traerTasa, HORAS_FRESCA } from '../lib/tasaCambi
  */
 const router = Router();
 
-router.get('/', async (_req, res) => {
-  const t = await tasaActual();
+router.get('/', async (req, res) => {
+  /**
+   * La tasa de la sucursal que se esté mirando, no una global.
+   *
+   * El código puede venir por query (?sucursalCodigo=STG) o del contexto de quien
+   * pregunta. Sin ninguno se devuelve la de respaldo — que es lo que había antes para
+   * todas, y era el fallo: los importes de Santiago salían convertidos con la tasa de
+   * La Habana, sin que nada lo dijera.
+   */
+  const codigoDirecto = typeof req.query.sucursalCodigo === 'string' ? req.query.sucursalCodigo.trim() : '';
+  const id = typeof req.query.sucursalId === 'string' ? req.query.sucursalId.trim() : '';
+  // El front guarda el ID de la sucursal; las tasas se guardan por CÓDIGO. La traducción
+  // se hace aquí y no allí para que el navegador no tenga que llevarse el mapa entero.
+  const pedida = codigoDirecto
+    || (id ? (await prisma.sucursal.findUnique({ where: { id }, select: { codigo: true } }))?.codigo ?? null : null);
+  const t = await tasaActual(pedida);
   if (!t) return res.json({ tasa: null, aviso: 'todavía no hay tasa configurada' });
   res.json({
     ...t,
+    sucursal: pedida || null,
     horasFresca: HORAS_FRESCA,
     // Se dice si está vieja en vez de dejar que alguien cobre con ella creyendo que
     // es de hoy. El número solo no lo puede decir.

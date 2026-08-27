@@ -13,7 +13,11 @@ export type EntidadEvento =
   | 'apikey'
   // El webhook de domicilio: cada aviso que sale mueve los contadores de
   // Configuración. Sin esto la pantalla se queda con los números de cuando se abrió.
-  | 'webhook';
+  | 'webhook'
+  // La tasa de cambio. La trae el worker cada 12 h, así que sin aviso una pantalla
+  // abierta se queda con la de cuando se cargó — y con el selector CUP en gris diciendo
+  // que no hay tasa cuando ya la hay.
+  | 'tasa';
 
 /** Qué le pasó a la entidad. Determina cómo la aplica el front sin recargar. */
 export type AccionEvento = 'create' | 'update' | 'delete' | 'bulk' | 'change' | string;

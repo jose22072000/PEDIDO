@@ -42,7 +42,7 @@ import {
   type Moneda,
 } from "@/lib/moneda";
 import { useAuthStore } from "@/stores/authStore";
-import { useLiveStatus } from "@/hooks/use-live-events";
+import { useLiveStatus, useLiveEvents } from "@/hooks/use-live-events";
 import { aplicarLote } from "@/hooks/aplicar-eventos";
 import { getSucursalActiva } from "@/components/sucursal-selector";
 import {
@@ -251,25 +251,40 @@ export const OrdersList = () => {
 
   
 
-  useEffect(() => {
+  /**
+   * La tasa, y quién avisa cuando cambia.
+   *
+   * Se pedía una sola vez al cargar la pantalla, y como el worker sólo la refresca cada
+   * 12 h, el selector CUP se quedaba en gris diciendo "todavía no hay tasa" mucho después
+   * de que ya la hubiera. Había que recargar a mano para verla.
+   */
+  const traerTasa = useCallback(() => {
+    // Con la sucursal que se está viendo: cada una tiene su tasa, y usar la de otra da
+    // un importe en CUP creíble y equivocado. Va el ID, que es lo que guarda el selector;
+    // la API lo traduce a código, que es como las guarda.
+    const suc = session?.isGlobalAdmin ? getSucursalActiva() : session?.sucursalId;
+    const q = suc ? `?sucursalId=${encodeURIComponent(suc)}` : "";
 
-    setMoneda(monedaGuardada());
-
-    fetch(`${getApiBaseUrl()}/tasa`)
-
+    fetch(`${getApiBaseUrl()}/tasa${q}`)
       .then((r) => r.json())
-
       .then((d) => {
-
         setTasa(d?.cupPorUsd ?? null);
-
         setTasaVieja(d?.aviso ?? null);
-
       })
-
-      .catch(() => { /* sin tasa se sigue viendo en USD */ });
-
+      .catch(() => {
+        /* sin tasa se sigue viendo en USD */
+      });
   }, []);
+
+  useEffect(() => {
+    setMoneda(monedaGuardada());
+    traerTasa();
+  }, [traerTasa]);
+
+  // Y cuando el worker la cambia, la pantalla se entera sola. El evento sólo trae el
+  // aviso: se vuelve a pedir para no fiarse de un número que viajó por otro camino.
+  useLiveEvents(["tasa"], traerTasa);
+
 
   
 
