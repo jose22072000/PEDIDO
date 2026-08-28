@@ -216,7 +216,7 @@ router.get('/webhook/domicilio/estado', async (_req, res) => {
 });
 
 // El botón de "reencolar domicilios" se va con la cola de salida: no queda nada que
-// encolar. PEDIDO ya no le manda pedidos a delivery-apk, sólo recibe sus costos.
+// encolar. PEDIDO ya no le manda pedidos a Entrega, sólo recibe sus costos.
 
 // Mismo criterio de código que el import del CSV (nombre.primer_apellido, sin tildes
 // ni caracteres de control). Si cambia allí, cambia aquí.

@@ -387,13 +387,13 @@ router.get('/', async (req, res) => {
      * Esto NO es un fallo que se pueda arreglar sin decidir antes, porque «de quién es un
      * cliente» significa dos cosas distintas según para qué se pregunte:
      *
-     *   - Para repartir rutas, contar carteras y para lo que se le manda a delivery-apk,
+     *   - Para repartir rutas, contar carteras y para lo que se le manda a Entrega,
      *     lo que importa es QUIÉN LE VENDE AHORA -> el pedido más RECIENTE.
      *   - Para comisiones puede seguir importando quién lo trajo -> el más ANTIGUO.
      *
      * Si la decisión llega y es «quien le vende ahora», el cambio es invertir el orden de
      * los pedidos aquí (`fecha: 'desc'`) y en integration.ts, donde se calcula lo mismo para
-     * el payload de delivery-apk. Los dos sitios tienen que cambiar a la vez o el panel y la
+     * el payload de Entrega. Los dos sitios tienen que cambiar a la vez o el panel y la
      * APK dirán cosas distintas del mismo cliente.
      *
      * Mientras tanto se queda como está, a propósito y no por olvido.

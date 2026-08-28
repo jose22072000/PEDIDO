@@ -11,24 +11,24 @@ import { readConfiguredSucursalId } from './sucursalLocal';
 import { encolarWebhook } from './queues';
 
 /**
- * PEDIDO ya no le manda pedidos a delivery-apk. Esto está borrado entero.
+ * PEDIDO ya no le manda pedidos a Entrega. Esto está borrado entero.
  *
- * El repartidor teclea el folio en delivery-apk y elige al cliente, que delivery-apk ya
- * tiene sincronizado desde /integration/clients. O sea que delivery-apk no necesita que
+ * El repartidor teclea el folio en Entrega y elige al cliente, que Entrega ya
+ * tiene sincronizado desde /integration/clients. O sea que Entrega no necesita que
  * PEDIDO le avise de nada: cuando llega el pedido, ya lo tiene delante.
  *
  * Aquí vivía el payload de salida, la cola que lo mandaba y el relleno de pendientes.
  * Todo eso resolvía un problema que no existe, y mientras estuviera, PEDIDO seguiría
  * gastando trabajo y arriesgando fallos por avisar de algo a quien ya lo sabe.
  *
- * Queda UN solo webhook en PEDIDO, y es de ENTRADA: delivery-apk manda folio, costo y
+ * Queda UN solo webhook en PEDIDO, y es de ENTRADA: Entrega manda folio, costo y
  * distancia, y PEDIDO contesta qué hizo con cada uno.
  */
 
 /**
- * Lo que PEDIDO hizo de verdad con una entrega de delivery-apk.
+ * Lo que PEDIDO hizo de verdad con una entrega de Entrega.
  *
- * No basta con "ok": delivery-apk manda varias cosas a la vez (costo, tasa, distancia,
+ * No basta con "ok": Entrega manda varias cosas a la vez (costo, tasa, distancia,
  * ubicación corregida) y cada una puede guardarse o no por su cuenta. Una tasa en cero
  * se descarta, una coordenada fuera de Cuba se descarta, y una ubicación igual a la que
  * ya había no se toca. Si la respuesta sólo dijera "aplicada", del otro lado se daría
@@ -94,7 +94,7 @@ export async function aplicarCostoDomicilio(u: {
   /**
    * La tasa CUP/USD del momento, de NUESTRA fuente.
    *
-   * delivery-apk no la manda: manda el costo en USD y ya. La tasa la trae PEDIDO por su
+   * Entrega no la manda: manda el costo en USD y ya. La tasa la trae PEDIDO por su
    * cuenta cada 12 h, y se estampa aquí junto al costo para que el importe en CUP se
    * pueda reproducir exacto —el mismo que vio quien cobró— aunque para entonces la tasa
    * sea otra. Guardar un segundo importe en pesos, en vez de la tasa, dejaría dos
@@ -157,7 +157,7 @@ export async function aplicarCostoDomicilio(u: {
     const c = pedido?.cliente;
     if (!c) return;
 
-    // Sólo se escribe si el cliente se movió de verdad. delivery-apk manda las
+    // Sólo se escribe si el cliente se movió de verdad. Entrega manda las
     // coordenadas en cada entrega; sin esta comprobación, el registro de cambios se
     // llenaría de líneas donde no cambió nada y dejaría de servir para ver los cambios
     // que sí importan.

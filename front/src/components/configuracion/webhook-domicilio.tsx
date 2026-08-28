@@ -124,21 +124,21 @@ export const WebhookDomicilio = () => {
         </Switch>
       </div>
       <p className="mb-3 text-sm text-default-500">
-        delivery-apk manda a PEDIDO el folio con el costo del domicilio, la distancia y,
+        Entrega manda a PEDIDO el folio con el costo del domicilio, la distancia y,
         si el repartidor la corrigió, la ubicación del cliente. PEDIDO lo guarda y le
         contesta qué hizo con cada uno. El secret firma el envío y PEDIDO lo verifica.
       </p>
 
       {/*
         Aquí había una "URL de la APK (salida)": PEDIDO le avisaba de cada pedido.
-        Se quitó porque no hacía falta. En delivery-apk el repartidor teclea el número
+        Se quitó porque no hacía falta. En Entrega el repartidor teclea el número
         de pedido y elige al cliente de la lista que ya tiene bajada, así que cuando
         llega el pedido ya lo tiene delante: avisarle era contarle algo que ya sabía.
       */}
       <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-end">
         <Input
           className="min-w-0 flex-1"
-          label="Secret (el mismo en delivery-apk)"
+          label="Secret (el mismo en Entrega)"
           placeholder={cfg.tieneSecret ? "•••• (sin cambios)" : "pega uno o genéralo"}
           size="sm"
           type="password"
@@ -158,7 +158,7 @@ export const WebhookDomicilio = () => {
       {secretNuevo && (
         <div className="mb-3 rounded-lg border border-warning-200 bg-warning-50 p-3">
           <p className="mb-2 text-sm font-medium">
-            Cópialo y pásaselo al de delivery-apk. No se vuelve a mostrar.
+            Cópialo y pásaselo al de Entrega. No se vuelve a mostrar.
           </p>
           {/* Se envuelve para que un secret de 64 caracteres no estire la tarjeta
               fuera de la pantalla en un teléfono. */}
@@ -171,7 +171,7 @@ export const WebhookDomicilio = () => {
       {/* ENTRADA */}
       <div className="mb-3">
         <p className="mb-1 text-sm font-medium">
-          URL de entrada (la que llama delivery-apk)
+          URL de entrada (la que llama Entrega)
         </p>
         <Snippet hideSymbol className="max-w-full" size="sm" variant="bordered">
           <span className="break-all">{urlEntrada}</span>

@@ -59,7 +59,7 @@ router.get('/orders', async (req, res) => {
   /**
    * Y de ésos, sólo los que YA tienen el costo puesto.
    *
-   * El costo lo pone el repartidor desde delivery-apk. Un pedido que lleva domicilio pero
+   * El costo lo pone el repartidor desde Entrega. Un pedido que lleva domicilio pero
    * todavía no ha pasado por él no se puede meter en una ruta: no se sabe lo que cuesta
    * llevarlo. Traerlo igual es dejar en la lista pedidos a medias que el que arma la ruta
    * tiene que descartar a mano uno por uno.
@@ -471,7 +471,7 @@ router.get('/clients', async (req, res) => {
   // cliente por cliente serían 500 consultas para pintar 500 filas.
   //
   // OJO: ver la nota "PENDIENTE DE DECISIÓN" en routes/clientes.ts. Este `vendedor` es
-  // el que delivery-apk guarda como `usuario_vendedor`, así que si allí se cambia el
+  // el que Entrega guarda como `usuario_vendedor`, así que si allí se cambia el
   // criterio hay que cambiarlo aquí en la misma tanda: si no, el panel y la APK dirán
   // cosas distintas del mismo cliente y nadie sabrá cuál creer.
   //

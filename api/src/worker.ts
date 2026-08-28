@@ -121,7 +121,7 @@ async function main() {
  * foto de cuando se encoló.
  */
 function arrancarWebhooks() {
-  // La cola de salida ya no existe: delivery-apk no necesita que PEDIDO le avise de
+  // La cola de salida ya no existe: Entrega no necesita que PEDIDO le avise de
   // los pedidos, porque el repartidor teclea el folio y el cliente ya lo tiene bajado.
   // Lo único que queda del domicilio es el webhook de ENTRADA, y ése lo atiende la API.
   return;

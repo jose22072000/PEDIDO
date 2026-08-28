@@ -508,7 +508,7 @@ router.post('/', async (req, res) => {
     // Si hay que llevarlo a casa, la APK tiene que cotizarlo. Va por la cola: el aviso
     // no puede hacer esperar a quien está creando el pedido, ni fallar si la APK está
     // caída.
-    // Antes aquí se avisaba a delivery-apk del pedido nuevo. Ya no hace falta: el
+    // Antes aquí se avisaba a Entrega del pedido nuevo. Ya no hace falta: el
     // repartidor teclea el folio allí y el cliente lo tiene sincronizado.
     // El pedido viaja COMPLETO (misma forma que la lista) para que las vistas lo
     // inserten arriba sin volver a pedir la página entera.
@@ -865,7 +865,7 @@ router.patch('/:id/estado', async (req, res) => {
     // pulse "Reencolar" —o sea, a que alguien se acuerde—, que es justo lo que no puede
     // pasar con un pedido que acaba de volver a estar activo.
     if (estado !== 'completada' && order.requiere_domicilio && order.costoDomicilio == null) {
-    // Antes aquí se avisaba a delivery-apk del pedido nuevo. Ya no hace falta: el
+    // Antes aquí se avisaba a Entrega del pedido nuevo. Ya no hace falta: el
     // repartidor teclea el folio allí y el cliente lo tiene sincronizado.
     }
 

@@ -93,9 +93,9 @@ router.post('/domicilio', async (req, res) => {
   }
 
   /**
-   * Lo que se contesta a delivery-apk: por cada entrega, QUÉ se guardó.
+   * Lo que se contesta a Entrega: por cada entrega, QUÉ se guardó.
    *
-   * No vale con decir "aplicada". delivery-apk manda varias cosas juntas y cada una
+   * No vale con decir "aplicada". Entrega manda varias cosas juntas y cada una
    * puede entrar o no: una tasa en cero se descarta, una coordenada fuera de Cuba se
    * descarta, y una ubicación idéntica a la que ya había no se toca. Si la respuesta
    * no lo dijera, del otro lado se daría por guardado algo que no lo está.

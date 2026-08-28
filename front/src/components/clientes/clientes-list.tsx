@@ -545,7 +545,7 @@ export const ClientesList = () => {
                         </p>
                         <p className="font-semibold">
                           {selectedCliente.geoFuente === "apk"
-                            ? "corregida en delivery-apk"
+                            ? "corregida en Entrega"
                             : selectedCliente.geoFuente}
                         </p>
                       </div>

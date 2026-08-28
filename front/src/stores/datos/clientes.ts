@@ -23,7 +23,7 @@ export interface Cliente {
   /** Provincia: en Parranda es la provincia y aquí es la sucursal. Es el mismo dato. */
   sucursalNombre?: string | null;
   sucursalCodigo?: string | null;
-  /** Distancia al almacén, medida por delivery-apk. Se guarda en el cliente, no en el pedido. */
+  /** Distancia al almacén, medida por Entrega. Se guarda en el cliente, no en el pedido. */
   distanciaKm?: number | null;
   distanciaDesde?: string | null;
   distanciaAt?: string | null;

@@ -14,9 +14,13 @@ import { emitEvent } from './events';
  */
 
 /**
- * La API de tasas de delivery-apk, por la RED INTERNA del servidor.
+ * La API de tasas de Entrega, por la RED INTERNA del servidor.
  *
- * `http://delivery_api_apk` y no su dominio público a propósito. Los dos contenedores
+ * `delivery_api_apk` es el NOMBRE DEL CONTENEDOR, y no se cambia aunque la aplicación se
+ * llame Entrega: es una dirección de red, no un nombre de producto. Renombrarlo aquí sin
+ * renombrarlo en su compose deja la tasa sin traer y nada que lo explique.
+ *
+ * Se le llama por dentro y no por su dominio público a propósito. Los dos contenedores
  * están en la misma máquina, así que salir a internet para volver a entrar sería dar la
  * vuelta al mundo — y ahora mismo ni siquiera se puede: su dominio público no negocia
  * TLS (el certificado de Cloudflare no cubre dos niveles de subdominio) y por
@@ -113,7 +117,7 @@ export async function ponerTasa(cupPorUsd: number, fuente = 'manual', codigoSucu
   return { cupPorUsd: t.cupPorUsd, fuente: t.fuente, traidoAt: t.traidoAt, fresca: true };
 }
 
-/** Pide la tasa de UNA sucursal a la API de delivery-apk. */
+/** Pide la tasa de UNA sucursal a la API de Entrega. */
 async function traerUna(codigo: string): Promise<{ ok: boolean; valor?: number; error?: string }> {
   const u = `${URL}?codigoSucursal=${encodeURIComponent(codigo)}`;
   const r = await fetch(u, {
@@ -152,7 +156,7 @@ async function traerUna(codigo: string): Promise<{ ok: boolean; valor?: number; 
   // reproducir un importe hace falta saber no sólo cuánto era, sino desde cuándo.
   const desde = typeof b?.vigente_desde === 'string' ? ` desde ${b.vigente_desde}` : '';
 
-  await ponerTasa(v, `delivery-apk${desde}`, codigo);
+  await ponerTasa(v, `Entrega${desde}`, codigo);
 
   return { ok: true, valor: v };
 }
@@ -199,7 +203,7 @@ export async function traerTasa(): Promise<{ ok: boolean; valor?: number; error?
     // La de respaldo se guarda además bajo "actual", para las pantallas que todavía no
     // dicen de qué sucursal preguntan. Se apunta de cuál es: si alguien la ve sin saber
     // de dónde salió, la va a dar por suya.
-    if (respaldo != null) await ponerTasa(respaldo, `delivery-apk:${RESPALDO} (general)`, null);
+    if (respaldo != null) await ponerTasa(respaldo, `Entrega:${RESPALDO} (general)`, null);
 
     if (logradas === 0) return { ok: false, error: fallos.join('; ').slice(0, 200) };
 
