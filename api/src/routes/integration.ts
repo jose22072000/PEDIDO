@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import prisma from '../prismaClient';
-import { normalizarProducto, variantesProducto, porContenido } from '../lib/nombreProducto';
+import { catalogosDeSucursales, unidadesDeVenta } from '../lib/catalogoSucursal';
 import { serviceAuth } from '../middleware/serviceAuth';
 
 // Endpoints de integración servidor-a-servidor con delivery (todos con x-api-key).
@@ -44,6 +44,18 @@ router.use(serviceAuth);
  */
 router.get('/orders', async (req, res) => {
   const onlyPending = req.query.onlyPending === '1' || req.query.onlyPending === 'true';
+  /**
+   * Sólo los pedidos que LLEVAN domicilio.
+   *
+   * `onlyPending=1` no sirve para esto aunque lo parezca: además de `requiere_domicilio`
+   * exige `costoDomicilio: null`, y el costo lo pone la APK. O sea que se lleva justo los
+   * que todavía no han pasado por el repartidor y deja fuera los que ya sirven.
+   *
+   * Quien planifica rutas quiere los que hay que llevar a casa de alguien, cotizados o
+   * no. Traer también los que se recogen en el almacén es llenarle la pantalla de
+   * pedidos que no va a repartir nunca.
+   */
+  const soloDomicilio = req.query.soloDomicilio === '1' || req.query.soloDomicilio === 'true';
   /**
    * SIEMPRE hay tope, se pida o no.
    *
@@ -96,6 +108,7 @@ router.get('/orders', async (req, res) => {
     // Pendientes de cotizar = los que REQUIEREN domicilio (requiere_domicilio=true) y aún no
     // tienen costo. Un pedido sin domicilio NO lleva costo: no se encola ni se cotiza.
     ...(onlyPending ? { requiere_domicilio: true, costoDomicilio: null } : {}),
+    ...(soloDomicilio && !onlyPending ? { requiere_domicilio: true } : {}),
     // Por fecha del pedido. El 'hasta' incluye el día entero: quien escribe
     // hasta=2026-08-24 quiere los del 24, no los del 24 a las 00:00.
     ...(desde || hasta
@@ -167,50 +180,19 @@ router.get('/orders', async (req, res) => {
    * que se desincronizan sin que nadie lo note, y un domicilio cobrado por un peso que
    * no es el nuestro.
    *
-   * El emparejado no es trivial —los nombres de Parranda no coinciden con los de Ventra,
-   * "0.33L" contra "330 ML"— y ya lo hacemos para el panel. Hacerlo una vez aquí evita
-   * que cada uno lo repita mal por su cuenta.
+   * El cruce es el MISMO que usa el panel para los precios —vínculos a mano incluidos—:
+   * está en `lib/catalogoSucursal`. Tenerlo escrito aquí otra vez fue exactamente el
+   * problema que esto venía a resolver, un piso más abajo: el panel ataba un producto a
+   * mano y la integración seguía sin encontrarlo.
    *
-   * Se cargan los catálogos de las sucursales que aparecen en ESTA página, no los diez:
-   * una consulta por sucursal presente y no una por pedido.
+   * Se cargan los catálogos de las sucursales que aparecen en ESTA página, no los diez.
    */
-  const sucursalesEnPagina = [...new Set(pedidos.map((p) => p.sucursalId).filter(Boolean))] as string[];
-  const catalogos = new Map<string, Map<string, number | null>>();
+  const catalogos = await catalogosDeSucursales(
+    pedidos.map((p) => p.sucursalId).filter(Boolean) as string[],
+  );
 
-  for (const sid of sucursalesEnPagina) {
-    const filas = await prisma.productoSucursal.findMany({
-      where: { sucursalId: sid },
-      select: { nombre: true, pesoKg: true },
-    });
-    const porNombre = new Map<string, number | null>();
-
-    for (const f of filas) {
-      const k = normalizarProducto(f.nombre);
-      // Gana el que TIENE peso: Ventra manda el mismo producto duplicado, uno con peso
-      // y otro sin él, y quedarse con el último perdía el dato que sí estaba.
-      if (!porNombre.has(k) || (porNombre.get(k) == null && f.pesoKg != null)) {
-        porNombre.set(k, f.pesoKg);
-      }
-    }
-    catalogos.set(sid, porNombre);
-  }
-
-  const pesoDe = (sucursalId: string | null, producto: string | null): number | null => {
-    if (!sucursalId || !producto) return null;
-    const cat = catalogos.get(sucursalId);
-
-    if (!cat) return null;
-
-    const porVariante = variantesProducto(producto)
-      .map((k) => (cat.has(k) ? cat.get(k) : undefined))
-      .find((v) => v !== undefined);
-
-    if (porVariante !== undefined) return porVariante ?? null;
-
-    const k = porContenido(producto, [...cat.keys()]);
-
-    return k ? cat.get(k) ?? null : null;
-  };
+  const filaDe = (sucursalId: string | null, producto: string | null) =>
+    sucursalId ? catalogos.get(sucursalId)?.buscar(producto) : undefined;
 
   // Se devuelve el pedido y el cliente COMPLETOS (todos sus datos), para que
   // delivery lo tenga todo y no se pierda nada.
@@ -268,30 +250,36 @@ router.get('/orders', async (req, res) => {
           geolocalizacion: p.cliente.geolocalizacion,
         }
       : null,
-    items: p.items.map((i) => ({
-      codigo: i.codigo,
-      producto: i.producto,
-      unidades: i.unidades,
-      packs: i.packs,
-      descripcion: i.descripcion,
+    items: p.items.map((i) => {
+      const fila = filaDe(p.sucursalId, i.producto);
       /**
-       * El PESO y el PRECIO de cada línea, ya resueltos aquí.
+       * DOS pesos, y con nombres que dicen cuál es cuál.
        *
-       * Antes se mandaba sólo el nombre del producto, y quien recibía esto tenía que
-       * mantener su propio catálogo para saber cuánto pesa una caja de malta. Eso es un
-       * segundo catálogo que se desincroniza del nuestro sin que nadie lo note: dos
-       * sistemas con pesos distintos para el mismo producto, y un domicilio cobrado por
-       * un peso que no es.
+       * El peso de Ventra es POR UNIDAD DE VENTA (el blíster, la caja), igual que el
+       * precio. Mandar sólo ése y llamarlo "el peso de la línea" —como decía este
+       * comentario— es pedirle a quien recibe que se acuerde de multiplicar por
+       * `packs`, y el día que se olvide el domicilio sale dividido entre veinticuatro
+       * sin que falle nada.
        *
-       * El emparejado con Ventra ya lo hacemos para el panel, y no es trivial —los
-       * nombres no coinciden, "0.33L" contra "330 ML"—. Hacerlo una vez aquí y mandar el
-       * resultado ahorra que cada aplicación lo repita mal por su cuenta.
+       *   pesoKg       -> lo que pesa UNA unidad de venta.
+       *   pesoLineaKg  -> lo que pesa la línea entera (unidades de venta × pesoKg).
        *
-       * `null` significa que en esa sucursal no hay ese producto ahora mismo, no que
-       * falte el dato: se manda igual para que se vea la línea completa.
+       * `null` en los dos significa que ese producto no está en el catálogo de esa
+       * sucursal ahora mismo, no que falte el dato: la línea se manda igual.
        */
-      pesoKg: pesoDe(p.sucursalId, i.producto),
-    })),
+      const pesoKg = fila?.pesoKg ?? null;
+      const cantidad = unidadesDeVenta(i.packs, i.unidades);
+
+      return {
+        codigo: i.codigo,
+        producto: i.producto,
+        unidades: i.unidades,
+        packs: i.packs,
+        descripcion: i.descripcion,
+        pesoKg,
+        pesoLineaKg: pesoKg != null ? Number((pesoKg * cantidad).toFixed(3)) : null,
+      };
+    }),
   }));
 
   res.json({ count: orders.length, orders });

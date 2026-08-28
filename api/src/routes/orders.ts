@@ -1,7 +1,7 @@
 import { Router, type Request } from 'express';
 import { Prisma } from '@prisma/client';
 import prisma from '../prismaClient';
-import { normalizarProducto, variantesProducto, porContenido } from '../lib/nombreProducto';
+import { catalogoDeSucursal, unidadesDeVenta } from '../lib/catalogoSucursal';
 import { mapCsvRecords, type OrderRecordDto } from '../dto/orderRecord.dto';
 import {
   requireSucursalId,
@@ -79,66 +79,24 @@ export async function conPrecios<T extends PedidoConLineas>(pedido: T) {
   const nombres = [...new Set(pedido.items.map((i) => i.producto).filter(Boolean))];
   if (nombres.length === 0) return { ...pedido, total: pedido.costoDomicilio ?? 0, lineasSinPrecio: 0 };
 
-  // El catálogo ENTERO de esa sucursal, no filtrado por nombre.
-  //
-  // Filtrarlo con `nombre: { in: nombres }` era pedirle a la base los productos que se
-  // llamaran EXACTAMENTE como en el pedido —"ALIMENTOS ARROZ BLANCO 25KG SACO"— y ese
-  // nombre no existe en Ventra: siempre volvía vacío. Toda la normalización de después
-  // trabajaba sobre una lista vacía, así que daba igual lo bien que cruzara.
-  //
-  // Son 127 filas por sucursal: traerlas enteras cuesta menos que el viaje que se
-  // ahorraba, y es la única forma de poder comparar nombres que no coinciden.
-  const catalogo = await prisma.productoSucursal.findMany({
-    where: { sucursalId: pedido.sucursalId },
-    select: { nombre: true, precio: true, pesoKg: true, stock: true },
-  });
-  // El catálogo, indexado por su nombre normalizado. Sin normalizar no cruza NI UNO:
-  // Parranda antepone la categoría y pega las unidades ("ALIMENTOS ARROZ BLANCO 25KG
-  // SACO" contra "ARROZ BLANCO 25 KG SACO").
-  //
-  // Y GANA EL QUE TIENE PRECIO. Ventra manda el mismo producto por duplicado —19 casos
-  // por sucursal—, una fila con precio y otra sin él:
-  //
-  //     ARROZ BLANCO 25 KG SACO | 25.5
-  //     ARROZ BLANCO 25 KG SACO |          <- y ésta llegaba la última
-  //
-  // Quedándose con la última, el precio existente se perdía y TODOS los pedidos salían
-  // sin total aunque el dato estuviera en la base. Costó encontrarlo porque no falla
-  // nada: simplemente no hay precio, y parece que Ventra no lo tiene.
-  const porNombre = new Map<string, (typeof catalogo)[number]>();
-  for (const c of catalogo) {
-    const k = normalizarProducto(c.nombre);
-    const previo = porNombre.get(k);
-    if (!previo || (previo.precio == null && c.precio != null)) porNombre.set(k, c);
-  }
-
-  // Y los que alguien vinculó a mano, porque el nombre no se parecía lo bastante.
-  // Éstos MANDAN sobre el cruce automático: si una persona dijo cuál es, es ése.
-  const vinculos = new Map<string, string>(
-    (await prisma.productoVinculo.findMany({ select: { nombrePedido: true, nombreVentra: true } }))
-      .map((v) => [normalizarProducto(v.nombrePedido), normalizarProducto(v.nombreVentra)] as const),
-  );
+  /**
+   * El catálogo de esa sucursal, cruzado en `lib/catalogoSucursal`.
+   *
+   * Todo lo que había aquí —normalizar los nombres, los vínculos a mano, el desempate
+   * del producto duplicado— estaba también, y distinto, en `/integration/orders`. Ahora
+   * es el mismo código: lo que se ve en pantalla y lo que se le manda a delivery salen
+   * de la MISMA fila, que es lo único que garantiza que no discrepen.
+   */
+  const catalogo = await catalogoDeSucursal(pedido.sucursalId);
 
   let total = 0;
   let sinPrecio = 0;
   const items = pedido.items.map((i) => {
-    // Se prueban las formas posibles de ese nombre, de la más fiel a la más
-      // permisiva, y se para en la primera que exista. El vínculo a mano va primero.
-      const claves = variantesProducto(i.producto || '');
-      const aMano = claves.map((k) => vinculos.get(k)).find(Boolean);
-      const c = (aMano ? porNombre.get(aMano) : undefined)
-        ?? claves.map((k) => porNombre.get(k)).find(Boolean)
-        // Y si nada cruzó, el último recurso: que el nombre del pedido esté contenido
-        // en uno de Ventra, y en UNO SOLO. Así entra "PARRANDA 0.33L" en "CERVEZA
-        // PARRANDA 330 ML BLISTER 6U".
-        ?? (() => {
-          const k = porContenido(i.producto || '', [...porNombre.keys()]);
-          return k ? porNombre.get(k) : undefined;
-        })();
+    const c = catalogo.buscar(i.producto);
     const precioUnidad = c?.precio ?? null;
     // El precio de Ventra es por UNIDAD DE VENTA (el pack/caja), igual que el peso.
     // Multiplicarlo por las unidades sueltas daría un total disparatado.
-    const cantidad = i.packs && i.packs > 0 ? i.packs : i.unidades;
+    const cantidad = unidadesDeVenta(i.packs, i.unidades);
     const importe = precioUnidad != null ? Number((precioUnidad * cantidad).toFixed(2)) : null;
 
     if (importe == null) sinPrecio++;
