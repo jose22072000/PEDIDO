@@ -441,6 +441,20 @@ export const OrdersList = () => {
     vivo ?? (selectedOrderId ? ultimo.current : null);
 
   /**
+   * El peso del pedido entero, y cuántas líneas no lo traen.
+   *
+   * Suma lo que hay, no lo que debería haber: los productos sin peso en Ventra —hoy 72
+   * de los 128— no se pueden estimar, y ponerles un cero los haría desaparecer de la
+   * cuenta sin que nadie lo note. Por eso se enseña el total Y las que faltan.
+   */
+  const lineasSinPeso =
+    selectedOrder?.items.filter((i) => i.pesoLineaKg == null).length ?? 0;
+  const conPeso = selectedOrder?.items.filter((i) => i.pesoLineaKg != null) ?? [];
+  const pesoDelPedido = conPeso.length
+    ? Number(conPeso.reduce((t, i) => t + (i.pesoLineaKg ?? 0), 0).toFixed(2))
+    : null;
+
+  /**
    * @param fondo  recarga silenciosa: sin esqueleto y sin pintar errores. La usa el
    *               SSE cuando llega un cambio masivo que no se puede aplicar en sitio.
    */
@@ -1348,6 +1362,26 @@ export const OrdersList = () => {
                             <Chip size="sm" variant="flat">
                               {item.unidades} unidades
                             </Chip>
+                            {/*
+                              EL PESO. Sale de Ventra igual que el precio, y como el
+                              precio es por unidad de venta —el formato/caja—, no por
+                              unidad suelta.
+
+                              Se pinta también cuando NO lo hay: es lo que decide si un
+                              domicilio se puede cotizar, y un hueco callado se lee como
+                              «pesa poco» en vez de «no lo sabemos». Los que salen sin
+                              peso lo están en Ventra: hoy 72 de los 128 productos no
+                              traen ninguno.
+                            */}
+                            {item.pesoLineaKg != null ? (
+                              <Chip size="sm" variant="flat" className="tabular-nums">
+                                {item.pesoLineaKg} kg
+                              </Chip>
+                            ) : (
+                              <Chip size="sm" variant="flat" color="warning">
+                                sin peso
+                              </Chip>
+                            )}
                             {/* El precio, que ya venía de la API y no se pintaba.
                                 Sale de Ventra y es POR SUCURSAL: el mismo producto no
                                 vale igual en Camagüey que en Santiago, así que no se
@@ -1447,15 +1481,35 @@ export const OrdersList = () => {
                       </p>
                     )}
                   </div>
-                  {selectedOrder?.total != null ? (
-                    <p className="text-2xl font-bold tabular-nums">
-                      {$$(selectedOrder.total)}
-                    </p>
-                  ) : (
-                    <Chip size="sm" variant="flat">
-                      ningún producto disponible aquí
-                    </Chip>
-                  )}
+                  <div className="text-right">
+                    {selectedOrder?.total != null ? (
+                      <p className="text-2xl font-bold tabular-nums">
+                        {$$(selectedOrder.total)}
+                      </p>
+                    ) : (
+                      <Chip size="sm" variant="flat">
+                        ningún producto disponible aquí
+                      </Chip>
+                    )}
+                    {/*
+                      EL PESO TOTAL, debajo del importe.
+
+                      Es lo que decide si esto cabe en un camión y lo que cuesta llevarlo
+                      a domicilio, así que se mira tanto como el dinero. Se dice cuántas
+                      líneas no lo traen: un peso total que se queda corto porque faltan
+                      tres productos engaña más que no enseñar ninguno.
+                    */}
+                    {pesoDelPedido != null && (
+                      <p className="text-xs text-default-500 tabular-nums">
+                        {pesoDelPedido} kg
+                        {lineasSinPeso > 0 && (
+                          <span className="text-warning-600">
+                            {" "}· {lineasSinPeso} sin peso
+                          </span>
+                        )}
+                      </p>
+                    )}
+                  </div>
                 </div>
 
                 <div className="w-full p-3 border rounded-lg bg-warning-50 border-warning-200">

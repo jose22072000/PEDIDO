@@ -102,7 +102,23 @@ export async function conPrecios<T extends PedidoConLineas>(pedido: T) {
     if (importe == null) sinPrecio++;
     else total += importe;
 
-    return { ...i, precioUnidad, importe, pesoKg: c?.pesoKg ?? null, stock: c?.stock ?? null };
+    /**
+     * El peso, igual que el precio: por UNIDAD DE VENTA y por la línea entera.
+     *
+     * Se calcula aquí y no en la pantalla porque la regla —el peso de Ventra es del
+     * formato, no de la unidad suelta— es la misma que hace que el importe multiplique
+     * por los formatos. Teniéndola en dos sitios, un día uno de los dos la cambia.
+     */
+    const pesoKg = c?.pesoKg ?? null;
+
+    return {
+      ...i,
+      precioUnidad,
+      importe,
+      pesoKg,
+      pesoLineaKg: pesoKg != null ? Number((pesoKg * cantidad).toFixed(3)) : null,
+      stock: c?.stock ?? null,
+    };
   });
 
   if (pedido.costoDomicilio != null) total += pedido.costoDomicilio;

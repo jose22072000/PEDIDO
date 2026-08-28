@@ -25,7 +25,10 @@ export interface OrderItem {
    */
   precioUnidad?: number | null;
   importe?: number | null;
+  /** El peso de UNA unidad de venta (el formato/caja), tal como lo da Ventra. */
   pesoKg?: number | null;
+  /** El de la línea entera: `pesoKg` por los formatos que llevan. */
+  pesoLineaKg?: number | null;
   stock?: number | null;
 }
 

@@ -142,3 +142,19 @@ test('las unidades de venta son los packs, y las sueltas sólo si no hay packs',
   assert.equal(unidadesDeVenta(null, 24), 24);
   assert.equal(unidadesDeVenta(0, 24), 24, 'cero packs no es "cero cajas": es que no vino el dato');
 });
+
+test('un producto que Ventra trae SIN peso no se cuenta como cero', () => {
+  /**
+   * Es el caso de «ALIMENTOS SOPA DE POLLO CAJA 72 P»: está en el catálogo, tiene
+   * precio en alguna sucursal, y `pesoKg` viene vacío desde Ventra —72 de los 128
+   * productos están así—. Cruzar bien y devolver `null` es lo correcto: un cero haría
+   * que la línea desapareciera del peso del pedido sin que nadie lo note, y el domicilio
+   * se cobraría por menos de lo que se lleva.
+   */
+  const cat = indexarCatalogo([fila('SOPA DE POLLO CAJA 72 P', 19.44, null)], sinVinculos);
+  const c = cat.buscar('ALIMENTOS SOPA DE POLLO CAJA 72 P');
+
+  assert.ok(c, 'no cruzó: la categoría de delante tumbó la comparación');
+  assert.equal(c?.precio, 19.44);
+  assert.equal(c?.pesoKg, null, 'un peso que no existe tiene que llegar como null, no como 0');
+});
