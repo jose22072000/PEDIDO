@@ -89,6 +89,32 @@ test('cruza por contenido cuando Ventra añade el tipo delante y el formato detr
   assert.equal(c?.precio, 6.5);
 });
 
+test('y también con la categoría delante, que es como viene SIEMPRE de Parranda', () => {
+  // Éste era el agujero: el último recurso se probaba con el nombre entero, y "BEBIDAS"
+  // no está en el nombre de Ventra, así que la palabra que sobra tumbaba la comparación.
+  // O sea que el último recurso no llegaba a funcionar nunca — y no se notaba, porque un
+  // producto sin cruzar se ve igual que uno que de verdad no está.
+  const cat = indexarCatalogo([fila('CERVEZA PARRANDA 330 ML BLISTER 6U', 6.5, 3.2)], sinVinculos);
+  const c = cat.buscar('BEBIDAS PARRANDA 0.33L');
+
+  assert.equal(c?.precio, 6.5);
+  assert.equal(c?.pesoKg, 3.2);
+});
+
+test('quitar palabras no vale para cruzar con cualquier cosa', () => {
+  // La variante más permisiva quita la primera palabra. Que eso no acabe metiendo un
+  // producto en otro: con dos candidatos no se elige, en ninguna variante.
+  const cat = indexarCatalogo(
+    [
+      fila('CERVEZA PARRANDA 330 ML BLISTER 6U', 6.5, 3.2),
+      fila('CERVEZA PARRANDA 330 ML CAJA 24U', 24, 12.8),
+    ],
+    sinVinculos,
+  );
+
+  assert.equal(cat.buscar('BEBIDAS PARRANDA 0.33L'), undefined);
+});
+
 test('con DOS candidatos por contenido no se elige ninguno', () => {
   // Acertar a medias es peor que no acertar: un precio equivocado no falla, sale mal y
   // cuadra. "PARRANDA 330 ML" podría ser el blíster de 6 o la caja de 24.

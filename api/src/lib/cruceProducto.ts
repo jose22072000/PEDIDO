@@ -67,10 +67,25 @@ export function indexarCatalogo(filas: FilaCatalogo[], vinculos: Map<string, str
       const directo = variantes.map((k) => porNombre.get(k)).find(Boolean);
       if (directo) return directo;
 
-      // Último recurso: que el nombre del pedido esté contenido en uno de Ventra, y en
-      // UNO SOLO. Así entra "PARRANDA 0.33L" en "CERVEZA PARRANDA 330 ML BLISTER 6U".
-      const k = porContenido(producto, claves);
-      return k ? porNombre.get(k) : undefined;
+      /**
+       * Último recurso: que el nombre del pedido esté contenido en uno de Ventra, y en
+       * UNO SOLO. Así entra "PARRANDA 0.33L" en "CERVEZA PARRANDA 330 ML BLISTER 6U".
+       *
+       * Se prueba con CADA VARIANTE, no sólo con el nombre entero. Con el entero casi
+       * nunca cruzaba: Parranda antepone la categoría a todo, y "BEBIDAS" no está en el
+       * nombre de Ventra, así que la palabra que sobra tumbaba la comparación. El último
+       * recurso no llegaba a funcionar nunca y no se notaba — el producto salía sin
+       * precio y sin peso, que es lo mismo que se ve cuando de verdad no está.
+       *
+       * En orden, de la más fiel a la más permisiva, y parando en la primera que dé UN
+       * solo candidato: quitar palabras hasta que algo encaje encaja con cualquier cosa.
+       */
+      for (const v of variantes) {
+        const k = porContenido(v, claves);
+
+        if (k) return porNombre.get(k);
+      }
+      return undefined;
     },
   };
 }
