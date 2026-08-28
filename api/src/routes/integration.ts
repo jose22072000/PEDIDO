@@ -57,6 +57,15 @@ router.get('/orders', async (req, res) => {
    */
   const soloDomicilio = req.query.soloDomicilio === '1' || req.query.soloDomicilio === 'true';
   /**
+   * Y de ésos, sólo los que YA tienen el costo puesto.
+   *
+   * El costo lo pone el repartidor desde delivery-apk. Un pedido que lleva domicilio pero
+   * todavía no ha pasado por él no se puede meter en una ruta: no se sabe lo que cuesta
+   * llevarlo. Traerlo igual es dejar en la lista pedidos a medias que el que arma la ruta
+   * tiene que descartar a mano uno por uno.
+   */
+  const conCosto = req.query.conCosto === '1' || req.query.conCosto === 'true';
+  /**
    * SIEMPRE hay tope, se pida o no.
    *
    * Sin `limit` esto devolvía todo lo que cuadrara con el filtro, y un cliente pidiendo
@@ -109,6 +118,7 @@ router.get('/orders', async (req, res) => {
     // tienen costo. Un pedido sin domicilio NO lleva costo: no se encola ni se cotiza.
     ...(onlyPending ? { requiere_domicilio: true, costoDomicilio: null } : {}),
     ...(soloDomicilio && !onlyPending ? { requiere_domicilio: true } : {}),
+    ...(conCosto && !onlyPending ? { costoDomicilio: { not: null } } : {}),
     // Por fecha del pedido. El 'hasta' incluye el día entero: quien escribe
     // hasta=2026-08-24 quiere los del 24, no los del 24 a las 00:00.
     ...(desde || hasta
