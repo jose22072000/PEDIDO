@@ -71,14 +71,24 @@ async function sembrar() {
   })
 
   const conGeo = await prisma.cliente.create({
-    data: { codigo: 'C1', nombre: 'Ana', latitud: 23.12, longitud: -82.38, sucursalId: sucursal.id },
+    data: {
+      codigo: 'C1', nombre: 'Ana', municipio: 'Playa',
+      latitud: 23.12, longitud: -82.38, sucursalId: sucursal.id,
+    },
   })
   const sinGeo = await prisma.cliente.create({
     data: { codigo: 'C2', nombre: 'Beto', sucursalId: sucursal.id },
   })
 
+  const vendedor = await prisma.vendedor.create({
+    data: { codigo: 'V-1', nombre: 'Vendedor Uno', sucursalId: sucursal.id },
+  })
+
   const crearPedido = async (folio, opciones) => {
-    const { fecha, requiere, costo, items, clienteId = conGeo.id } = opciones
+    const {
+      fecha, requiere, costo, items, clienteId = conGeo.id,
+      estado = 'en_proceso', archivedAt = null, comprometida = null,
+    } = opciones
 
     return prisma.pedido.create({
       data: {
@@ -86,6 +96,10 @@ async function sembrar() {
         fecha,
         sucursalId: sucursal.id,
         clienteId,
+        vendedorId: vendedor.id,
+        estado,
+        archivedAt,
+        fecha_comprometida: comprometida,
         requiere_domicilio: requiere,
         costoDomicilio: costo,
         items: { create: items },
@@ -118,9 +132,17 @@ async function sembrar() {
     fecha: diaMenos(1), requiere: true, costo: 3, clienteId: sinGeo.id,
     items: [{ producto: 'BEBIDAS PARRANDA 0.33L', unidades: 24, packs: 4 }],
   })
-  // De otro día, para el filtro de fechas.
+  // De otro día, ARCHIVADO y completado: el 92% del catálogo real está así, y era lo que
+  // el espejo dejaba fuera sin que nadie lo notara.
   await crearPedido('PAP-VIEJO', {
     fecha: diaMenos(9), requiere: true, costo: 2,
+    estado: 'completada', archivedAt: diaMenos(5),
+    items: [{ producto: 'BEBIDAS PARRANDA 0.33L', unidades: 6, packs: 1 }],
+  })
+  // Y uno EXPIRADO: la fecha comprometida ya pasó y sigue sin completarse.
+  await crearPedido('PAP-EXPIRADO', {
+    fecha: diaMenos(4), requiere: true, costo: 1.5,
+    comprometida: diaMenos(2),
     items: [{ producto: 'BEBIDAS PARRANDA 0.33L', unidades: 6, packs: 1 }],
   })
 
@@ -250,6 +272,58 @@ test('y con el cliente y sus coordenadas, que es para lo que se trae', async () 
   assert.equal(typeof p.cliente.latitud, 'number')
   assert.equal(typeof p.cliente.longitud, 'number')
   assert.equal(p.sucursalCodigo, 'HAB')
+})
+
+test('el archivado y el estado viajan en el payload', async () => {
+  const { json } = await pedir('limit=50')
+  const viejo = porFolio(json.orders, 'PAP-VIEJO')
+
+  assert.equal(viejo.archivado, true, 'sin esto delivery no puede distinguir un pedido vivo de uno de hace meses')
+  assert.ok(viejo.archivadoEn)
+  assert.equal(viejo.estado, 'completada')
+
+  // Los archivados vienen por defecto: son la inmensa mayoría del catálogo.
+  const activos = await pedir('archivado=0&limit=50')
+
+  assert.equal(porFolio(activos.json.orders, 'PAP-VIEJO'), undefined)
+  assert.ok(porFolio(activos.json.orders, 'PAP-COTIZADO'))
+})
+
+test('«expirado» se calcula aquí, no lo tiene que deducir quien recibe', async () => {
+  const { json } = await pedir('limit=50')
+
+  assert.equal(porFolio(json.orders, 'PAP-EXPIRADO').expirado, true)
+  assert.equal(porFolio(json.orders, 'PAP-COTIZADO').expirado, false)
+})
+
+test('el municipio y el vendedor van en el payload, que es por donde se filtra', async () => {
+  const { json } = await pedir('limit=50')
+  const p = porFolio(json.orders, 'PAP-COTIZADO')
+
+  assert.equal(p.cliente.municipio, 'Playa')
+  assert.equal(p.vendedor.nombre, 'Vendedor Uno')
+})
+
+test('`since` trae sólo lo que se movió: es lo que hace barato el espejo', async () => {
+  const todos = await pedir('limit=50')
+  const masNuevo = todos.json.orders.reduce(
+    (max, o) => (new Date(o.updatedAt) > new Date(max) ? o.updatedAt : max),
+    todos.json.orders[0].updatedAt,
+  )
+
+  const nada = await pedir(`since=${encodeURIComponent(masNuevo)}&limit=50`)
+
+  assert.equal(nada.json.orders.length, 0, 'pedir desde lo más nuevo tiene que devolver nada')
+
+  // Se mueve uno y aparece él solo.
+  const uno = await prisma.pedido.findFirst({ where: { folio: 'PAP-COTIZADO' } })
+
+  await prisma.pedido.update({ where: { id: uno.id }, data: { encargado: 'Tocado' } })
+
+  const cambiado = await pedir(`since=${encodeURIComponent(masNuevo)}&limit=50`)
+
+  assert.equal(cambiado.json.orders.length, 1)
+  assert.equal(cambiado.json.orders[0].folio, 'PAP-COTIZADO')
 })
 
 test.after(async () => {

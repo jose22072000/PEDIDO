@@ -89,6 +89,15 @@ router.get('/orders', async (req, res) => {
   // se entregaron y los expirados no los va a llevar hoy.
   const estado = typeof req.query.estado === 'string' ? req.query.estado.trim() : '';
   const askedCodigo = typeof req.query.sucursalCodigo === 'string' ? req.query.sucursalCodigo.trim() : '';
+  /**
+   * Archivados: por defecto vienen TODOS.
+   *
+   * Archivar en PEDIDO es esconder de la lista, no borrar, y son 51.871 de 56.208. Quien
+   * quiera sólo los vivos que pida `archivado=0`; quien quiera el catálogo entero —que es
+   * lo que necesita delivery para planificar rutas de pedidos ya completados— no pide
+   * nada. Excluirlos por defecto habría dejado fuera el 92% sin que nadie lo notara.
+   */
+  const archivado = typeof req.query.archivado === 'string' ? req.query.archivado.trim() : '';
 
   // Scope a la sucursal local de esta instalación.
   const localSucursalId = readConfiguredSucursalId();
@@ -119,6 +128,8 @@ router.get('/orders', async (req, res) => {
     ...(onlyPending ? { requiere_domicilio: true, costoDomicilio: null } : {}),
     ...(soloDomicilio && !onlyPending ? { requiere_domicilio: true } : {}),
     ...(conCosto && !onlyPending ? { costoDomicilio: { not: null } } : {}),
+    ...(archivado === '1' || archivado === 'true' ? { archivedAt: { not: null } } : {}),
+    ...(archivado === '0' || archivado === 'false' ? { archivedAt: null } : {}),
     // Por fecha del pedido. El 'hasta' incluye el día entero: quien escribe
     // hasta=2026-08-24 quiere los del 24, no los del 24 a las 00:00.
     ...(desde || hasta
@@ -218,6 +229,22 @@ router.get('/orders', async (req, res) => {
     fecha: p.fecha,
     fechaComprometida: p.fecha_comprometida,
     estado: p.estado,
+    /**
+     * Archivado y completado, que hasta ahora no salían.
+     *
+     * En PEDIDO archivar es un borrado blando: los completados y los expirados viejos se
+     * ocultan de la lista y se guardan para los informes. Son 51.871 de 56.208 — la
+     * inmensa mayoría—, así que quien recibe esto sin el dato no puede distinguir un
+     * pedido vivo de uno de hace ocho meses, y los mezcla todos en la misma lista.
+     *
+     * `expirado` no es una columna: es que la fecha comprometida ya pasó y no se completó.
+     * Se calcula aquí y no allí, para que la regla viva en un solo sitio.
+     */
+    archivado: p.archivedAt != null,
+    archivadoEn: p.archivedAt,
+    completadoEn: p.completedAt,
+    expirado:
+      p.estado !== 'completada' && p.fecha_comprometida != null && p.fecha_comprometida < new Date(),
     pedidoCobrado: p.pedido_cobrado,
     requiereDomicilio: p.requiere_domicilio,
     costoDomicilio: p.costoDomicilio,
@@ -346,6 +373,15 @@ router.get('/orders/completados', async (req, res) => {
  */
 router.get('/clients', async (req, res) => {
   const askedCodigo = typeof req.query.sucursalCodigo === 'string' ? req.query.sucursalCodigo.trim() : '';
+  /**
+   * Archivados: por defecto vienen TODOS.
+   *
+   * Archivar en PEDIDO es esconder de la lista, no borrar, y son 51.871 de 56.208. Quien
+   * quiera sólo los vivos que pida `archivado=0`; quien quiera el catálogo entero —que es
+   * lo que necesita delivery para planificar rutas de pedidos ya completados— no pide
+   * nada. Excluirlos por defecto habría dejado fuera el 92% sin que nadie lo notara.
+   */
+  const archivado = typeof req.query.archivado === 'string' ? req.query.archivado.trim() : '';
   // Los clientes DE UN VENDEDOR.
   //
   // El cliente no tiene vendedor: la relación vive en los pedidos, así que "los
@@ -625,6 +661,15 @@ router.get('/client-order-counts', async (req, res) => {
  */
 router.get('/vendedores', async (req, res) => {
   const askedCodigo = typeof req.query.sucursalCodigo === 'string' ? req.query.sucursalCodigo.trim() : '';
+  /**
+   * Archivados: por defecto vienen TODOS.
+   *
+   * Archivar en PEDIDO es esconder de la lista, no borrar, y son 51.871 de 56.208. Quien
+   * quiera sólo los vivos que pida `archivado=0`; quien quiera el catálogo entero —que es
+   * lo que necesita delivery para planificar rutas de pedidos ya completados— no pide
+   * nada. Excluirlos por defecto habría dejado fuera el 92% sin que nadie lo notara.
+   */
+  const archivado = typeof req.query.archivado === 'string' ? req.query.archivado.trim() : '';
   // Por defecto SOLO los activos: un vendedor de baja no tiene a quién emparejar y
   // ensucia la lista. Con activos=0 salen todos, para revisar un histórico.
   const soloActivos = req.query.activos !== '0' && req.query.activos !== 'false';
