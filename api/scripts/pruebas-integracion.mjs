@@ -391,6 +391,24 @@ test('el costo recalculado pisa al viejo, y se estampa la tasa', async () => {
   assert.equal(despues.costoDomicilio, 3.2)
 })
 
+test('el estado de la factura SALE también en el payload que lee la tablet', async () => {
+  /**
+   * Guardarlo y no mandarlo dejaba el dato encerrado en el panel. Quien más lo necesita
+   * es el vendedor con su tablet: ve el pedido tal como lo tomó y, sin esto, no puede
+   * saber que en el almacén se facturó otra cosa.
+   */
+  const p = await traerPorFolio('PAP-COTIZADO')
+
+  await avisar([{ pedidoId: p.id, estado: 'cambiado', numero: 'F-1001' }])
+
+  const { json } = await pedir('limit=50')
+  const salida = porFolio(json.orders, 'PAP-COTIZADO')
+
+  assert.equal(salida.facturaEstado, 'cambiado')
+  assert.equal(salida.facturaNumero, 'F-1001')
+  assert.ok(salida.facturaAt)
+})
+
 test('un costo NULO no pone el domicilio a cero', async () => {
   /**
    * `Number(null)` es CERO, no NaN. Delivery manda `costo: null` en todos los pedidos

@@ -251,6 +251,17 @@ router.get('/orders', async (req, res) => {
     pedidoCobrado: p.pedido_cobrado,
     requiereDomicilio: p.requiere_domicilio,
     costoDomicilio: p.costoDomicilio,
+    /**
+     * Y CÓMO QUEDÓ FRENTE A LA FACTURA, que es lo que el vendedor no podía saber.
+     *
+     * Sale por aquí y no sólo en pantalla porque quien más lo necesita es la tablet: el
+     * vendedor ve el pedido tal como lo tomó, y con esto ve además si llegó a facturarse
+     * y con qué número. Va con `since=` como todo lo demás, así que enterarse cuesta una
+     * llamada corta y no bajarse el día entero por datos móviles.
+     */
+    facturaEstado: p.facturaEstado,
+    facturaNumero: p.facturaNumero,
+    facturaAt: p.facturaAt,
     // Para que la tablet sepa por dónde seguir: se guarda el mayor de la tanda y se
     // manda como `since` en la siguiente sync.
     updatedAt: p.updatedAt,
