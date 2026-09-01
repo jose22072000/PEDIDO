@@ -23,9 +23,18 @@ const fileTypes: string[] = ["CSV"];
 // evento done/failed de cada jobId. `buffered` cubre la carrera de que el evento
 // llegue antes de que empecemos a esperarlo.
 /** Pregunta al servidor como acabo un trabajo de importacion. */
+/** Lo que cuenta el servidor de una importación: qué entró y qué no. */
+interface ResultadoImport {
+  created: number;
+  updated: number;
+  failed: number;
+  sinAsignar: number;
+  errors?: Array<{ record?: string; error?: string }>;
+}
+
 async function preguntarEstado(
   jobId: string,
-): Promise<{ estado: string; error?: string }> {
+): Promise<{ estado: string; error?: string; resultado?: ResultadoImport }> {
   const r = await fetch(`${getApiBaseUrl()}/orders/import-status/${encodeURIComponent(jobId)}`);
 
   if (!r.ok) throw new Error("No se pudo consultar el estado");
@@ -47,18 +56,28 @@ async function openImportStream() {
   const es = new EventSource(
     `${getApiBaseUrl()}/orders/import-stream?ticket=${encodeURIComponent(ticket)}`,
   );
-  const waiters = new Map<string, { resolve: () => void; reject: (e: Error) => void }>();
-  const buffered = new Map<string, { ok: boolean; error?: string }>();
+  /**
+   * El RESULTADO viaja con el aviso, no sólo «terminó».
+   *
+   * Un trabajo puede terminar bien y no haber entrado ni un pedido: si una fila trae una
+   * fecha que no se entiende, esa fila falla sola y las demás siguen. Sin traerse el
+   * recuento, la pantalla decía «subido exitosamente» con cero pedidos creados.
+   */
+  const waiters = new Map<
+    string,
+    { resolve: (r: ResultadoImport | null) => void; reject: (e: Error) => void }
+  >();
+  const buffered = new Map<string, { ok: boolean; error?: string; results?: ResultadoImport }>();
 
-  const settle = (jobId: string, ok: boolean, error?: string) => {
+  const settle = (jobId: string, ok: boolean, error?: string, results?: ResultadoImport) => {
     const w = waiters.get(jobId);
 
     if (w) {
       waiters.delete(jobId);
-      if (ok) w.resolve();
+      if (ok) w.resolve(results ?? null);
       else w.reject(new Error(error || "Falló la importación"));
     } else {
-      buffered.set(jobId, { ok, error });
+      buffered.set(jobId, { ok, error, results });
     }
   };
 
@@ -66,7 +85,7 @@ async function openImportStream() {
     try {
       const d = JSON.parse((e as MessageEvent).data);
 
-      settle(String(d.jobId), true);
+      settle(String(d.jobId), true, undefined, d.results);
     } catch {
       /* ignore */
     }
@@ -115,12 +134,12 @@ async function openImportStream() {
 
   return {
     wait: (jobId: string, fileName: string) =>
-      new Promise<void>((resolve, reject) => {
+      new Promise<ResultadoImport | null>((resolve, reject) => {
         const b = buffered.get(jobId);
 
         if (b) {
           buffered.delete(jobId);
-          if (b.ok) resolve();
+          if (b.ok) resolve(b.results ?? null);
           else reject(new Error(b.error || `Falló la importación de ${fileName}`));
 
           return;
@@ -135,7 +154,8 @@ async function openImportStream() {
           waiters.delete(jobId);
           preguntarEstado(jobId)
             .then((r) => {
-              if (r.estado === "completed" || r.estado === "desconocido") resolve();
+              if (r.estado === "completed" || r.estado === "desconocido")
+                resolve(r.resultado ?? null);
               else if (r.estado === "failed")
                 reject(new Error(r.error || `Falló la importación de ${fileName}`));
               else
@@ -152,9 +172,9 @@ async function openImportStream() {
         }, 5 * 60 * 1000);
 
         waiters.set(jobId, {
-          resolve: () => {
+          resolve: (r: ResultadoImport | null) => {
             clearTimeout(timer);
-            resolve();
+            resolve(r);
           },
           reject: (e: Error) => {
             clearTimeout(timer);
@@ -277,6 +297,21 @@ export default function CrearPedidoForm() {
 
       const totalFiles = files.length;
       let processedFiles = 0;
+      /** Lo que de verdad pasó, sumando todos los lotes de todos los archivos. */
+      const total: ResultadoImport = {
+        created: 0, updated: 0, failed: 0, sinAsignar: 0, errors: [],
+      };
+      const sumar = (r: ResultadoImport | null | undefined) => {
+        if (!r) return;
+        total.created += r.created ?? 0;
+        total.updated += r.updated ?? 0;
+        total.failed += r.failed ?? 0;
+        total.sinAsignar += r.sinAsignar ?? 0;
+        // Sólo los primeros: con un archivo entero mal, la lista sería ilegible.
+        for (const e of r.errors ?? []) {
+          if ((total.errors?.length ?? 0) < 5) total.errors?.push(e);
+        }
+      };
       const batchSize = 50; // Procesar 50 registros por request
 
       for (const file of files) {
@@ -337,10 +372,13 @@ export default function CrearPedidoForm() {
                   `Mira la lista de pedidos en un minuto antes de volver a subirlo.`,
               );
             }
-            await importStream.wait(String(jobId), file.name);
-          } else if (i < batches.length - 1) {
-            // Modo inline (sin cola): esperar 50ms entre requests como antes.
-            await new Promise((resolve) => setTimeout(resolve, 50));
+            sumar(await importStream.wait(String(jobId), file.name));
+          } else {
+            // Modo inline (sin cola): el resultado viene en la propia respuesta.
+            sumar((await response.json())?.results);
+            if (i < batches.length - 1) {
+              await new Promise((resolve) => setTimeout(resolve, 50));
+            }
           }
 
           // Actualizar progreso
@@ -354,16 +392,50 @@ export default function CrearPedidoForm() {
       }
 
       setProgress(100);
-
-      // Si todo sale bien, limpiar los archivos
-      setFiles([]);
       setCurrentFile("");
 
-      addToast({
-        title: "Subido exitosamente",
-        description: `${totalFiles} archivos procesados correctamente`,
-        color: "success",
-      });
+      /**
+       * QUÉ ENTRÓ, no «se subió».
+       *
+       * Antes siempre decía «subido exitosamente», aunque no hubiera entrado ni un
+       * pedido: una fila con una fecha que no se entiende falla sola y las demás siguen,
+       * así que el trabajo termina «bien» con cero creados. Alguien subía el archivo, veía
+       * el verde, y el pedido no aparecía por ningún lado — sin nada que mirar.
+       */
+      const entraron = total.created + total.updated;
+      const detalle = [
+        total.created ? `${total.created} nuevos` : null,
+        total.updated ? `${total.updated} actualizados` : null,
+        total.failed ? `${total.failed} sin entrar` : null,
+        total.sinAsignar ? `${total.sinAsignar} sin gestor (quedan ocultos)` : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+
+      const motivos = (total.errors ?? [])
+        .map((e) => `${e.record ? `${e.record}: ` : ""}${e.error ?? ""}`)
+        .join("\n");
+
+      if (total.failed > 0) {
+        // Los archivos NO se limpian: hay que poder corregirlos y volver a subirlos.
+        setMotivoError(
+          `${detalle || "No entró ningún pedido"}.` + (motivos ? `\n\n${motivos}` : ""),
+        );
+        setShowError(true);
+        addToast({
+          title: entraron ? "Entró sólo una parte" : "No entró ningún pedido",
+          description: motivos || detalle,
+          color: "danger",
+          timeout: 20000,
+        });
+      } else {
+        setFiles([]);
+        addToast({
+          title: entraron ? "Pedidos importados" : "No había nada nuevo",
+          description: detalle || `${totalFiles} archivo(s) procesados, sin cambios.`,
+          color: entraron ? "success" : "warning",
+        });
+      }
 
       // Esperar un poco antes de resetear el progreso
       await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -408,8 +480,12 @@ export default function CrearPedidoForm() {
             <Alert
               color="danger"
               description={
-                motivoError ??
-                "Por favor, seleccione al menos un archivo antes de continuar."
+                // `pre-line` para que los motivos de varias filas se lean uno por línea
+                // en vez de salir todos pegados en un párrafo.
+                <span className="whitespace-pre-line">
+                  {motivoError ??
+                    "Por favor, seleccione al menos un archivo antes de continuar."}
+                </span>
               }
               title={motivoError ? "No se importó" : "No hay archivos para enviar"}
               variant="flat"

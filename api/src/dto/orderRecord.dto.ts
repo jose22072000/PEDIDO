@@ -1,4 +1,5 @@
 import { codigoDesdeNombre } from '../lib/nombreVendedor';
+import { convencionDeFechas, leerFecha, type Convencion } from '../lib/fechaDelCsv';
 
 // DTO for seller data
 export interface SellerDto {
@@ -33,7 +34,10 @@ export interface OrderDto {
   encargado?: string | null;
   telefono?: string | null;
   fecha: Date;
+  /** Por qué no se pudo leer la fecha. Con esto la fila se rechaza DICIENDO el motivo. */
+  fechaError?: string | null;
   fecha_comprometida?: Date | null;
+  fechaComprometidaError?: string | null;
   pedido_cobrado?: string | null;
   requiere_domicilio?: boolean | null;
 }
@@ -56,7 +60,7 @@ function numeroOpcional(v: unknown): number | null {
 }
 
 // Mapper function to transform CSV records to structured DTO
-export function mapCsvToOrderRecord(csvRecord: any): OrderRecordDto {
+export function mapCsvToOrderRecord(csvRecord: any, convencion: Convencion = 'iso'): OrderRecordDto {
   const vendedorName = (csvRecord.vendedor || csvRecord.Vendedor || '').toUpperCase();
   const clienteNombre = (csvRecord.cliente || csvRecord.Cliente || '').toUpperCase();
   const encargadoNombre = (csvRecord.encargado || csvRecord.Encargado || '').toUpperCase();
@@ -92,11 +96,18 @@ export function mapCsvToOrderRecord(csvRecord: any): OrderRecordDto {
       direccion: csvRecord.direccion || csvRecord.Direccion || null,
       encargado: encargadoNombre || null,
       telefono: csvRecord.telefono || csvRecord.Telefono || null,
-      // Add T12:00:00 to prevent timezone issues when parsing date-only strings
-      fecha: csvRecord.fecha ? new Date(csvRecord.fecha + 'T12:00:00') : new Date(),
-      fecha_comprometida: csvRecord.fecha_comprometida 
-        ? new Date(csvRecord.fecha_comprometida + 'T12:00:00') 
-        : null,
+      /**
+       * Las fechas, en el formato que traiga el archivo. Ver `lib/fechaDelCsv`.
+       *
+       * Antes era `new Date(texto + 'T12:00:00')`, que sólo entiende ISO: en cuanto
+       * alguien abría el CSV en Excel y lo guardaba, las fechas salían como «9/1/2026»,
+       * daban `Invalid Date` y la fila reventaba al guardarse — con la pantalla diciendo
+       * «subido exitosamente» igual.
+       */
+      fecha: leerFecha(csvRecord.fecha, convencion).fecha ?? new Date(),
+      fechaError: leerFecha(csvRecord.fecha, convencion).error ?? null,
+      fecha_comprometida: leerFecha(csvRecord.fecha_comprometida, convencion).fecha,
+      fechaComprometidaError: leerFecha(csvRecord.fecha_comprometida, convencion).error ?? null,
       pedido_cobrado: (() => {
         const raw = csvRecord.pedido_cobrado || csvRecord.pedidoCobrado || null;
         if (!raw || String(raw).trim() === '') return null;
@@ -132,8 +143,20 @@ export function mapCsvToOrderRecord(csvRecord: any): OrderRecordDto {
 
 // Batch mapper for multiple records with folio suffix logic
 export function mapCsvRecords(csvRecords: any[]): OrderRecordDto[] {
+  /**
+   * Cómo lee las fechas ESTE archivo, decidido con todas a la vez.
+   *
+   * Basta con que una sola fila traiga un día mayor que 12 para saber leer las demás. Si
+   * ninguna lo aclara, las ambiguas se rechazan con su motivo en vez de adivinar: elegir
+   * mal no da error, archiva el pedido con meses de diferencia y nadie lo encuentra.
+   */
+  const convencion = convencionDeFechas([
+    ...csvRecords.map((r) => r?.fecha),
+    ...csvRecords.map((r) => r?.fecha_comprometida),
+  ]);
+
   // First, map all records
-  const mappedRecords = csvRecords.map(mapCsvToOrderRecord);
+  const mappedRecords = csvRecords.map((r) => mapCsvToOrderRecord(r, convencion));
   
   // Group records by vendedor + folio to detect multiple clients
   const folioGroups = new Map<string, OrderRecordDto[]>();

@@ -1119,6 +1119,22 @@ export async function processBulkImport(
   for (const record of mappedRecords) {
     const key = record.seller.code || record.seller.name.toUpperCase().trim();
     const resolved = sellersByCode.get(key)!;
+
+    /**
+     * Una fecha que no se entiende se rechaza AQUÍ, con su motivo.
+     *
+     * Antes se dejaba pasar y reventaba abajo, contra la base: el error que salía era
+     * «Provided Date object is invalid» con el volcado entero de la consulta, que no le
+     * dice nada a quien subió el archivo. Ahora dice qué celda es y qué se esperaba.
+     */
+    const fallaFecha = record.order.fechaError || record.order.fechaComprometidaError;
+
+    if (fallaFecha) {
+      results.failed++;
+      results.errors.push({ record: record.order.folio, error: fallaFecha });
+      continue;
+    }
+
     try {
       await processOrderRecord(record, results, resolved.seller.id, resolved.sucursalId);
       if (resolved.sucursalId === null) results.sinAsignar++;
