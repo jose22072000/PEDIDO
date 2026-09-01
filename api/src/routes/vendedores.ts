@@ -412,6 +412,112 @@ router.patch('/:id/activo', async (req, res) => {
 // Enlaza el vendedor a un gestor. Como la sucursal del pedido se deriva del gestor,
 // al enlazar hay que RELLENAR la sucursal de los pedidos y clientes de ese vendedor
 // que quedaron en null mientras estaba "Sin asignar" -> dejan de estar ocultos.
+/**
+ * PATCH /vendedores/:id/nombre   body: { nombre }
+ *
+ * Corregir cómo se escribe el nombre de un vendedor.
+ *
+ * # Para qué hace falta
+ *
+ * El nombre no es una etiqueta: es con lo que la ingesta reconoce a quien trae cada
+ * pedido. Si la ficha dice «MARIO CESAR HECHAVARRIA ABREU» y el archivo trae «MARIO
+ * HECHAVARRIA ABREU», el importador ve el mismo código con dos nombres distintos, da por
+ * hecho que son dos personas —que es lo correcto: colgarle los pedidos a otro no se
+ * arregla después— y RECHAZA EL ARCHIVO ENTERO.
+ *
+ * Hasta ahora no había forma de arreglar eso desde la aplicación: se podía dar de alta,
+ * dar de baja y cambiar de gestor, pero no corregir el nombre. Y crear otra ficha tampoco
+ * vale, porque el código sale del propio nombre y choca con la que ya está. O sea que un
+ * acento de más dejaba a una sucursal sin poder importar, sin salida.
+ *
+ * # El código NO se toca
+ *
+ * El código es la clave estable: por él encuentra la ingesta al vendedor y por él están
+ * atados sus pedidos. Cambiarlo aquí, aunque el nombre nuevo genere otro, partiría su
+ * histórico en dos. Se avisa en la respuesta cuando dejan de corresponderse, para que
+ * quien mira la lista sepa por qué ese código no se parece al nombre.
+ */
+router.patch('/:id/nombre', async (req, res) => {
+  try {
+    if (!getRequesterContext(req).puedeGestionarVendedores) {
+      return res.status(403).json({ error: 'No tienes permiso para modificar vendedores.' });
+    }
+
+    const { id } = req.params;
+    const requester = getRequesterContext(req);
+    const { nombre: nombreCrudo } = req.body as { nombre?: string };
+
+    // La MISMA vara que usan el alta a mano y la ingesta. Si aquí se aplanara distinto,
+    // el nombre corregido seguiría sin casar con el del archivo y no se arreglaría nada.
+    const nombre = nombreComparable(typeof nombreCrudo === 'string' ? nombreCrudo : '');
+
+    if (nombre.length < 3) {
+      return res.status(400).json({ error: 'El nombre del vendedor es obligatorio.' });
+    }
+    if (!/\s/.test(nombre)) {
+      return res.status(400).json({ error: 'Pon el nombre completo (nombre y apellidos).' });
+    }
+
+    const vendedor = await prisma.vendedor.findUnique({ where: { id } });
+
+    if (!vendedor) return res.status(404).json({ error: 'Vendedor no encontrado' });
+
+    // Un usuario scopeado solo toca vendedores de su sucursal (o los sin asignar).
+    if (
+      !requester.isGlobalAdmin &&
+      vendedor.sucursalId &&
+      vendedor.sucursalId !== requester.sucursalId
+    ) {
+      return res.status(403).json({ error: 'Ese vendedor es de otra sucursal.' });
+    }
+
+    if (nombre === vendedor.nombre) {
+      return res.json({ ...vendedor, sinCambios: true });
+    }
+
+    /**
+     * Que el nombre nuevo no sea el de OTRO.
+     *
+     * La ingesta busca por nombre cuando el código no aparece, así que dos fichas con el
+     * mismo nombre son dos sitios donde pueden caer los pedidos de la misma persona.
+     */
+    const otro = await prisma.vendedor.findFirst({
+      where: { nombre: { equals: nombre, mode: 'insensitive' }, id: { not: id } },
+      include: { sucursal: { select: { nombre: true } } },
+    });
+
+    if (otro) {
+      const donde = otro.sucursal?.nombre ? ` en ${otro.sucursal.nombre}` : ' sin sucursal';
+
+      return res.status(409).json({
+        error:
+          `Ya hay un vendedor que se llama así${donde} (código '${otro.codigo ?? '—'}'). ` +
+          `No se cambió nada: si son la misma persona, hay que unir las dos fichas, no ` +
+          `ponerles el mismo nombre.`,
+        vendedorExistente: { id: otro.id, nombre: otro.nombre, codigo: otro.codigo },
+      });
+    }
+
+    const actualizado = await prisma.vendedor.update({ where: { id }, data: { nombre } });
+
+    await emitirVendedor(actualizado.id, 'update');
+
+    return res.json({
+      ...actualizado,
+      nombreAnterior: vendedor.nombre,
+      // Aviso, no error: el código se queda como estaba a propósito.
+      avisoCodigo:
+        actualizado.codigo && actualizado.codigo !== codigoDesdeNombre(nombre)
+          ? `El código sigue siendo '${actualizado.codigo}'. Se conserva a propósito: es ` +
+            `con lo que están atados sus pedidos, y cambiarlo partiría su histórico.`
+          : null,
+    });
+  } catch (error) {
+    console.error('Error renaming vendedor:', error);
+    res.status(500).json({ error: 'Error al cambiar el nombre del vendedor' });
+  }
+});
+
 router.patch('/:id/gestor', async (req, res) => {
   try {
     // El Operador solo LEE esta vista (factura y copia el codigo al

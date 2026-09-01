@@ -170,6 +170,8 @@ export default function CrearPedidoForm() {
   const [isSending, setIsSending] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [showError, setShowError] = useState(false);
+  /** Por qué falló la subida. Vacío = el aviso de «no elegiste ningún archivo». */
+  const [motivoError, setMotivoError] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [currentFile, setCurrentFile] = useState("");
 
@@ -239,12 +241,14 @@ export default function CrearPedidoForm() {
     e.preventDefault();
 
     if (files.length === 0) {
+      setMotivoError(null);
       setShowError(true);
 
       return;
     }
 
     setShowError(false);
+    setMotivoError(null);
     setIsSending(true);
     setProgress(0);
 
@@ -301,7 +305,21 @@ export default function CrearPedidoForm() {
           });
 
           if (!response.ok) {
-            throw new Error(`Error al procesar ${file.name}`);
+            /**
+             * El motivo lo dice el servidor, y hay que enseñarlo.
+             *
+             * Antes se tiraba y se ponía «Error al procesar <archivo>». El de verdad
+             * —«Colisión de vendedor: el código 'mario.hechavarria' ya pertenece a
+             * 'MARIO CESAR HECHAVARRIA ABREU', pero el archivo trae 'MARIO HECHAVARRIA
+             * ABREU'»— sólo aparecía en la consola del navegador, así que para saber por
+             * qué no entraba un archivo había que abrir las herramientas de desarrollo.
+             */
+            const detalle = await response
+              .json()
+              .then((j) => j?.error)
+              .catch(() => null);
+
+            throw new Error(detalle || `Error al procesar ${file.name} (${response.status})`);
           }
 
           // Cola activa: el backend encoló (202 { jobId }). Esperamos por SSE a que el
@@ -311,6 +329,14 @@ export default function CrearPedidoForm() {
             const { jobId } = await response.json();
 
             if (!importStream) importStream = await openImportStream();
+            if (!importStream) {
+              // Sin canal no hay forma de saber cómo acabó. Se dice, en vez de reventar
+              // con un «no se puede leer wait de null» que no ayuda a nadie.
+              throw new Error(
+                `El archivo se envió pero no se pudo abrir el canal para saber cómo acabó. ` +
+                  `Mira la lista de pedidos en un minuto antes de volver a subirlo.`,
+              );
+            }
             await importStream.wait(String(jobId), file.name);
           } else if (i < batches.length - 1) {
             // Modo inline (sin cola): esperar 50ms entre requests como antes.
@@ -345,12 +371,23 @@ export default function CrearPedidoForm() {
     } catch (error) {
       // eslint-disable-next-line no-console
       console.error("Upload error:", error);
+
+      const motivo =
+        error instanceof Error && error.message
+          ? error.message
+          : "Error al procesar los archivos";
+
+      setMotivoError(motivo);
       setShowError(true);
 
       addToast({
-        title: "Error",
-        description: "Error al procesar los archivos",
+        title: "No se importó",
+        // El motivo, tal cual lo da el servidor. Un «Error» a secas obliga a adivinar.
+        description: motivo,
         color: "danger",
+        // Los motivos son largos —dicen con quién choca y qué hacer— y con los segundos
+        // de siempre no da tiempo ni a leerlo.
+        timeout: 15000,
       });
     } finally {
       importStream?.close();
@@ -366,10 +403,15 @@ export default function CrearPedidoForm() {
       <Card className="md:p-6">
         <CardBody className="space-y-3">
           {showError && (
+            /* El aviso se queda en pantalla: el toast se va solo y estos motivos hay
+               que poder releerlos —y copiarlos— para arreglar el archivo o la ficha. */
             <Alert
               color="danger"
-              description="Por favor, seleccione al menos un archivo antes de continuar."
-              title="No hay archivos para enviar"
+              description={
+                motivoError ??
+                "Por favor, seleccione al menos un archivo antes de continuar."
+              }
+              title={motivoError ? "No se importó" : "No hay archivos para enviar"}
               variant="flat"
             />
           )}

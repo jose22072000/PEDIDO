@@ -113,6 +113,8 @@ export const VendedoresList = () => {
   const [isLoadingStats, setIsLoadingStats] = useState(false);
   const [copiedVendedorId, setCopiedVendedorId] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
+  /** Lo que se está escribiendo en el nombre del vendedor abierto. */
+  const [nombreEditado, setNombreEditado] = useState("");
   const [page, setPage] = useState(1);
   const rowsPerPage = 10;
   const { isOpen, onOpen, onClose } = useDisclosure();
@@ -251,6 +253,53 @@ export const VendedoresList = () => {
     [fetchVendedores],
   );
 
+  /**
+   * Corregir el NOMBRE de un vendedor.
+   *
+   * No es cosmético: el nombre es con lo que la ingesta reconoce a quien trae cada
+   * pedido. Si la ficha dice «MARIO CESAR HECHAVARRIA ABREU» y el archivo trae «MARIO
+   * HECHAVARRIA ABREU», el importador ve el mismo código con dos nombres y rechaza el
+   * archivo ENTERO para no colgarle los pedidos a otra persona. Hasta ahora no había
+   * forma de arreglarlo desde aquí: sólo se podía dar de alta, de baja y cambiar gestor.
+   */
+  const handleRenombrar = useCallback(
+    async (vendedor: Vendedor, nombre: string) => {
+      setSavingId(vendedor.id);
+      try {
+        const res = await fetch(
+          `${getApiBaseUrl()}/vendedores/${vendedor.id}/nombre`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ nombre }),
+          },
+        );
+        const json = await res.json();
+
+        if (!res.ok) throw new Error(json.error || "No se pudo cambiar el nombre");
+
+        addToast({
+          title: json.sinCambios ? "Sin cambios" : "Nombre corregido",
+          description: json.sinCambios
+            ? "El nombre ya estaba así."
+            : `Ahora es «${json.nombre}». Su CSV ya entra con ese nombre.` +
+              (json.avisoCodigo ? ` ${json.avisoCodigo}` : ""),
+          color: json.sinCambios ? "default" : "success",
+        });
+        await fetchVendedores();
+      } catch (err) {
+        addToast({
+          title: "Error",
+          description: err instanceof Error ? err.message : "Error desconocido",
+          color: "danger",
+        });
+      } finally {
+        setSavingId(null);
+      }
+    },
+    [fetchVendedores],
+  );
+
   const fetchVendedorStats = useCallback(
     async (vendedorId: string, year: number) => {
       setIsLoadingStats(true);
@@ -279,6 +328,8 @@ export const VendedoresList = () => {
   const handleOpenDetails = useCallback(
     (vendedor: Vendedor) => {
       setSelectedVendedor(vendedor);
+      // El campo arranca con lo que hay: se corrige, no se teclea de cero.
+      setNombreEditado(vendedor.nombre);
       setSelectedYear(new Date().getFullYear());
       setVendedorStats(null);
       fetchVendedorStats(vendedor.id, new Date().getFullYear());
@@ -677,6 +728,51 @@ export const VendedoresList = () => {
               </ModalHeader>
               <ModalBody>
                 <div className="flex flex-col gap-4">
+                  {/*
+                    CÓMO SE ESCRIBE SU NOMBRE.
+
+                    Va lo primero porque es lo que decide si su CSV entra. La ingesta
+                    reconoce al vendedor por el nombre: si aquí pone «MARIO CESAR
+                    HECHAVARRIA ABREU» y el archivo trae «MARIO HECHAVARRIA ABREU», ve el
+                    mismo código con dos nombres, da por hecho que son dos personas —que
+                    es lo correcto— y rechaza el archivo entero.
+                  */}
+                  {puedeGestionar && detalle && (
+                    <div className="flex flex-col gap-2 p-3 rounded-lg bg-default-50">
+                      <span className="text-sm font-semibold">
+                        Nombre, tal como viene en su CSV
+                      </span>
+                      <div className="flex flex-wrap items-end gap-2">
+                        <Input
+                          className="min-w-[16rem] flex-1"
+                          label="Nombre completo"
+                          size="sm"
+                          value={nombreEditado}
+                          onValueChange={setNombreEditado}
+                        />
+                        <Button
+                          color="primary"
+                          isDisabled={
+                            !nombreEditado.trim() ||
+                            nombreEditado.trim() === detalle.nombre
+                          }
+                          isLoading={savingId === detalle.id}
+                          size="sm"
+                          onPress={() =>
+                            handleRenombrar(detalle, nombreEditado.trim())
+                          }
+                        >
+                          Guardar nombre
+                        </Button>
+                      </div>
+                      <p className="text-xs text-default-500">
+                        Escríbelo igual que en el archivo. El código
+                        {detalle.codigo ? ` («${detalle.codigo}») ` : " "}
+                        no cambia: es con lo que están atados sus pedidos.
+                      </p>
+                    </div>
+                  )}
+
                   {/* Gestor asignado (o asignar uno) */}
                   <div className="flex flex-col gap-3 p-3 rounded-lg bg-default-50">
                     <div className="flex flex-wrap items-center gap-2">

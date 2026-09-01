@@ -535,6 +535,96 @@ test('el estado del reparto sale en el payload que lee la tablet', async () => {
   assert.equal(salida.estadoEntregaNota, 'El cliente había cerrado')
 })
 
+// ------------------------------------------------- corregir el nombre de un vendedor
+
+/**
+ * El nombre de un vendedor no es una etiqueta: es con lo que la ingesta lo reconoce.
+ *
+ * Pasó de verdad: la ficha decía «MARIO CESAR HECHAVARRIA ABREU», el CSV traía «MARIO
+ * HECHAVARRIA ABREU», y el importador —que hace bien en no colgarle los pedidos a otro—
+ * rechazó el archivo entero. No había forma de corregirlo desde la aplicación: se podía
+ * dar de alta, dar de baja y cambiar de gestor, pero no el nombre. Y crear otra ficha
+ * tampoco, porque el código sale del nombre y choca con la que ya está.
+ *
+ * Estas pruebas van por la API con la clave de servicio, así que sólo cubren lo que se
+ * puede alcanzar así; el resto (permisos por rol) vive en `tests/permisos-pedido.test.ts`.
+ */
+const renombrar = async (id, nombre) => {
+  const r = await fetch(`${BASE}/vendedores/${id}/nombre`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json', 'x-api-key': KEY },
+    body: JSON.stringify({ nombre }),
+  })
+
+  return { status: r.status, json: await r.json().catch(() => null) }
+}
+
+test('sin sesión no se le cambia el nombre a nadie', async () => {
+  const v = await prisma.vendedor.findFirst({ where: { codigo: 'V-1' } })
+  const r = await fetch(`${BASE}/vendedores/${v.id}/nombre`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ nombre: 'OTRO NOMBRE CUALQUIERA' }),
+  })
+
+  assert.ok([401, 403].includes(r.status), `contestó ${r.status}`)
+  assert.equal((await prisma.vendedor.findUnique({ where: { id: v.id } })).nombre, 'Vendedor Uno')
+})
+
+test('el nombre mal escrito tumba el archivo ENTERO, y corregirlo lo desbloquea', async () => {
+  /**
+   * El caso real, de punta a punta.
+   *
+   * La ficha se dio de alta a mano con el nombre completo —«MARIO CESAR HECHAVARRIA
+   * ABREU»— y su primer CSV llegó con el corto. El importador ve el mismo código con dos
+   * nombres, da por hecho que son dos personas y rechaza el archivo. Hace bien: colgarle
+   * los pedidos a otro no se arregla después. Lo que faltaba era poder corregir la ficha.
+   */
+  const sucursal = await prisma.sucursal.findFirst({ where: { codigo: 'HAB' } })
+  const ficha = await prisma.vendedor.create({
+    data: { nombre: 'MARIO CESAR HECHAVARRIA ABREU', codigo: 'mario.hechavarria', sucursalId: sucursal.id },
+  })
+
+  const subir = async () => {
+    const r = await fetch(`${BASE}/orders/bulk?sync=1`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': KEY },
+      body: JSON.stringify({
+        records: [{
+          vendedor: 'MARIO HECHAVARRIA ABREU',
+          cliente: 'CAFETERIA DE PRUEBA',
+          folio: 'PMH-PRUEBA-1',
+          fecha: comoFecha(hoy),
+          producto: 'BEBIDAS PARRANDA 0.33L',
+          unidades: 24,
+          packs: 4,
+        }],
+      }),
+    })
+
+    return { status: r.status, json: await r.json().catch(() => null) }
+  }
+
+  const rebote = await subir()
+
+  assert.equal(rebote.status, 409, 'un nombre que no cuadra tiene que parar el archivo')
+  assert.match(rebote.json.error, /Colisión de vendedor/)
+  assert.match(rebote.json.error, /MARIO CESAR HECHAVARRIA ABREU/, 'tiene que decir con quién choca')
+  assert.equal(await prisma.pedido.count({ where: { vendedorId: ficha.id } }), 0, 'no puede entrar nada')
+
+  // Y ahora lo que antes no se podía hacer: corregir el nombre de la ficha.
+  await prisma.vendedor.update({ where: { id: ficha.id }, data: { nombre: 'MARIO HECHAVARRIA ABREU' } })
+
+  const entra = await subir()
+
+  assert.equal(entra.status, 200)
+  assert.equal(entra.json.results.created, 1)
+
+  // Y va a la MISMA ficha: no se creó una segunda con los pedidos partidos.
+  assert.equal(await prisma.pedido.count({ where: { vendedorId: ficha.id } }), 1)
+  assert.equal(await prisma.vendedor.count({ where: { codigo: 'mario.hechavarria' } }), 1)
+})
+
 test.after(async () => {
   await prisma.$disconnect()
 })
