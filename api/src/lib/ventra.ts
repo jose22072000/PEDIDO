@@ -164,6 +164,14 @@ export interface LineaVentaVentra {
   productoNombre: string;
   cantidad: number;
   precioUsd: number | null;
+  /**
+   * La NOTA de la factura. Es donde va el folio del pedido.
+   *
+   * Es el único dato que ata una factura a UN pedido concreto. Cruzar por nombre de
+   * cliente no vale: un cliente pide dos días seguidos, y las dos facturas caben en los
+   * dos pedidos — así acabó la misma factura pegada a dos pedidos distintos.
+   */
+  nota: string | null;
 }
 
 /**
@@ -198,6 +206,8 @@ export async function ventasDeSucursal(
       productoNombre: texto(f, 'productName', 'productoNombre') ?? '',
       cantidad: numero(f, 'quantity', 'cantidad') ?? 0,
       precioUsd: numero(f, 'priceOut', 'precioUsd'),
+      // Varios nombres posibles: es un ERP y no siempre llama igual a la misma columna.
+      nota: texto(f, 'note', 'nota', 'observaciones', 'observacion', 'comment', 'comentario', 'description'),
     }))
     .filter((l) => l.id && l.productoNombre);
 }

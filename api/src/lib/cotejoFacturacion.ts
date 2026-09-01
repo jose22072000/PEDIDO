@@ -42,6 +42,7 @@
 import prisma from '../prismaClient';
 import { databases, ventasDeSucursal, type LineaVentaVentra } from './ventra';
 import { cotejar, type LineaFactura, type LineaPedido } from './cotejarFactura';
+import { facturasPorFolio } from './emparejarFactura';
 import { emitEvent } from './events';
 
 /** Cuántos días atrás se repasa. La facturación vieja ya no se mueve. */
@@ -109,8 +110,17 @@ export async function cotejarUnaVez(): Promise<ResultadoCotejo[]> {
 
       r.cotejados = pedidos.length;
 
+      /**
+       * Qué factura es de qué pedido, por el FOLIO que llevan escrito en la nota.
+       *
+       * Se calcula una vez para toda la sucursal. Sin esto había que adivinar por nombre
+       * de cliente, y adivinando acabó la misma factura pegada a dos pedidos distintos.
+       */
+      const porFolio = facturasPorFolio(ventas);
+
       for (const p of pedidos) {
-        const cambios = await cotejarUnPedido(p, ventas);
+        const suyas = porFolio.get(p.folio.toUpperCase());
+        const cambios = await cotejarUnPedido(p, suyas ? ventas.filter((v) => suyas.has(v.operNumber)) : []);
 
         if (cambios.estado === 'igual') r.igual++;
         else if (cambios.estado === 'cambiado') r.cambiado++;
@@ -143,41 +153,26 @@ type PedidoConItems = {
 };
 
 /**
- * Un pedido contra su factura: marcarlo, corregirlo y volver a ponerle precio al reparto.
+ * Un pedido contra SU factura.
+ *
+ * Las que llegan aquí ya vienen filtradas por FOLIO: son las facturas cuya nota nombra a
+ * este pedido y a ningún otro. Aquí no se elige nada — antes sí se elegía, por nombre de
+ * cliente y por fecha, y así acabó la misma factura pegada a dos pedidos distintos.
  */
 async function cotejarUnPedido(
   p: PedidoConItems,
   ventas: LineaVentaVentra[],
 ): Promise<{ estado: string; corregido: boolean }> {
-  /**
-   * El mismo día o el SIGUIENTE.
-   *
-   * Se pide un día y se factura al otro, sobre todo lo de última hora. Mirando sólo el
-   * mismo día, esos pedidos salían «sin facturar» aunque su factura existía. Y no se abre
-   * más: con una ventana ancha, dos pedidos del mismo cliente en días seguidos se
-   * cotejarían contra la factura del otro.
-   */
-  const dia = soloFecha(p.fecha);
-  const siguiente = soloFecha(new Date(p.fecha.getTime() + 86400000));
-  const suyas = ventas
-    .filter((v) => {
-      const f = soloFecha(new Date(v.fecha));
+  const suyas = ventas.map<LineaFactura>((v) => ({
+    operNumber: v.operNumber,
+    clienteNombre: v.clienteNombre,
+    productoCodigo: v.productoCodigo,
+    productoNombre: v.productoNombre,
+    cantidad: v.cantidad,
+    precioUsd: v.precioUsd,
+  }));
 
-      return f === dia || f === siguiente;
-    })
-    .map<LineaFactura>((v) => ({
-      operNumber: v.operNumber,
-      clienteNombre: v.clienteNombre,
-      productoCodigo: v.productoCodigo,
-      productoNombre: v.productoNombre,
-      cantidad: v.cantidad,
-      precioUsd: v.precioUsd,
-    }));
-
-  // El nombre con el que Ventra factura. Cuando el pedido no tiene cliente de la lista,
-  // el encargado es lo único que hay — y es lo que el facturador teclea.
-  const nombreCliente = p.cliente?.nombre || p.encargado || '';
-  const r = cotejar(p.items as LineaPedido[], suyas, nombreCliente);
+  const r = cotejar(p.items as LineaPedido[], suyas);
 
   let corregido = false;
   const datos: Record<string, unknown> = {};

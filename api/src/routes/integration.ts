@@ -15,6 +15,8 @@ import { readConfiguredSucursalId } from '../lib/sucursalLocal';
 import { aplicarCostoDomicilio } from '../lib/domicilio';
 import { emitEvent } from '../lib/events';
 import { pedidoParaLista } from './orders';
+import { ventasDeSucursal, databases } from '../lib/ventra';
+import { folioDeLaNota } from '../lib/emparejarFactura';
 
 const router = Router();
 router.use(serviceAuth);
@@ -1011,6 +1013,55 @@ router.post('/orders/status', async (req, res) => {
   }
 
   res.json({ ok: rechazados.length === 0, recibidos: pedidos.length, aplicados, rechazados });
+});
+
+/**
+ * GET /integration/ventra/sales?database=&from=&to=&limit=5 — lo que manda Ventra, crudo.
+ *
+ * Sólo lee. Existe para poder MIRAR lo que llega en vez de suponerlo: el cotejo depende de
+ * que la nota de la factura traiga el folio del pedido, y averiguar si lo trae —y con qué
+ * nombre viene esa columna— no se puede hacer desde fuera de la VPN.
+ *
+ * Devuelve las filas ya mapeadas, con la nota y el folio que se le saca, para ver de un
+ * vistazo si el emparejado va a funcionar.
+ */
+router.get('/ventra/sales', async (req, res) => {
+  try {
+    const database = String(req.query.database || '').trim();
+    const from = String(req.query.from || '').trim();
+    const to = String(req.query.to || from).trim();
+    const limit = Math.min(Number(req.query.limit) || 5, 50);
+
+    if (!database) {
+      const bases = await databases();
+
+      return res.json({
+        error: 'Falta `database`. Estas son las que hay:',
+        bases: bases.map((b) => ({ database: b.database, sucursal: b.branchName })),
+      });
+    }
+    if (!from) return res.status(400).json({ error: 'Falta `from` (YYYY-MM-DD).' });
+
+    const ventas = await ventasDeSucursal(database, from, to, 500);
+
+    res.json({
+      database,
+      lineas: ventas.length,
+      conNota: ventas.filter((v) => v.nota).length,
+      conFolio: ventas.filter((v) => folioDeLaNota(v.nota)).length,
+      muestra: ventas.slice(0, limit).map((v) => ({
+        factura: v.operNumber,
+        fecha: v.fecha,
+        cliente: v.clienteNombre,
+        producto: v.productoNombre,
+        cantidad: v.cantidad,
+        nota: v.nota,
+        folioQueSeSaca: folioDeLaNota(v.nota),
+      })),
+    });
+  } catch (e) {
+    res.status(502).json({ error: `No se pudo preguntar a Ventra: ${(e as Error).message}` });
+  }
 });
 
 export default router;

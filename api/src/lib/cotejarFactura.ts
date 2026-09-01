@@ -17,14 +17,15 @@
  *   cambiado     — se facturó otra cosa: más, menos o distinto.
  *   sin_factura  — ese pedido todavía no aparece en la facturación de ese día.
  *
- * # Por qué se cruza por NOMBRE
+ * # De quién es cada factura NO se decide aquí
  *
- * Ventra numera a sus clientes con su propio código ("8214") y PEDIDO con el suyo
- * ("LH05TCP0025"): no hay ninguna clave común. Lo único que comparten es el nombre, así
- * que se normaliza —sin tildes, sin signos, sin dobles espacios— y se compara.
+ * Se decidía, por nombre de cliente, y estaba mal: un cliente pide el lunes y el martes, y
+ * las facturas de los dos días caben en los dos pedidos. En producción acabó la misma
+ * factura pegada a dos pedidos distintos, uno completado y otro en proceso.
  *
- * Y por eso, ante la duda, NO se empareja: dar por buena la factura de otro cliente es
- * mandar el camión con la mercancía equivocada y cobrarla, que no se arregla después.
+ * Ahora lo decide `emparejarFactura` con el FOLIO que la factura lleva escrito en su nota,
+ * que es el único dato que ata una factura a un pedido concreto. Aquí llegan ya sólo las
+ * facturas de ESTE pedido, y lo único que se hace es comparar las líneas.
  */
 
 /** Una línea del pedido, tal como está en `PedidoItem`. */
@@ -116,78 +117,7 @@ export function mismoProducto(a: string, b: string): boolean {
  * @param facturas      TODAS las líneas facturadas de esa sucursal ese día.
  * @param cliente       el nombre del cliente del pedido.
  */
-/**
- * ¿Es el MISMO cliente escrito de dos formas?
- *
- * Ventra le pega a veces el nombre de la persona: «5TA AVENIDA(ILIANA)» en el pedido y
- * «5TA AVENIDA(ILIANA)   ILIANA CABEZA VENERO» en la factura. Exigir igualdad exacta
- * dejaba fuera medio día de facturación, y esos pedidos desaparecían del armador de rutas
- * —el filtro por defecto es «los que cuadran»— sin que nadie supiera por qué.
- *
- * Se acepta que uno EMPIECE por el otro, o que todas las palabras del más corto estén en
- * el más largo. Nada más: con dos palabras sueltas en común, «CAFETERIA ODALIS» casaría
- * con cualquier otra cafetería y el camión saldría con la mercancía de otro.
- */
-/**
- * Palabras que no distinguen a nadie.
- *
- * Media lista empieza por «CAFETERIA» o «MERCADITO», y Ventra añade «Mipyme» o «PV»
- * delante. Emparejar por ellas casaría cualquier cafetería con cualquier otra, y el
- * camión saldría con la mercancía de otro cliente.
- */
-const GENERICAS = new Set([
-  'cafeteria', 'cafe', 'bodega', 'bodegon', 'bodeguita', 'mercadito', 'mercado', 'kiosko',
-  'kiosco', 'mipyme', 'punto', 'venta', 'bar', 'restaurante', 'tienda', 'los', 'las', 'del',
-  'dueno', 'calle', 'reparto', 'rpto',
-])
-
-/** Las palabras que de verdad nombran al cliente. */
-function distintivas(nombre: string): string[] {
-  return normalizar(nombre)
-    .split(' ')
-    .filter((p) => p.length >= 4 && !GENERICAS.has(p))
-}
-
-export function mismoCliente(a: string, b: string): boolean {
-  const x = normalizar(a)
-  const y = normalizar(b)
-
-  if (!x || !y) return false
-  if (x === y) return true
-
-  const corto = x.length <= y.length ? x : y
-  const largo = corto === x ? y : x
-
-  /**
-   * Que el largo EMPIECE por el corto, en un corte de palabra.
-   *
-   * Es el caso más común: la factura lleva el negocio y detrás el dueño —«BAVARIA   JUAN
-   * CARLOS FEDERICK»— o una pluralización —«LOS ORLAN» / «LOS ORLANS»—.
-   */
-  if (largo.startsWith(corto) && corto.length >= 6) return true
-
-  /**
-   * O que todas las palabras que NOMBRAN al corto estén en el largo.
-   *
-   * Cubre «ABEDUL» contra «Mipyme Abedul»: Ventra le pone un prefijo. Hace falta al menos
-   * una palabra propia de cinco letras — con «LA» y «EL» no se empareja nada.
-   */
-  const suyas = distintivas(corto)
-
-  if (!suyas.length || !suyas.some((p) => p.length >= 5)) return false
-
-  const enElLargo = new Set(normalizar(largo).split(' '))
-
-  return suyas.every((p) => enElLargo.has(p))
-}
-
-export function cotejar(
-  lineasPedido: LineaPedido[],
-  facturas: LineaFactura[],
-  cliente: string,
-): Cotejo {
-  const suyas = facturas.filter((f) => mismoCliente(f.clienteNombre, cliente))
-
+export function cotejar(lineasPedido: LineaPedido[], suyas: LineaFactura[]): Cotejo {
   if (suyas.length === 0) {
     return { estado: 'sin_factura', numero: null, lineas: [], diferencias: [], domicilioFacturado: null }
   }
