@@ -29,17 +29,31 @@ export interface FacturaAtada {
 /**
  * Saca el folio del pedido de la nota de una factura.
  *
- * Los folios tienen la forma `PMH25-260901-1001`: tres o cuatro letras, dos dígitos,
- * guion, la fecha, guion y el número. Puede venir suelto en la nota, con texto alrededor
- * o con un sufijo `-1` de los que añade la propia importación cuando dos clientes
- * comparten folio; el sufijo se conserva porque forma parte del folio guardado.
+ * La nota que manda Ventra viene con sus tres partes etiquetadas:
+ *
+ *     P-PXC25-260831-1337; V-XENIA CORDIEZ MORASEN; C-LH15TCP0295;
+ *
+ * `P-` es el pedido, `V-` el vendedor y `C-` el código del cliente. Se busca la etiqueta
+ * `P-` y no un folio suelto: anclarse en ella evita confundirlo con cualquier otro código
+ * que lleve la nota, y deja claro qué se está leyendo.
+ *
+ * Las facturas de mostrador vienen sin `P-` —«VENTA ALMACEN», o sólo con el vendedor— y
+ * ésas no tienen pedido detrás: no se emparejan con nada, que es lo correcto. En La Habana
+ * son 167 de 256 líneas las que sí lo traen.
+ *
+ * El sufijo `-1` que añade la importación cuando dos clientes comparten folio se conserva:
+ * forma parte del folio tal como está guardado.
  */
-const FOLIO = /\b([A-Z]{2,5}\d{2}-\d{6}-\d{1,6}(?:-\d{1,2})?)\b/i;
+const CUERPO = String.raw`[A-Z]{2,5}\d{2}-\d{6}-\d{1,6}(?:-\d{1,2})?`;
+const CON_ETIQUETA = new RegExp(String.raw`\bP-(${CUERPO})\b`, 'i');
+/** Sin la etiqueta, por si algún día la nota viene escrita de otra forma. */
+const SUELTO = new RegExp(String.raw`\b(${CUERPO})\b`, 'i');
 
 export function folioDeLaNota(nota: string | null | undefined): string | null {
   if (!nota) return null;
 
-  const m = String(nota).toUpperCase().match(FOLIO);
+  const texto = String(nota).toUpperCase();
+  const m = texto.match(CON_ETIQUETA) ?? texto.match(SUELTO);
 
   return m ? m[1] : null;
 }

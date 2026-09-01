@@ -13,6 +13,22 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { facturasPorFolio, folioDeLaNota } from '../src/lib/emparejarFactura.ts'
 
+test('LA NOTA REAL de Ventra: se lee el folio de la etiqueta P-', () => {
+  // Tal cual llega en producción, con sus tres partes etiquetadas.
+  assert.equal(
+    folioDeLaNota('P-PXC25-260831-1337; V-XENIA CORDIEZ MORASEN; C-LH15TCP0295;'),
+    'PXC25-260831-1337',
+  )
+  // Y el código del cliente que va detrás no se confunde con el folio.
+  assert.notEqual(folioDeLaNota('P-PXC25-260831-1337; C-LH15TCP0295;'), 'LH15TCP0295')
+})
+
+test('las ventas de mostrador no tienen pedido: no emparejan con nada', () => {
+  // Son un tercio de las líneas y es correcto que no aten a ningún pedido.
+  assert.equal(folioDeLaNota('VENTA ALMACEN'), null)
+  assert.equal(folioDeLaNota('V-RAYDEL MESA GUTIERREZ;'), null)
+})
+
 test('el folio se saca de la nota, venga solo o con texto alrededor', () => {
   assert.equal(folioDeLaNota('PMH25-260901-1001'), 'PMH25-260901-1001')
   assert.equal(folioDeLaNota('pedido PLB25-260831-1585 entregado'), 'PLB25-260831-1585')
