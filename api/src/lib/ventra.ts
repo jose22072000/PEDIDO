@@ -147,3 +147,57 @@ export async function catalogoDeSucursal(database: string): Promise<ProductoVent
     isActive: (f.isActive as boolean) ?? null,
   }));
 }
+
+/**
+ * Una línea de FACTURA de Ventra: lo que de verdad se vendió.
+ *
+ * `operNumber` es el número de la factura —varias líneas lo comparten— y `cantidad` va en
+ * unidades de venta (el formato), igual que el precio y el peso del catálogo.
+ */
+export interface LineaVentaVentra {
+  id: string;
+  fecha: string;
+  operNumber: string;
+  clienteCodigo: string | null;
+  clienteNombre: string;
+  productoCodigo: string | null;
+  productoNombre: string;
+  cantidad: number;
+  precioUsd: number | null;
+}
+
+/**
+ * Lo facturado en UNA sucursal, entre dos fechas.
+ *
+ * `database` es obligatorio: sin él Ventra devuelve el consolidado de todas y no hay
+ * forma de saber de qué sucursal es cada factura, que es justo lo que hace falta para
+ * cotejarla contra el pedido correcto.
+ */
+export async function ventasDeSucursal(
+  database: string,
+  desde: string,
+  hasta: string,
+  tope = 5000,
+): Promise<LineaVentaVentra[]> {
+  const d = await leer<unknown>(
+    `/axis/sales?database=${encodeURIComponent(database)}&from=${desde}&to=${hasta}&limit=${tope}`,
+  );
+  const cuerpo = d as Record<string, unknown>;
+  const filas = (Array.isArray(d)
+    ? d
+    : (cuerpo?.rows as unknown[]) || (cuerpo?.items as unknown[]) || (cuerpo?.data as unknown[]) || []) as Record<string, unknown>[];
+
+  return filas
+    .map((f) => ({
+      id: String(f.id ?? ''),
+      fecha: texto(f, 'date', 'fecha') ?? '',
+      operNumber: String(f.operNumber ?? f.numero ?? ''),
+      clienteCodigo: texto(f, 'customerCode', 'clienteCodigo'),
+      clienteNombre: texto(f, 'customerName', 'clienteNombre') ?? '',
+      productoCodigo: texto(f, 'productCode', 'productoCodigo'),
+      productoNombre: texto(f, 'productName', 'productoNombre') ?? '',
+      cantidad: numero(f, 'quantity', 'cantidad') ?? 0,
+      precioUsd: numero(f, 'priceOut', 'precioUsd'),
+    }))
+    .filter((l) => l.id && l.productoNombre);
+}

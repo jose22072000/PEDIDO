@@ -262,6 +262,18 @@ router.get('/orders', async (req, res) => {
     facturaEstado: p.facturaEstado,
     facturaNumero: p.facturaNumero,
     facturaAt: p.facturaAt,
+    facturaDomicilio: p.facturaDomicilio,
+    /**
+     * Y EN QUÉ PUNTO DEL REPARTO está. Lo escribe delivery, que es quien lo sabe.
+     *
+     * Va aparte de `estado`: un pedido puede estar completado en PEDIDO y todavía dando
+     * vueltas en el camión, y las dos cosas hay que poder decirlas.
+     */
+    estadoEntrega: p.estadoEntrega,
+    estadoEntregaAt: p.estadoEntregaAt,
+    estadoEntregaNota: p.estadoEntregaNota,
+    /** Lo que se pidió, cuando la factura lo cambió. JSON en texto, o nulo. */
+    itemsOriginal: p.itemsOriginal,
     // Para que la tablet sepa por dónde seguir: se guarda el mayor de la tanda y se
     // manda como `since` en la siguiente sync.
     updatedAt: p.updatedAt,
@@ -890,6 +902,109 @@ router.post('/orders/invoicing', async (req, res) => {
     aplicadas,
     rechazadas,
   });
+});
+
+/**
+ * Los estados del REPARTO. Los pone delivery, que es quien los ve pasar.
+ *
+ *   despachado   — se cargó en el camión.
+ *   en_transito  — el camión salió.
+ *   entregado    — se le dio al cliente.
+ *   devuelto     — volvió al almacén: el cliente no lo quiso.
+ *   cancelado    — se canceló antes de salir o durante el reparto.
+ */
+const ESTADOS_ENTREGA = new Set(['despachado', 'en_transito', 'entregado', 'devuelto', 'cancelado']);
+
+/**
+ * POST /integration/orders/status — en qué punto del reparto va cada pedido.
+ *
+ * Body: { pedidos: [{ pedidoId, estado, nota?, at? }] }
+ *
+ * # Por qué no se toca `estado`
+ *
+ * El `estado` de PEDIDO manda sobre el archivado, sobre el expirado y sobre todos los
+ * filtros de la lista. Metiéndole «en tránsito» se rompen los tres a la vez. Y encima son
+ * dos cosas distintas: un pedido puede estar completado aquí y seguir dando vueltas en el
+ * camión. Así que esto va en su propio campo y no pisa nada.
+ *
+ * # Devuelto y cancelado NO tocan el inventario
+ *
+ * El reintegro lo hace Ventra. Aquí sólo se deja constancia de que ese pedido volvió, y
+ * quien lleva la cuenta de lo que baja del camión es el logístico. Poner el estado
+ * esperando que el stock vuelva solo es contar con algo que no pasa.
+ */
+router.post('/orders/status', async (req, res) => {
+  const cuerpo = req.body || {};
+  const pedidos: any[] = Array.isArray(cuerpo.pedidos)
+    ? cuerpo.pedidos
+    : Array.isArray(cuerpo) ? cuerpo : cuerpo.estado ? [cuerpo] : [];
+
+  if (pedidos.length === 0) {
+    return res.status(400).json({ error: 'No vino ninguno. Se espera { pedidos: [{ pedidoId, estado }] }.' });
+  }
+  if (pedidos.length > 500) {
+    return res.status(413).json({ error: 'Máximo 500 pedidos por llamada.' });
+  }
+
+  const local = readConfiguredSucursalId();
+  const alcance = local ? { sucursalId: local } : {};
+  const aplicados: Array<{ pedidoId: string; folio: string; estado: string }> = [];
+  const rechazados: Array<{ pedidoId?: string; motivo: string }> = [];
+  const tocados: Array<{ id: string; sucursalId: string | null }> = [];
+
+  for (const e of pedidos) {
+    if (!e || typeof e !== 'object') {
+      rechazados.push({ motivo: 'entrada no es un objeto' });
+      continue;
+    }
+
+    const estado = typeof e.estado === 'string' ? e.estado.trim() : '';
+
+    if (!ESTADOS_ENTREGA.has(estado)) {
+      rechazados.push({
+        pedidoId: e.pedidoId,
+        motivo: `estado '${estado}' desconocido (${[...ESTADOS_ENTREGA].join(' | ')})`,
+      });
+      continue;
+    }
+
+    try {
+      const pedido = await prisma.pedido.findFirst({
+        where: { id: String(e.pedidoId || ''), ...alcance },
+        select: { id: true, folio: true, sucursalId: true, estadoEntrega: true, estadoEntregaNota: true },
+      });
+
+      if (!pedido) {
+        rechazados.push({ pedidoId: e.pedidoId, motivo: 'no existe aquí (¿otra sucursal?)' });
+        continue;
+      }
+
+      const nota = e.nota ? String(e.nota).slice(0, 500) : null;
+
+      // Sólo si cambió: `updatedAt` es la marca de agua con la que sincronizan las tablets.
+      if (pedido.estadoEntrega !== estado || pedido.estadoEntregaNota !== nota) {
+        await prisma.pedido.update({
+          where: { id: pedido.id },
+          data: {
+            estadoEntrega: estado,
+            estadoEntregaAt: e.at ? new Date(e.at) : new Date(),
+            estadoEntregaNota: nota,
+          },
+        });
+        tocados.push({ id: pedido.id, sucursalId: pedido.sucursalId });
+      }
+
+      aplicados.push({ pedidoId: pedido.id, folio: pedido.folio, estado });
+    } catch (err) {
+      rechazados.push({ pedidoId: e.pedidoId, motivo: (err as Error).message });
+    }
+  }
+
+  for (const t of tocados) {
+    emitEvent('pedido', { id: t.id, sucursalId: t.sucursalId, accion: 'update', datos: await pedidoParaLista(t.id) });
+  }
+
+  res.json({ ok: rechazados.length === 0, recibidos: pedidos.length, aplicados, rechazados });
 });
 
 export default router;

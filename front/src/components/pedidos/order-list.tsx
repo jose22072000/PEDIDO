@@ -83,6 +83,39 @@ const facturaChip: Record<string, { color: "success" | "warning" | "default"; te
   sin_factura: { color: "default", texto: "Sin facturar" },
 };
 
+/**
+ * Las líneas originales, que se guardan en TEXTO.
+ *
+ * En JSON y no en una tabla aparte porque es una foto: no se consulta, no se filtra y no
+ * se vuelve a tocar — sólo se enseña al lado de lo facturado. Y si algún día llegara mal
+ * escrito, se devuelve una lista vacía en vez de tumbar la pantalla del pedido entero.
+ */
+function lineasOriginales(
+  json: string,
+): Array<{ producto: string; unidades: number; packs: number | null }> {
+  try {
+    const v = JSON.parse(json);
+
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * En qué punto del reparto va el pedido. Lo pone delivery.
+ *
+ * `devuelto` y `cancelado` van en rojo porque son los que hay que mirar: significan
+ * mercancía que volvió al almacén y dinero que no entró.
+ */
+const entregaChip: Record<string, { color: "success" | "warning" | "primary" | "danger"; texto: string }> = {
+  despachado: { color: "primary", texto: "Despachado" },
+  en_transito: { color: "warning", texto: "En tránsito" },
+  entregado: { color: "success", texto: "Entregado" },
+  devuelto: { color: "danger", texto: "Devuelto" },
+  cancelado: { color: "danger", texto: "Cancelado" },
+};
+
 const estadoOptions = [
   { value: "todos", label: "Todos" },
   { value: "en_proceso", label: "En Proceso" },
@@ -946,71 +979,102 @@ export const OrdersList = () => {
                 )}
               >
                 <CardBody className="relative gap-4 overflow-visible">
-                  <div className="absolute top-0 left-0 z-10 flex items-center gap-1">
-                    <Chip
-                      className={`-translate-y-7 chip-${estadoColors[order.estado]}`}
-                      color={estadoColors[order.estado]}
-                      size="sm"
-                      variant="dot"
-                    >
-                      {estadoLabels[order.estado]}
-                    </Chip>
-                    {order.archivedAt && (
+                  {/*
+                    Las etiquetas del pedido.
+
+                    En pantalla grande van COLGADAS del borde de la tarjeta, una fila a
+                    cada lado. En el móvil no caben: la de la izquierda y la de la derecha
+                    se montaban una encima de otra y no había forma de leer ninguna.
+
+                    Así que abajo de `sm` esto es una fila normal que se parte en varias
+                    líneas, y a partir de `sm` el envoltorio desaparece (`contents`) y cada
+                    grupo vuelve a colocarse contra el borde como antes.
+                  */}
+                  <div className="flex flex-wrap items-center gap-1 sm:contents">
+                    <div className="flex flex-wrap items-center gap-1 sm:absolute sm:top-0 sm:left-0 sm:z-10 sm:flex-nowrap">
                       <Chip
-                        className="-translate-y-7"
-                        color="default"
+                        className={`chip-${estadoColors[order.estado]} sm:-translate-y-7`}
+                        color={estadoColors[order.estado]}
                         size="sm"
-                        variant="flat"
+                        variant="dot"
                       >
-                        Archivado
+                        {estadoLabels[order.estado]}
                       </Chip>
-                    )}
-                    {order.facturaEstado &&
-                      facturaChip[order.facturaEstado] && (
-                        <Tooltip
-                          content={
-                            order.facturaNumero
-                              ? `Factura ${order.facturaNumero}`
-                              : "Comprobado contra la facturación de Ventra"
-                          }
+                      {order.archivedAt && (
+                        <Chip
+                          className="sm:-translate-y-7"
+                          color="default"
+                          size="sm"
+                          variant="flat"
                         >
-                          <Chip
-                            className="-translate-y-7"
-                            color={facturaChip[order.facturaEstado].color}
-                            size="sm"
-                            variant="flat"
-                          >
-                            {facturaChip[order.facturaEstado].texto}
-                          </Chip>
-                        </Tooltip>
-                      )}
-                  </div>
-                  {(order.costoDomicilio != null ||
-                    order.requiere_domicilio) && (
-                    <div className="absolute top-0 right-0 z-10 flex -translate-y-7 gap-1.5">
-                      {/* El TOTAL, al lado del domicilio y no sólo dentro del pedido.
-                          Es el número por el que se pregunta —"¿cuánto es este
-                          pedido?"— y tenerlo que abrir uno por uno para verlo hacía
-                          inútil la lista. */}
-                      {order.total != null && (
-                        <Chip color="default" size="sm" variant="flat">
-                          Total: {$$(order.total)}
-                          {(order.lineasSinPrecio ?? 0) > 0 && " *"}
+                          Archivado
                         </Chip>
                       )}
-                      <Chip
-                        color={
-                          order.costoDomicilio != null ? "success" : "warning"
-                        }
-                        size="sm"
-                        variant="flat"
-                      >
-                        {order.costoDomicilio != null
-                          ? `Domicilio: ${$$(order.costoDomicilio)}`
-                          : "Domicilio sin calcular"}
-                      </Chip>
+                      {order.facturaEstado &&
+                        facturaChip[order.facturaEstado] && (
+                          <Tooltip
+                            content={
+                              order.facturaNumero
+                                ? `Factura ${order.facturaNumero}`
+                                : "Comprobado contra la facturación de Ventra"
+                            }
+                          >
+                            <Chip
+                              className="sm:-translate-y-7"
+                              color={facturaChip[order.facturaEstado].color}
+                              size="sm"
+                              variant="flat"
+                            >
+                              {facturaChip[order.facturaEstado].texto}
+                            </Chip>
+                          </Tooltip>
+                        )}
+                      {order.estadoEntrega &&
+                        entregaChip[order.estadoEntrega] && (
+                          <Tooltip
+                            content={
+                              order.estadoEntregaNota ||
+                              "Lo pone delivery según va la ruta"
+                            }
+                          >
+                            <Chip
+                              className="sm:-translate-y-7"
+                              color={entregaChip[order.estadoEntrega].color}
+                              size="sm"
+                              variant="flat"
+                            >
+                              {entregaChip[order.estadoEntrega].texto}
+                            </Chip>
+                          </Tooltip>
+                        )}
                     </div>
-                  )}
+                    {(order.costoDomicilio != null ||
+                      order.requiere_domicilio) && (
+                      <div className="flex flex-wrap items-center gap-1.5 sm:absolute sm:top-0 sm:right-0 sm:z-10 sm:flex-nowrap sm:-translate-y-7">
+                        {/* El TOTAL, al lado del domicilio y no sólo dentro del pedido.
+                            Es el número por el que se pregunta —"¿cuánto es este
+                            pedido?"— y tenerlo que abrir uno por uno para verlo hacía
+                            inútil la lista. */}
+                        {order.total != null && (
+                          <Chip color="default" size="sm" variant="flat">
+                            Total: {$$(order.total)}
+                            {(order.lineasSinPrecio ?? 0) > 0 && " *"}
+                          </Chip>
+                        )}
+                        <Chip
+                          color={
+                            order.costoDomicilio != null ? "success" : "warning"
+                          }
+                          size="sm"
+                          variant="flat"
+                        >
+                          {order.costoDomicilio != null
+                            ? `Domicilio: ${$$(order.costoDomicilio)}`
+                            : "Domicilio sin calcular"}
+                        </Chip>
+                      </div>
+                    )}
+                  </div>
                   <div className="grid items-start justify-between w-full grid-cols-1 gap-4 md:grid-cols-4">
                     <div className="flex items-center gap-2">
                       <Icons.receipt className="size-12 min-w-12 text-primary" />
@@ -1383,6 +1447,21 @@ export const OrdersList = () => {
                       Productos ({(selectedOrder?.items.length || 0) +
                         (selectedOrder?.requiere_domicilio || selectedOrder?.costoDomicilio != null ? 1 : 0)})
                     </h4>
+                    {/*
+                      Cuando la factura cambió el pedido, estas líneas YA son las de la
+                      factura: es lo que sale en el camión y lo que se cobró. Lo que el
+                      cliente pidió se enseña debajo, sin quitarlo de en medio — es lo
+                      único con lo que se puede ver en qué se diferencian.
+                    */}
+                    {selectedOrder?.itemsOriginal && (
+                      <p className="mb-2 text-xs text-warning-600">
+                        Corregido con la factura
+                        {selectedOrder.facturaNumero
+                          ? ` ${selectedOrder.facturaNumero}`
+                          : ""}
+                        : abajo está lo que se pidió.
+                      </p>
+                    )}
                     <div className="flex flex-col gap-2 overflow-y-auto max-h-60">
                       {selectedOrder?.items.map((item) => (
                         <div
@@ -1505,6 +1584,35 @@ export const OrdersList = () => {
                       )}
 
                     </div>
+
+                    {/*
+                      LO QUE SE PIDIÓ, cuando la factura lo cambió.
+
+                      Arriba están las líneas de la factura, que es lo que sale en el
+                      camión y lo que se cobró. Esto es el pedido tal como lo tomó el
+                      vendedor. Hacen falta los dos: sin el de arriba el pre-despacho
+                      descuadra, y sin éste no hay forma de ver qué cambió el cliente.
+                    */}
+                    {selectedOrder?.itemsOriginal && (
+                      <details className="mt-3 rounded-lg border border-default-200 p-3">
+                        <summary className="cursor-pointer text-sm font-semibold text-default-700">
+                          Lo que se pidió originalmente
+                        </summary>
+                        <div className="mt-2 flex flex-col gap-1">
+                          {lineasOriginales(selectedOrder.itemsOriginal).map((l, i) => (
+                            <div
+                              key={`${l.producto}-${i}`}
+                              className="flex items-center justify-between gap-2 rounded-lg bg-default-50 px-3 py-2 text-sm"
+                            >
+                              <span className="min-w-0 break-words">{l.producto}</span>
+                              <span className="shrink-0 tabular-nums text-default-500">
+                                {l.packs ? `${l.packs} formatos` : `${l.unidades} unidades`}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+                    )}
                   </div>
                 </div>
               </ModalBody>

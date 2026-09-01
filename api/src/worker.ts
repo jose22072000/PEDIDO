@@ -11,6 +11,7 @@ import { emitEvent } from './lib/events';
 import { processBulkImport } from './routes/orders';
 import { processParrandaSync } from './lib/parranda';
 import { arrancarSondeoVentra } from './lib/sondeoVentra';
+import { arrancarCotejoFacturacion } from './lib/cotejoFacturacion';
 import { arrancarTelefonos } from './lib/telefonoCliente';
 import { arrancarTasaCambio } from './lib/tasaCambio';
 
@@ -97,6 +98,12 @@ async function main() {
   // doce horas— y la API está atendiendo a ocho sucursales. Aquí puede tardar lo que
   // haga falta sin frenar a nadie.
   arrancarSondeoVentra();
+
+  // Y la FACTURACIÓN contra los pedidos: qué se facturó de verdad, y corregir el pedido
+  // cuando no coincide. Aquí por lo mismo que el catálogo —son diez consultas por VPN— y
+  // además porque al corregir le pide el precio del domicilio a delivery: es una cadena
+  // que puede tardar, y la API no tiene por qué esperarla.
+  arrancarCotejoFacturacion();
 
   // La tasa de cambio, de la API de Amado. Aquí por lo mismo que el catálogo: es
   // trabajo de fondo y la API no tiene por qué esperarlo.

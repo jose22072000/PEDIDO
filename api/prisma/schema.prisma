@@ -155,6 +155,50 @@ model Pedido {
     /// Cuándo se comprobó. Sirve para distinguir «no está facturado» de «hace tres
     /// días que nadie mira», que en pantalla se parecen y no son lo mismo.
     facturaAt          DateTime?
+    /// Lo que la FACTURA cobró por el reparto, si trae la línea «ENTREGA A DOMICILIO».
+    ///
+    /// No es lo mismo que `costoDomicilio`: aquél es lo que vale el reparto según la
+    /// fórmula —lo que se recalcula cuando cambia el peso—, y éste es lo que de verdad se
+    /// le cobró al cliente en el mostrador. Teniendo los dos se ve la diferencia; con uno
+    /// solo, no hay contra qué comparar.
+    ///
+    /// Y es la señal más fiable de que un pedido va a domicilio: sale de lo que se cobró,
+    /// no de una casilla que alguien marcó al tomarlo.
+    facturaDomicilio   Float?
+    /// Las líneas TAL COMO LAS PIDIÓ EL CLIENTE, en JSON, cuando la factura las cambió.
+    ///
+    /// El pedido se reescribe con lo facturado para que el pre-despacho cargue el camión
+    /// con lo que de verdad sale. Pero lo que se pidió no se puede perder: es la única
+    /// forma de ver en qué se diferencian, que es justo lo que hay que mirar.
+    ///
+    /// Se escribe UNA vez, la primera. Si se reescribiera en cada pasada, la segunda
+    /// guardaría como «original» lo que ya era la factura.
+    ///
+    /// Texto y no `Json` porque esta base corre en Postgres en producción y en SQLite en
+    /// desarrollo, y el tipo Json no se comporta igual en las dos.
+    itemsOriginal      String?
+    /// En qué punto del REPARTO está el pedido. Lo escribe delivery.
+    ///
+    ///   despachado   — se cargó en el camión (la ruta se creó con él dentro).
+    ///   en_transito  — el camión salió.
+    ///   entregado    — se le dio al cliente.
+    ///   devuelto     — volvió al almacén: el cliente no lo quiso.
+    ///   cancelado    — el cliente lo canceló antes de salir o durante el reparto.
+    ///
+    /// Va APARTE de `estado` a propósito. `estado` manda sobre el archivado, sobre el
+    /// expirado y sobre todos los filtros de la lista; metiéndole «en tránsito» se rompen
+    /// los tres a la vez, y encima un pedido puede estar completado en PEDIDO y todavía
+    /// dando vueltas en el camión: son dos cosas distintas y tienen que poder decirse las
+    /// dos.
+    ///
+    /// `devuelto` y `cancelado` NO tocan el inventario. El reintegro lo hace Ventra, y
+    /// quien lleva la cuenta de lo que vuelve en el camión es el logístico. Poner el
+    /// estado esperando que el stock vuelva solo es contar con algo que no pasa.
+    estadoEntrega      String?
+    estadoEntregaAt    DateTime?
+    /// Por qué volvió o se canceló, si alguien lo escribió. Un pedido devuelto sin motivo
+    /// es un número en un informe que nadie puede explicar tres semanas después.
+    estadoEntregaNota  String?
     createdAt          DateTime     @default(now())
     // Cuándo se tocó por última vez. Es lo que hace posible la sincronización
     // INCREMENTAL de las tablets: piden "lo que cambió desde tal hora" en vez del

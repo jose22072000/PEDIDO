@@ -461,6 +461,80 @@ test('sin la clave de servicio no se escribe nada', async () => {
   assert.equal((await traerPorFolio('PAP-VIEJO')).facturaEstado, null)
 })
 
+// --------------------------------------------- en qué punto del reparto va cada pedido
+
+const marcarEstado = async (pedidos) => {
+  const r = await fetch(`${BASE}/integration/orders/status`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-api-key': KEY },
+    body: JSON.stringify({ pedidos }),
+  })
+
+  return { status: r.status, json: await r.json().catch(() => null) }
+}
+
+test('el estado del reparto entra, y NO pisa el estado del pedido', async () => {
+  /**
+   * Son dos cosas distintas: `estado` manda sobre el archivado, el expirado y todos los
+   * filtros de la lista, y un pedido puede estar completado aquí y seguir dando vueltas
+   * en el camión. Metiendo «en tránsito» en `estado` se rompen los tres a la vez.
+   */
+  const antes = await traerPorFolio('PAP-VIEJO')
+
+  assert.equal(antes.estado, 'completada')
+
+  const { status, json } = await marcarEstado([{ pedidoId: antes.id, estado: 'en_transito' }])
+
+  assert.equal(status, 200)
+  assert.equal(json.aplicados.length, 1)
+
+  const despues = await traerPorFolio('PAP-VIEJO')
+
+  assert.equal(despues.estadoEntrega, 'en_transito')
+  assert.equal(despues.estado, 'completada', 'el estado del pedido no se toca')
+  assert.ok(despues.estadoEntregaAt)
+})
+
+test('devuelto guarda el motivo: sin él es un número que nadie sabe explicar', async () => {
+  const p = await traerPorFolio('PAP-VIEJO')
+
+  await marcarEstado([{ pedidoId: p.id, estado: 'devuelto', nota: 'El cliente había cerrado' }])
+
+  const d = await traerPorFolio('PAP-VIEJO')
+
+  assert.equal(d.estadoEntrega, 'devuelto')
+  assert.equal(d.estadoEntregaNota, 'El cliente había cerrado')
+})
+
+test('repetir el mismo estado NO mueve el pedido', async () => {
+  // `updatedAt` es la marca de agua de las tablets: reescribirlo por gusto les hace
+  // bajarse el día entero por datos móviles para nada.
+  const antes = await traerPorFolio('PAP-VIEJO')
+
+  await marcarEstado([{ pedidoId: antes.id, estado: 'devuelto', nota: 'El cliente había cerrado' }])
+
+  const despues = await traerPorFolio('PAP-VIEJO')
+
+  assert.equal(despues.updatedAt.getTime(), antes.updatedAt.getTime())
+})
+
+test('un estado de reparto inventado se rechaza', async () => {
+  const p = await traerPorFolio('PAP-COTIZADO')
+  const { json } = await marcarEstado([{ pedidoId: p.id, estado: 'volando' }])
+
+  assert.equal(json.aplicados.length, 0)
+  assert.match(json.rechazados[0].motivo, /desconocido/)
+  assert.equal((await traerPorFolio('PAP-COTIZADO')).estadoEntrega, null)
+})
+
+test('el estado del reparto sale en el payload que lee la tablet', async () => {
+  const { json } = await pedir('limit=50')
+  const salida = porFolio(json.orders, 'PAP-VIEJO')
+
+  assert.equal(salida.estadoEntrega, 'devuelto')
+  assert.equal(salida.estadoEntregaNota, 'El cliente había cerrado')
+})
+
 test.after(async () => {
   await prisma.$disconnect()
 })
