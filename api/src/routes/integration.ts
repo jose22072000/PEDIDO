@@ -750,27 +750,33 @@ router.get('/vendedores', async (req, res) => {
 const ESTADOS_FACTURA = new Set(['igual', 'cambiado', 'sin_factura']);
 
 /**
- * POST /integration/orders/invoicing — delivery dice qué pasó con la FACTURA.
+ * POST /integration/orders/invoicing — alguien de fuera dice qué pasó con la FACTURA.
  *
  * Body: { facturas: [{ pedidoId?, folio?, vendedorCodigo?, estado, numero?, costo?, distanciaKm? }] }
  *
- * # Por qué lo manda delivery y no Ventra
+ * # Quién lo llama
  *
- * Ventra es un ERP detrás de una VPN: no avisa a nadie, hay que preguntarle. Quien ya le
- * pregunta —cada minuto, sucursal por sucursal, y cruza factura contra pedido por nombre
- * de cliente y de producto— es delivery, porque lo necesita para cargar el camión con lo
- * que de verdad se facturó. Repetir aquí ese trabajo sería un segundo cotejo, con su
- * propio criterio, que un día dice otra cosa que el primero.
+ * Hoy, nadie: PEDIDO se entera solo. Ventra es un ERP detrás de una VPN que no avisa a
+ * nadie, así que hay que preguntarle, y eso lo hace `lib/cotejoFacturacion` cada diez
+ * minutos, sucursal por sucursal.
  *
- * Así que aquí sólo se GUARDA lo que dijo. PEDIDO no vuelve a decidir nada.
+ * Esta puerta existe para el día en que FACTURACIÓN pueda avisar ella misma, que es como
+ * tendría que ser: el que factura sabe que facturó en el momento en que lo hace, y el
+ * sondeo se puede apagar. Mientras tanto se queda abierta y probada — con la clave de
+ * servicio, que no la tiene cualquiera— porque montarla el día que haga falta cuesta
+ * mucho más que dejarla puesta.
+ *
+ * Escribe lo mismo que el sondeo (`facturaEstado`, `facturaNumero`, `facturaAt`), así que
+ * los dos caminos dejan el pedido igual. Lo que NO hace es corregir las líneas del pedido:
+ * eso sólo lo hace el cotejo, que es quien ha visto la factura entera.
  *
  * # Y el costo del domicilio
  *
  * Si la factura cambió lo que se lleva, el domicilio ya no vale lo que valía: se cobra
- * por peso. Delivery lo recalcula con la misma fórmula de Entrega y lo manda en `costo`,
- * y aquí entra por `aplicarCostoDomicilio` — la MISMA función por la que entra el de
- * Entrega. Una sola puerta para el costo: dos caminos distintos para escribir el mismo
- * número acaban discrepando, y el que discrepa es el que se cobra.
+ * por peso. Quien avise puede mandar el `costo` recalculado, y aquí entra por
+ * `aplicarCostoDomicilio` — la MISMA función por la que entra el de Entrega. Una sola
+ * puerta para el costo: dos caminos distintos para escribir el mismo número acaban
+ * discrepando, y el que discrepa es el que se cobra.
  *
  * En LOTE e idempotente: mandar dos veces lo mismo deja lo mismo. Cada pedido se responde
  * por separado —qué se guardó y qué no, con el motivo— en vez de fallar el lote entero.
