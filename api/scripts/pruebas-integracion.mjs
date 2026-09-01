@@ -326,6 +326,123 @@ test('`since` trae sólo lo que se movió: es lo que hace barato el espejo', asy
   assert.equal(cambiado.json.orders[0].folio, 'PAP-COTIZADO')
 })
 
+// ------------------------------------------------- lo que delivery ESCRIBE de vuelta
+
+const avisar = async (facturas) => {
+  const r = await fetch(`${BASE}/integration/orders/invoicing`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-api-key': KEY },
+    body: JSON.stringify({ facturas }),
+  })
+
+  return { status: r.status, json: await r.json().catch(() => null) }
+}
+
+const traerPorFolio = (folio) => prisma.pedido.findFirst({ where: { folio } })
+
+test('el estado de la factura entra y se ve en el pedido', async () => {
+  const antes = await traerPorFolio('PAP-COTIZADO')
+
+  const { status, json } = await avisar([
+    { pedidoId: antes.id, estado: 'cambiado', numero: 'F-1001' },
+  ])
+
+  assert.equal(status, 200)
+  assert.equal(json.aplicadas.length, 1)
+
+  const despues = await traerPorFolio('PAP-COTIZADO')
+
+  assert.equal(despues.facturaEstado, 'cambiado')
+  assert.equal(despues.facturaNumero, 'F-1001')
+  assert.ok(despues.facturaAt, 'sin la hora no se distingue «no facturado» de «nadie lo ha mirado»')
+})
+
+test('repetir el mismo aviso NO mueve el pedido', async () => {
+  /**
+   * `updatedAt` es la marca de agua con la que sincronizan las tablets de los vendedores.
+   * Si reescribir el mismo estado cada minuto lo moviera, cada tablet se bajaría el día
+   * entero por datos móviles para enterarse de que no ha pasado nada.
+   */
+  const antes = await traerPorFolio('PAP-COTIZADO')
+
+  const { json } = await avisar([{ pedidoId: antes.id, estado: 'cambiado', numero: 'F-1001' }])
+
+  assert.deepEqual(json.aplicadas[0].guardado, [], 'no había nada nuevo que guardar')
+
+  const despues = await traerPorFolio('PAP-COTIZADO')
+
+  assert.equal(despues.updatedAt.getTime(), antes.updatedAt.getTime())
+})
+
+test('el costo recalculado pisa al viejo, y se estampa la tasa', async () => {
+  const antes = await traerPorFolio('PAP-COTIZADO')
+
+  assert.equal(antes.costoDomicilio, 4.5)
+
+  const { json } = await avisar([
+    { pedidoId: antes.id, estado: 'cambiado', numero: 'F-1001', costo: 3.2, distanciaKm: 7.5 },
+  ])
+
+  assert.ok(json.aplicadas[0].guardado.includes('costo'))
+
+  const despues = await traerPorFolio('PAP-COTIZADO')
+
+  // Se facturó menos de lo que se pidió: el domicilio se cobra por peso, así que baja.
+  assert.equal(despues.costoDomicilio, 3.2)
+})
+
+test('un costo NULO no pone el domicilio a cero', async () => {
+  /**
+   * `Number(null)` es CERO, no NaN. Delivery manda `costo: null` en todos los pedidos
+   * cuya factura no cambió el peso —que son casi todos—, así que sin esta comprobación
+   * cada pasada dejaba el día entero con el domicilio en cero. Y un cero no parece un
+   * dato que falta: parece un domicilio gratis.
+   */
+  const antes = await traerPorFolio('PAP-COTIZADO')
+
+  await avisar([{ pedidoId: antes.id, estado: 'igual', numero: 'F-1002', costo: null }])
+
+  const despues = await traerPorFolio('PAP-COTIZADO')
+
+  assert.equal(despues.costoDomicilio, antes.costoDomicilio)
+  assert.equal(despues.facturaNumero, 'F-1002', 'el estado sí tenía que entrar')
+})
+
+test('un estado que no existe se rechaza en vez de guardarse', async () => {
+  const p = await traerPorFolio('PAP-SIN-COSTO')
+  const { json } = await avisar([{ pedidoId: p.id, estado: 'facturadisimo' }])
+
+  assert.equal(json.aplicadas.length, 0)
+  assert.equal(json.rechazadas.length, 1)
+  assert.equal((await traerPorFolio('PAP-SIN-COSTO')).facturaEstado, null)
+})
+
+test('un pedido que no está aquí se rechaza con su motivo, y el resto del lote entra', async () => {
+  const bueno = await traerPorFolio('PAP-SIN-DOMICILIO')
+
+  const { json } = await avisar([
+    { pedidoId: 'no-existe-este-id', estado: 'igual', numero: 'F-9' },
+    { pedidoId: bueno.id, estado: 'igual', numero: 'F-2002' },
+  ])
+
+  // Que un id venga mal no es razón para descartar los otros que venían bien.
+  assert.equal(json.aplicadas.length, 1)
+  assert.equal(json.rechazadas.length, 1)
+  assert.equal((await traerPorFolio('PAP-SIN-DOMICILIO')).facturaNumero, 'F-2002')
+})
+
+test('sin la clave de servicio no se escribe nada', async () => {
+  const p = await traerPorFolio('PAP-VIEJO')
+  const r = await fetch(`${BASE}/integration/orders/invoicing`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ facturas: [{ pedidoId: p.id, estado: 'igual' }] }),
+  })
+
+  assert.ok(r.status === 401 || r.status === 403, `contestó ${r.status}`)
+  assert.equal((await traerPorFolio('PAP-VIEJO')).facturaEstado, null)
+})
+
 test.after(async () => {
   await prisma.$disconnect()
 })

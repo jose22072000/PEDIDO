@@ -69,6 +69,20 @@ const estadoLabels: Record<string, string> = {
   expirada: "Expirado",
 };
 
+/**
+ * Cómo se enseña el cotejo contra la FACTURA de Ventra.
+ *
+ * `cambiado` es el que importa: el cliente se llevó otra cosa de lo que pidió, así que
+ * lo que dice el pedido ya no es lo que se cobró ni lo que sale en el camión. Va en
+ * ámbar y no en rojo porque no es un error de nadie —pasa todos los días—, pero tiene
+ * que verse sin abrir el pedido.
+ */
+const facturaChip: Record<string, { color: "success" | "warning" | "default"; texto: string }> = {
+  igual: { color: "success", texto: "Facturado" },
+  cambiado: { color: "warning", texto: "Facturado ≠ pedido" },
+  sin_factura: { color: "default", texto: "Sin facturar" },
+};
+
 const estadoOptions = [
   { value: "todos", label: "Todos" },
   { value: "en_proceso", label: "En Proceso" },
@@ -951,6 +965,25 @@ export const OrdersList = () => {
                         Archivado
                       </Chip>
                     )}
+                    {order.facturaEstado &&
+                      facturaChip[order.facturaEstado] && (
+                        <Tooltip
+                          content={
+                            order.facturaNumero
+                              ? `Factura ${order.facturaNumero}`
+                              : "Comprobado contra la facturación de Ventra"
+                          }
+                        >
+                          <Chip
+                            className="-translate-y-7"
+                            color={facturaChip[order.facturaEstado].color}
+                            size="sm"
+                            variant="flat"
+                          >
+                            {facturaChip[order.facturaEstado].texto}
+                          </Chip>
+                        </Tooltip>
+                      )}
                   </div>
                   {(order.costoDomicilio != null ||
                     order.requiere_domicilio) && (
@@ -1162,6 +1195,21 @@ export const OrdersList = () => {
                   >
                     {estadoLabels[selectedOrder?.estado || "en_proceso"]}
                   </Chip>
+                  {/* Y con qué factura cuadró: es lo que hay que teclear para ir a
+                      buscarla en Ventra cuando el pedido y la factura no coinciden. */}
+                  {selectedOrder?.facturaEstado &&
+                    facturaChip[selectedOrder.facturaEstado] && (
+                      <Chip
+                        color={facturaChip[selectedOrder.facturaEstado].color}
+                        size="sm"
+                        variant="flat"
+                      >
+                        {facturaChip[selectedOrder.facturaEstado].texto}
+                        {selectedOrder.facturaNumero
+                          ? ` · ${selectedOrder.facturaNumero}`
+                          : ""}
+                      </Chip>
+                    )}
                 </div>
               </ModalHeader>
               <ModalBody>

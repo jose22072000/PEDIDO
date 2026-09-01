@@ -148,7 +148,7 @@ export async function conPrecios<T extends PedidoConLineas>(pedido: T) {
  * Cualquier cosa que se añada a la respuesta de la lista hay que añadirla también aquí,
  * o vuelve a pasar lo mismo con el campo nuevo.
  */
-async function pedidoParaLista(id: string) {
+export async function pedidoParaLista(id: string) {
   const o = await prisma.pedido.findUnique({
     where: { id },
     include: { items: true, cliente: true, vendedor: true },

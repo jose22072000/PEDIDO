@@ -70,6 +70,13 @@ export interface Order {
   pedido_cobrado?: string | null;
   requiere_domicilio?: boolean | null;
   costoDomicilio?: number | null;
+  /**
+   * Cómo quedó frente a la FACTURA de Ventra: igual | cambiado | sin_factura.
+   * Lo escribe delivery, que es quien le pregunta a Ventra. Vacío = sin comprobar.
+   */
+  facturaEstado?: string | null;
+  facturaNumero?: string | null;
+  facturaAt?: string | null;
   createdAt: string;
   archivedAt?: string | null; // si tiene valor, el pedido está archivado (histórico)
   items: OrderItem[];

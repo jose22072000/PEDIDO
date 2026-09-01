@@ -12,6 +12,9 @@ import { serviceAuth } from '../middleware/serviceAuth';
 // delivery de una sucursal nunca vea ni escriba pedidos de otra.
 import { clasificarParranda } from '../lib/webhook';
 import { readConfiguredSucursalId } from '../lib/sucursalLocal';
+import { aplicarCostoDomicilio } from '../lib/domicilio';
+import { emitEvent } from '../lib/events';
+import { pedidoParaLista } from './orders';
 
 const router = Router();
 router.use(serviceAuth);
@@ -718,6 +721,164 @@ router.get('/vendedores', async (req, res) => {
   }));
 
   res.json({ count: sellers.length, sellers });
+});
+
+/** Los tres estados que puede tener un pedido frente a su factura. Nada más. */
+const ESTADOS_FACTURA = new Set(['igual', 'cambiado', 'sin_factura']);
+
+/**
+ * POST /integration/orders/invoicing — delivery dice qué pasó con la FACTURA.
+ *
+ * Body: { facturas: [{ pedidoId?, folio?, vendedorCodigo?, estado, numero?, costo?, distanciaKm? }] }
+ *
+ * # Por qué lo manda delivery y no Ventra
+ *
+ * Ventra es un ERP detrás de una VPN: no avisa a nadie, hay que preguntarle. Quien ya le
+ * pregunta —cada minuto, sucursal por sucursal, y cruza factura contra pedido por nombre
+ * de cliente y de producto— es delivery, porque lo necesita para cargar el camión con lo
+ * que de verdad se facturó. Repetir aquí ese trabajo sería un segundo cotejo, con su
+ * propio criterio, que un día dice otra cosa que el primero.
+ *
+ * Así que aquí sólo se GUARDA lo que dijo. PEDIDO no vuelve a decidir nada.
+ *
+ * # Y el costo del domicilio
+ *
+ * Si la factura cambió lo que se lleva, el domicilio ya no vale lo que valía: se cobra
+ * por peso. Delivery lo recalcula con la misma fórmula de Entrega y lo manda en `costo`,
+ * y aquí entra por `aplicarCostoDomicilio` — la MISMA función por la que entra el de
+ * Entrega. Una sola puerta para el costo: dos caminos distintos para escribir el mismo
+ * número acaban discrepando, y el que discrepa es el que se cobra.
+ *
+ * En LOTE e idempotente: mandar dos veces lo mismo deja lo mismo. Cada pedido se responde
+ * por separado —qué se guardó y qué no, con el motivo— en vez de fallar el lote entero.
+ */
+router.post('/orders/invoicing', async (req, res) => {
+  const cuerpo = req.body || {};
+  const facturas: any[] = Array.isArray(cuerpo.facturas)
+    ? cuerpo.facturas
+    : Array.isArray(cuerpo) ? cuerpo : cuerpo.estado ? [cuerpo] : [];
+
+  if (facturas.length === 0) {
+    return res.status(400).json({ error: 'No vino ninguna. Se espera { facturas: [{ pedidoId, estado }] }.' });
+  }
+  if (facturas.length > 500) {
+    return res.status(413).json({ error: 'Máximo 500 pedidos por llamada.' });
+  }
+
+  // Cada instalación de PEDIDO es de UNA sucursal: un delivery de otra no escribe aquí.
+  const local = readConfiguredSucursalId();
+  const alcance = local ? { sucursalId: local } : {};
+
+  const aplicadas: Array<{ pedidoId: string; folio: string; guardado: string[] }> = [];
+  const rechazadas: Array<{ pedidoId?: string; folio?: string; motivo: string }> = [];
+  const tocados: Array<{ id: string; sucursalId: string | null }> = [];
+
+  for (const f of facturas) {
+    if (!f || typeof f !== 'object') {
+      rechazadas.push({ motivo: 'entrada no es un objeto' });
+      continue;
+    }
+
+    const estado = typeof f.estado === 'string' ? f.estado.trim() : '';
+    if (!ESTADOS_FACTURA.has(estado)) {
+      rechazadas.push({
+        pedidoId: f.pedidoId,
+        folio: f.folio,
+        motivo: `estado '${estado}' desconocido (igual | cambiado | sin_factura)`,
+      });
+      continue;
+    }
+
+    try {
+      /**
+       * Se busca por id, y si no, por folio.
+       *
+       * Delivery guarda el id de aquí en cada pedido que copia, así que el camino normal
+       * es directo y sin ambigüedad. El folio queda de respaldo y NO es único —la clave
+       * real es sucursal+folio+vendedor—, así que sin vendedor se rechaza en vez de
+       * escribir en el pedido de otro.
+       */
+      const pedido = f.pedidoId
+        ? await prisma.pedido.findFirst({ where: { id: String(f.pedidoId), ...alcance } })
+        : f.folio && f.vendedorCodigo
+          ? await prisma.pedido.findFirst({
+              where: { folio: String(f.folio), vendedor: { codigo: String(f.vendedorCodigo) }, ...alcance },
+            })
+          : null;
+
+      if (!pedido) {
+        rechazadas.push({
+          pedidoId: f.pedidoId,
+          folio: f.folio,
+          motivo: f.pedidoId || f.folio ? 'no existe aquí (¿otra sucursal?)' : 'falta pedidoId o folio+vendedorCodigo',
+        });
+        continue;
+      }
+
+      const guardado: string[] = [];
+
+      /**
+       * Sólo se escribe si CAMBIÓ algo.
+       *
+       * `updatedAt` es la marca de agua con la que las tablets y el propio delivery
+       * sincronizan lo que se movió. Reescribir el mismo estado cada minuto lo movería
+       * todo el rato, y cada tablet se traería el día entero por datos móviles para
+       * enterarse de que no había ninguna novedad.
+       */
+      const numero = f.numero ? String(f.numero) : null;
+      if (pedido.facturaEstado !== estado || pedido.facturaNumero !== numero) {
+        await prisma.pedido.update({
+          where: { id: pedido.id },
+          data: { facturaEstado: estado, facturaNumero: numero, facturaAt: new Date() },
+        });
+        guardado.push('factura');
+      }
+
+      /**
+       * Y el costo recalculado, si vino.
+       *
+       * Va por `aplicarCostoDomicilio` —la puerta de Entrega— para que la tasa se estampe
+       * igual, la distancia se guarde en el cliente igual, y sea idempotente igual.
+       */
+      /**
+       * Ojo con el nulo: `Number(null)` es CERO, no NaN.
+       *
+       * Delivery manda `costo: null` en todos los pedidos cuya factura no cambió el peso
+       * —que son casi todos—. Comprobando sólo `Number.isFinite`, cada pasada habría
+       * puesto el domicilio a cero en el día entero, y un domicilio en cero no parece un
+       * dato que falta: parece un domicilio gratis.
+       */
+      const costo = f.costo == null || f.costo === '' ? NaN : Number(f.costo);
+      if (Number.isFinite(costo) && costo >= 0 && costo !== pedido.costoDomicilio) {
+        const r = await aplicarCostoDomicilio({
+          pedidoId: pedido.id,
+          costo,
+          distanciaKm: Number.isFinite(Number(f.distanciaKm)) ? Number(f.distanciaKm) : null,
+          distanciaDesde: f.distanciaDesde ?? null,
+        });
+        if (r.ok && r.cambios?.costo) guardado.push('costo');
+        else if (!r.ok) rechazadas.push({ pedidoId: pedido.id, folio: pedido.folio, motivo: `costo: ${r.motivo}` });
+      }
+
+      if (guardado.length) tocados.push({ id: pedido.id, sucursalId: pedido.sucursalId });
+      aplicadas.push({ pedidoId: pedido.id, folio: pedido.folio, guardado });
+    } catch (err) {
+      rechazadas.push({ pedidoId: f.pedidoId, folio: f.folio, motivo: (err as Error).message });
+    }
+  }
+
+  // Que se vea sin que nadie recargue. El pedido viaja completo, con la misma forma que
+  // los de la lista: la vista sustituye su fila y ya.
+  for (const t of tocados) {
+    emitEvent('pedido', { id: t.id, sucursalId: t.sucursalId, accion: 'update', datos: await pedidoParaLista(t.id) });
+  }
+
+  res.json({
+    ok: rechazadas.length === 0,
+    recibidas: facturas.length,
+    aplicadas,
+    rechazadas,
+  });
 });
 
 export default router;

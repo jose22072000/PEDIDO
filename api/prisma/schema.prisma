@@ -137,6 +137,24 @@ model Pedido {
     /// forma de saber cuál es la buena. Con la tasa, el CUP se reproduce exacto —el
     /// mismo que vio quien cobró— y queda registrado a cómo estaba el cambio ese día.
     tasaDomicilio      Float?
+
+    /// Cómo quedó este pedido frente a su FACTURA en Ventra:
+    ///   `igual`       — se facturó exactamente lo que se pidió.
+    ///   `cambiado`    — se facturó otra cosa: más, menos o distinto.
+    ///   `sin_factura` — se comprobó y todavía no tiene factura.
+    /// Vacío = nadie lo ha comprobado todavía.
+    ///
+    /// Lo escribe DELIVERY por /integration/orders/invoicing. No lo escribe Ventra:
+    /// Ventra es un ERP detrás de una VPN que no manda nada hacia fuera, así que
+    /// alguien tiene que preguntarle, y quien ya lo hace —cada minuto, sucursal por
+    /// sucursal— es delivery. Aquí sólo se guarda lo que dijo.
+    facturaEstado      String?
+    /// El número de factura con el que cuadró, para poder ir a buscarla. Cuando el
+    /// pedido se facturó en dos documentos, van los dos separados por coma.
+    facturaNumero      String?
+    /// Cuándo se comprobó. Sirve para distinguir «no está facturado» de «hace tres
+    /// días que nadie mira», que en pantalla se parecen y no son lo mismo.
+    facturaAt          DateTime?
     createdAt          DateTime     @default(now())
     // Cuándo se tocó por última vez. Es lo que hace posible la sincronización
     // INCREMENTAL de las tablets: piden "lo que cambió desde tal hora" en vez del
