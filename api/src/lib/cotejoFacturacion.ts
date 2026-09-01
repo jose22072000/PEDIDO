@@ -14,29 +14,34 @@
  * Cada pasada, por sucursal:
  *
  *   1. Trae lo facturado de los últimos días.
- *   2. Cruza cada pedido con su factura (por nombre de cliente, y línea por línea).
+ *   2. Cruza cada pedido con su factura por nombre de cliente, y línea por línea.
  *   3. Marca el pedido: `igual`, `cambiado` o `sin_factura`, con el número de factura.
- *   4. Si CAMBIÓ, reescribe las líneas del pedido con las de la factura —guardando las
- *      originales— para que lo que se despacha sea lo que se facturó.
- *   5. Y como el domicilio se cobra por peso, le pide a delivery el precio nuevo.
+ *   4. Guarda lo que dice la factura AL LADO, en `lineasFactura`.
  *
- * # Por qué se corrige el pedido en vez de dejarlo como estaba
+ * # El pedido NO se toca
  *
- * Porque de él sale el pre-despacho. Si el cliente facturó otra cosa y el pedido sigue
- * diciendo lo de antes, el camión se carga con una lista y se cobra por otra. Lo que se
- * pidió NO se pierde: queda en `itemsOriginal`, y la pantalla lo enseña al lado.
+ * Hubo una versión que reescribía las líneas del pedido con las de la factura, para que
+ * el pre-despacho cargara lo que de verdad sale. La idea era buena y la ejecución estaba
+ * mal: el cotejo empareja por NOMBRE DE CLIENTE, así que un cliente con dos o tres
+ * pedidos el mismo día tenía los tres comparados contra las MISMAS facturas, y los tres
+ * acababan reescritos con lo mismo. En producción pasó con 40 de 207 facturas: el mismo
+ * producto repetido en varios pedidos, uno completado y los otros en proceso.
+ *
+ * El dato que haría falta para repartir bien —qué factura salió de qué pedido— no existe
+ * ni en el pedido ni en la factura. Así que el pedido se queda como lo tomó el vendedor,
+ * que es la única versión de la que respondemos, y lo facturado se enseña al lado.
+ *
+ * Los pedidos que llegaron a reescribirse se DEVUELVEN a su estado original en la pasada
+ * siguiente, desde la copia que quedó en `itemsOriginal`.
  *
  * # Por qué aquí y no en delivery
  *
- * El pedido es de PEDIDO. Y a Entrega no se le puede avisar —es una APK que trabaja sin
- * conexión—, así que la corrección tiene que ocurrir del lado que siempre está en línea.
- * Delivery pone sólo lo suyo: la fórmula del domicilio, con los almacenes y la tarifa.
+ * El pedido es de PEDIDO, y a Entrega no se le puede preguntar nada: es una APK que
+ * trabaja sin conexión. El cotejo tiene que ocurrir del lado que siempre está en línea.
  */
 import prisma from '../prismaClient';
 import { databases, ventasDeSucursal, type LineaVentaVentra } from './ventra';
 import { cotejar, type LineaFactura, type LineaPedido } from './cotejarFactura';
-import { pesar, type FilaCatalogo } from './pesarFactura';
-import { costoDomicilioDeDelivery } from './delivery';
 import { emitEvent } from './events';
 
 /** Cuántos días atrás se repasa. La facturación vieja ya no se mueve. */
@@ -59,10 +64,8 @@ export interface ResultadoCotejo {
   igual: number;
   cambiado: number;
   sinFactura: number;
-  /** A cuántos se les reescribieron las líneas con las de la factura. */
+  /** A cuántos se les DEVOLVIERON sus líneas originales, deshaciendo la reescritura vieja. */
   corregidos: number;
-  /** A cuántos se les rehizo el precio del domicilio. */
-  recotizados: number;
   error?: string;
 }
 
@@ -78,7 +81,7 @@ export async function cotejarUnaVez(): Promise<ResultadoCotejo[]> {
     const base = bases.find((b) => normalizar(b.database) === clave || normalizar(b.branchName) === clave);
     const r: ResultadoCotejo = {
       sucursal: suc.nombre, database: base?.database || '', lineas: 0, cotejados: 0,
-      igual: 0, cambiado: 0, sinFactura: 0, corregidos: 0, recotizados: 0,
+      igual: 0, cambiado: 0, sinFactura: 0, corregidos: 0,
     };
 
     if (!base) {
@@ -106,20 +109,13 @@ export async function cotejarUnaVez(): Promise<ResultadoCotejo[]> {
 
       r.cotejados = pedidos.length;
 
-      // El catálogo de la sucursal, una vez: hace falta para pesar lo facturado.
-      const catalogo = await prisma.productoSucursal.findMany({
-        where: { sucursalId: suc.id },
-        select: { sku: true, nombre: true, pesoKg: true, categoria: true },
-      });
-
       for (const p of pedidos) {
-        const cambios = await cotejarUnPedido(p, ventas, catalogo, suc.codigo);
+        const cambios = await cotejarUnPedido(p, ventas);
 
         if (cambios.estado === 'igual') r.igual++;
         else if (cambios.estado === 'cambiado') r.cambiado++;
         else r.sinFactura++;
         if (cambios.corregido) r.corregidos++;
-        if (cambios.recotizado) r.recotizados++;
       }
     } catch (e) {
       // Una sucursal que falla no para las demás: puede ser que su base esté caída.
@@ -152,9 +148,7 @@ type PedidoConItems = {
 async function cotejarUnPedido(
   p: PedidoConItems,
   ventas: LineaVentaVentra[],
-  catalogo: FilaCatalogo[],
-  sucursalCodigo: string | null,
-): Promise<{ estado: string; corregido: boolean; recotizado: boolean }> {
+): Promise<{ estado: string; corregido: boolean }> {
   /**
    * El mismo día o el SIGUIENTE.
    *
@@ -186,7 +180,6 @@ async function cotejarUnPedido(
   const r = cotejar(p.items as LineaPedido[], suyas, nombreCliente);
 
   let corregido = false;
-  let recotizado = false;
   const datos: Record<string, unknown> = {};
 
   if (p.facturaEstado !== r.estado || p.facturaNumero !== r.numero) {
@@ -197,43 +190,62 @@ async function cotejarUnPedido(
   if (r.domicilioFacturado != null) datos.facturaDomicilio = r.domicilioFacturado;
 
   /**
-   * Si la factura cambió el pedido, el pedido se rehace con lo facturado.
+   * La factura se GUARDA AL LADO. El pedido no se toca.
    *
-   * Sólo una vez: `itemsOriginal` se escribe la primera vez y no se toca más. Si se
-   * reescribiera en cada pasada, la segunda guardaría como «original» lo que ya era la
-   * factura, y lo que pidió el cliente se perdería para siempre.
+   * # El error que esto corrige
+   *
+   * Antes, cuando la factura no cuadraba, se reescribían las líneas del pedido con las de
+   * la factura. La idea era buena —que el pre-despacho cargue lo que de verdad sale— y la
+   * ejecución estaba mal: el cotejo empareja por NOMBRE DE CLIENTE, así que cuando un
+   * cliente tiene dos o tres pedidos el mismo día, los tres se comparan contra las MISMAS
+   * facturas y los tres acababan reescritos con lo mismo. En producción pasó con 40 de
+   * 207 facturas: el mismo producto repetido en varios pedidos, uno completado y los otros
+   * en proceso, y a nadie le cuadraba nada.
+   *
+   * No hay forma de repartir bien esas facturas entre esos pedidos: el dato que haría
+   * falta —qué factura salió de qué pedido— no está ni en el pedido ni en la factura.
+   *
+   * Así que el pedido se queda como lo tomó el vendedor, que es la única versión de la que
+   * respondemos, y lo facturado se guarda aparte para poder verlo al lado y comparar.
    */
-  if (r.estado === 'cambiado' && r.lineas.length > 0 && !p.itemsOriginal) {
-    await prisma.$transaction(async (tx) => {
-      await tx.pedido.update({
-        where: { id: p.id },
-        data: {
-          itemsOriginal: JSON.stringify(
-            p.items.map((i) => ({
-              producto: i.producto, codigo: i.codigo, unidades: i.unidades,
-              packs: i.packs, descripcion: i.descripcion,
+  if (r.lineas.length > 0) {
+    datos.lineasFactura = JSON.stringify(r.lineas);
+  }
+
+  /**
+   * Y se deshace lo que se llegó a reescribir.
+   *
+   * Los pedidos tocados guardaron sus líneas originales en `itemsOriginal`, así que se
+   * pueden devolver tal cual. Se hace aquí, en la pasada normal, para que se arregle solo
+   * en cuanto esto se despliegue y sin tener que entrar a la base a mano.
+   */
+  if (p.itemsOriginal) {
+    try {
+      const originales = JSON.parse(p.itemsOriginal) as Array<{
+        producto: string; codigo: string | null; unidades: number; packs: number | null; descripcion: string | null;
+      }>;
+
+      if (Array.isArray(originales) && originales.length > 0) {
+        await prisma.$transaction(async (tx) => {
+          await tx.pedidoItem.deleteMany({ where: { pedidoId: p.id } });
+          await tx.pedidoItem.createMany({
+            data: originales.map((l) => ({
+              pedidoId: p.id,
+              producto: l.producto,
+              codigo: l.codigo ?? null,
+              unidades: l.unidades,
+              packs: l.packs ?? null,
+              descripcion: l.descripcion ?? null,
             })),
-          ),
-        },
-      });
-      await tx.pedidoItem.deleteMany({ where: { pedidoId: p.id } });
-      await tx.pedidoItem.createMany({
-        data: r.lineas.map((l) => ({
-          pedidoId: p.id,
-          producto: l.producto,
-          codigo: l.codigo,
-          /**
-           * La cantidad de Ventra va en unidades de VENTA (el formato), que es lo que
-           * aquí se llama `packs`. Se pone en los dos campos porque el precio y el peso
-           * se calculan con `packs` cuando lo hay, y así una línea traída de la factura
-           * cuenta igual que una tecleada.
-           */
-          unidades: Math.round(l.cantidad),
-          packs: Math.round(l.cantidad),
-        })),
-      });
-    });
-    corregido = true;
+          });
+          // Se limpia para no volver a restaurar lo mismo en cada pasada.
+          await tx.pedido.update({ where: { id: p.id }, data: { itemsOriginal: null } });
+        });
+        corregido = true;
+      }
+    } catch {
+      // Un JSON ilegible no puede parar el cotejo del resto: se deja como está.
+    }
   }
 
   /**
@@ -244,23 +256,14 @@ async function cotejarUnPedido(
    * línea no se pide nada: un precio calculado con la mitad de los kilos entra sin
    * protestar y pisa el que había, que sí estaba bien.
    */
-  if (corregido && p.cliente?.latitud != null && p.cliente?.longitud != null && sucursalCodigo) {
-    const peso = pesar(r.lineas, catalogo);
-
-    if (peso != null) {
-      const costo = await costoDomicilioDeDelivery({
-        sucursalCodigo,
-        lat: p.cliente.latitud,
-        lng: p.cliente.longitud,
-        pesoKg: peso,
-      });
-
-      if (costo && Math.abs(costo.usd - (p.costoDomicilio ?? -1)) > 0.01) {
-        datos.costoDomicilio = costo.usd;
-        recotizado = true;
-      }
-    }
-  }
+  /**
+   * El precio del domicilio ya NO se rehace desde aquí.
+   *
+   * Se recalculaba porque el pedido se reescribía con lo facturado y cambiaba de peso.
+   * Ahora el pedido no se toca, así que su peso es el mismo y su precio también. Cuando
+   * haga falta cobrar por lo facturado, se hará desde donde se decida esa correspondencia
+   * —que hoy no se puede deducir— y no adivinando aquí.
+   */
 
   if (Object.keys(datos).length > 0 || corregido) {
     if (Object.keys(datos).length > 0) await prisma.pedido.update({ where: { id: p.id }, data: datos });
@@ -268,7 +271,7 @@ async function cotejarUnPedido(
     emitEvent('pedido', { id: p.id, sucursalId: p.sucursalId, accion: 'update' });
   }
 
-  return { estado: r.estado, corregido, recotizado };
+  return { estado: r.estado, corregido };
 }
 
 export function arrancarCotejoFacturacion(): void {
@@ -288,7 +291,7 @@ export function arrancarCotejoFacturacion(): void {
           `[factura] ${suma((r) => r.cotejados)} pedidos cotejados · ` +
             `${suma((r) => r.igual)} igual, ${suma((r) => r.cambiado)} cambiados, ` +
             `${suma((r) => r.sinFactura)} sin factura · ` +
-            `${suma((r) => r.corregidos)} corregidos, ${suma((r) => r.recotizados)} recotizados` +
+            `${suma((r) => r.corregidos)} restaurados` +
             (mal.length ? ` · fallaron ${mal.map((r) => r.sucursal).join(', ')}` : ''),
         );
       })

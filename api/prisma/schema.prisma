@@ -177,6 +177,16 @@ model Pedido {
     /// Texto y no `Json` porque esta base corre en Postgres en producción y en SQLite en
     /// desarrollo, y el tipo Json no se comporta igual en las dos.
     itemsOriginal      String?
+    /// Lo que dice la FACTURA, al lado del pedido. JSON en texto.
+    ///
+    /// Se guarda aparte y NO se mete en las líneas del pedido. Reescribir el pedido con
+    /// la factura fue un error caro: cuando un cliente tiene varios pedidos el mismo día
+    /// no hay forma de saber qué factura es de cuál, y la misma factura acabó copiada en
+    /// dos y tres pedidos —el mismo producto repetido, uno completado y otros en proceso—.
+    ///
+    /// El pedido se queda como lo tomó el vendedor. Esto es lo que se llevó el cliente, y
+    /// se enseña al lado para poder comparar.
+    lineasFactura      String?
     /// En qué punto del REPARTO está el pedido. Lo escribe delivery.
     ///
     ///   despachado   — se cargó en el camión (la ruta se creó con él dentro).

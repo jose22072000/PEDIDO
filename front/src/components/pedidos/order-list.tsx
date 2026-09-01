@@ -84,15 +84,15 @@ const facturaChip: Record<string, { color: "success" | "warning" | "default"; te
 };
 
 /**
- * Las líneas originales, que se guardan en TEXTO.
+ * Las líneas de la factura, que se guardan en TEXTO.
  *
  * En JSON y no en una tabla aparte porque es una foto: no se consulta, no se filtra y no
- * se vuelve a tocar — sólo se enseña al lado de lo facturado. Y si algún día llegara mal
+ * se vuelve a tocar — sólo se enseña al lado del pedido. Y si algún día llegara mal
  * escrito, se devuelve una lista vacía en vez de tumbar la pantalla del pedido entero.
  */
-function lineasOriginales(
+function lineasDeFactura(
   json: string,
-): Array<{ producto: string; unidades: number; packs: number | null }> {
+): Array<{ producto: string; codigo: string | null; cantidad: number }> {
   try {
     const v = JSON.parse(json);
 
@@ -1447,21 +1447,6 @@ export const OrdersList = () => {
                       Productos ({(selectedOrder?.items.length || 0) +
                         (selectedOrder?.requiere_domicilio || selectedOrder?.costoDomicilio != null ? 1 : 0)})
                     </h4>
-                    {/*
-                      Cuando la factura cambió el pedido, estas líneas YA son las de la
-                      factura: es lo que sale en el camión y lo que se cobró. Lo que el
-                      cliente pidió se enseña debajo, sin quitarlo de en medio — es lo
-                      único con lo que se puede ver en qué se diferencian.
-                    */}
-                    {selectedOrder?.itemsOriginal && (
-                      <p className="mb-2 text-xs text-warning-600">
-                        Corregido con la factura
-                        {selectedOrder.facturaNumero
-                          ? ` ${selectedOrder.facturaNumero}`
-                          : ""}
-                        : abajo está lo que se pidió.
-                      </p>
-                    )}
                     <div className="flex flex-col gap-2 overflow-y-auto max-h-60">
                       {selectedOrder?.items.map((item) => (
                         <div
@@ -1586,27 +1571,34 @@ export const OrdersList = () => {
                     </div>
 
                     {/*
-                      LO QUE SE PIDIÓ, cuando la factura lo cambió.
+                      LO QUE DICE LA FACTURA, al lado.
 
-                      Arriba están las líneas de la factura, que es lo que sale en el
-                      camión y lo que se cobró. Esto es el pedido tal como lo tomó el
-                      vendedor. Hacen falta los dos: sin el de arriba el pre-despacho
-                      descuadra, y sin éste no hay forma de ver qué cambió el cliente.
+                      El pedido de arriba es el que tomó el vendedor y no se toca. Esto es
+                      lo que se llevó el cliente de verdad. Hubo una versión que reescribía
+                      el pedido con la factura y salió mal: un cliente con varios pedidos
+                      el mismo día acababa con la misma factura copiada en todos.
                     */}
-                    {selectedOrder?.itemsOriginal && (
-                      <details className="mt-3 rounded-lg border border-default-200 p-3">
+                    {selectedOrder?.lineasFactura && (
+                      <details className="mt-3 rounded-lg border border-default-200 p-3" open>
                         <summary className="cursor-pointer text-sm font-semibold text-default-700">
-                          Lo que se pidió originalmente
+                          Lo que dice la factura
+                          {selectedOrder.facturaNumero
+                            ? ` ${selectedOrder.facturaNumero}`
+                            : ""}
                         </summary>
+                        <p className="mt-1 text-xs text-default-500">
+                          Es lo que se llevó el cliente. El pedido de arriba se queda como
+                          se tomó.
+                        </p>
                         <div className="mt-2 flex flex-col gap-1">
-                          {lineasOriginales(selectedOrder.itemsOriginal).map((l, i) => (
+                          {lineasDeFactura(selectedOrder.lineasFactura).map((l, i) => (
                             <div
                               key={`${l.producto}-${i}`}
                               className="flex items-center justify-between gap-2 rounded-lg bg-default-50 px-3 py-2 text-sm"
                             >
                               <span className="min-w-0 break-words">{l.producto}</span>
                               <span className="shrink-0 tabular-nums text-default-500">
-                                {l.packs ? `${l.packs} formatos` : `${l.unidades} unidades`}
+                                {l.cantidad} formatos
                               </span>
                             </div>
                           ))}

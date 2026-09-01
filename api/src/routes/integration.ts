@@ -272,8 +272,8 @@ router.get('/orders', async (req, res) => {
     estadoEntrega: p.estadoEntrega,
     estadoEntregaAt: p.estadoEntregaAt,
     estadoEntregaNota: p.estadoEntregaNota,
-    /** Lo que se pidió, cuando la factura lo cambió. JSON en texto, o nulo. */
-    itemsOriginal: p.itemsOriginal,
+    /** Lo que dice la FACTURA, al lado del pedido. JSON en texto, o nulo. */
+    lineasFactura: p.lineasFactura,
     // Para que la tablet sepa por dónde seguir: se guarda el mayor de la tanda y se
     // manda como `since` en la siguiente sync.
     updatedAt: p.updatedAt,

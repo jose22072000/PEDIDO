@@ -78,13 +78,12 @@ export interface Order {
   facturaNumero?: string | null;
   facturaAt?: string | null;
   /**
-   * Las líneas TAL COMO LAS PIDIÓ EL CLIENTE, en JSON, cuando la factura las cambió.
+   * Lo que dice la FACTURA, en JSON, al lado del pedido.
    *
-   * El pedido se reescribe con lo facturado —de él sale el pre-despacho, y cargar el
-   * camión con la lista vieja es descuadrar la caja—, pero lo que se pidió no se pierde:
-   * queda aquí para poder ver en qué se diferencian.
+   * El pedido se queda como lo tomó el vendedor. Esto es lo que se llevó el cliente, para
+   * poder comparar los dos sin que ninguno pise al otro.
    */
-  itemsOriginal?: string | null;
+  lineasFactura?: string | null;
   /**
    * En qué punto del REPARTO va: despachado | en_transito | entregado | devuelto |
    * cancelado. Lo escribe delivery. Va aparte de `estado` porque son dos cosas: un pedido
