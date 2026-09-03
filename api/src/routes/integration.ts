@@ -266,6 +266,16 @@ router.get('/orders', async (req, res) => {
     facturaAt: p.facturaAt,
     facturaDomicilio: p.facturaDomicilio,
     /**
+     * Y si el pedido CUADRA porque se corrigió, o porque vino bien.
+     *
+     * Los dos quedan en `facturaEstado: 'igual'` y se pueden repartir, pero no son lo
+     * mismo, y quien lo mira tiene derecho a saber cuál es cuál. Sin esto, el vendedor ve
+     * en su tablet unas cantidades distintas de las que tomó y no hay nada que se lo
+     * explique.
+     */
+    facturaCorregidoAt: p.facturaCorregidoAt,
+    facturaDiferencias: p.facturaDiferencias,
+    /**
      * Y EN QUÉ PUNTO DEL REPARTO está. Lo escribe delivery, que es quien lo sabe.
      *
      * Va aparte de `estado`: un pedido puede estar completado en PEDIDO y todavía dando

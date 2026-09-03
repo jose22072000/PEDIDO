@@ -3,36 +3,45 @@
  *
  * # El problema
  *
- * El pedido dice lo que el cliente pidió. La factura dice lo que se llevó, y no siempre
- * es lo mismo: falta existencia de algo, o el cliente cambia de idea delante del
- * mostrador. Hasta ahora eso no llegaba a ninguna parte: el vendedor veía su pedido tal
- * como lo tomó, y el pre-despacho cargaba el camión con la lista vieja. Al final del día,
- * descuadre.
+ * El pedido dice lo que el cliente pidió. La factura dice lo que se llevó, y no siempre es
+ * lo mismo: falta existencia de algo, o el cliente cambia de idea delante del mostrador.
+ * Eso no llegaba a ninguna parte: el vendedor veía su pedido tal como lo tomó y el
+ * pre-despacho cargaba el camión con la lista vieja. Al final del día, descuadre.
  *
  * # Qué hace
  *
- * Cada pasada, por sucursal:
+ * Cada diez minutos, sucursal por sucursal:
  *
  *   1. Trae lo facturado de los últimos días.
- *   2. Cruza cada pedido con su factura por nombre de cliente, y línea por línea.
- *   3. Marca el pedido: `igual`, `cambiado` o `sin_factura`, con el número de factura.
- *   4. Guarda lo que dice la factura AL LADO, en `lineasFactura`.
+ *   2. Ata cada factura a SU pedido por el folio que Ventra escribe en la nota.
+ *   3. Compara línea por línea: `igual`, `cambiado` o `sin_factura`.
+ *   4. Si cambió, **reescribe el pedido con lo facturado** y guarda lo que el vendedor
+ *      había tomado en `itemsOriginal`.
+ *   5. Y se lo cuenta a Entrega, si ese pedido ya tenía precio de domicilio puesto.
  *
- * # El pedido NO se toca
+ * # Por qué ahora sí se corrige, si ya salió mal una vez
  *
- * Hubo una versión que reescribía las líneas del pedido con las de la factura, para que
- * el pre-despacho cargara lo que de verdad sale. La idea era buena y la ejecución estaba
- * mal: el cotejo empareja por NOMBRE DE CLIENTE, así que un cliente con dos o tres
- * pedidos el mismo día tenía los tres comparados contra las MISMAS facturas, y los tres
- * acababan reescritos con lo mismo. En producción pasó con 40 de 207 facturas: el mismo
- * producto repetido en varios pedidos, uno completado y los otros en proceso.
+ * La versión de julio emparejaba por NOMBRE DE CLIENTE. Un cliente con dos pedidos el
+ * mismo día tenía los dos comparados contra las mismas facturas y los dos acababan
+ * reescritos con lo mismo: pasó con 40 de 207 facturas, unos pedidos completados y otros
+ * en proceso, y a nadie le cuadraba nada. Se revirtió.
  *
- * El dato que haría falta para repartir bien —qué factura salió de qué pedido— no existe
- * ni en el pedido ni en la factura. Así que el pedido se queda como lo tomó el vendedor,
- * que es la única versión de la que respondemos, y lo facturado se enseña al lado.
+ * Lo que faltaba era saber QUÉ FACTURA SALIÓ DE QUÉ PEDIDO, y ese dato ya existe:
+ * `emparejarFactura` lo lee del folio que la nota de Ventra lleva escrito
+ * (`P-PRM25-260901-1808-3`), porque el operador lo copia de la pantalla de PEDIDO al
+ * facturar. Aquí llegan sólo las facturas de ESTE pedido. No se adivina nada.
  *
- * Los pedidos que llegaron a reescribirse se DEVUELVEN a su estado original en la pasada
- * siguiente, desde la copia que quedó en `itemsOriginal`.
+ * # Lo que NO se toca
+ *
+ * Las facturas sin folio en la nota no se emparejan con nadie, a propósito. Son ventas
+ * libres —el cliente llegó sin pedido y se le vendió en el mostrador— y no tienen pedido
+ * detrás. Atarlas a uno por parecido sería inventar.
+ *
+ * # Se apaga con una variable
+ *
+ * `CORREGIR_DESDE_FACTURA=false` y todo vuelve a como estaba: los pedidos corregidos se
+ * devuelven solos a su versión original desde `itemsOriginal`, en la pasada siguiente. No
+ * hace falta desplegar para revertir, que es lo que se quiere de algo que ya falló una vez.
  *
  * # Por qué aquí y no en delivery
  *
@@ -44,6 +53,7 @@ import { databases, ventasDeSucursal, type LineaVentaVentra } from './ventra';
 import { cotejar, type LineaFactura, type LineaPedido } from './cotejarFactura';
 import { facturasPorFolio } from './emparejarFactura';
 import { emitEvent } from './events';
+import { avisarPedidoCambiado } from './webhook';
 
 /** Cuántos días atrás se repasa. La facturación vieja ya no se mueve. */
 const DIAS = Number(process.env.FACTURACION_DIAS || 3);
@@ -51,6 +61,22 @@ const DIAS = Number(process.env.FACTURACION_DIAS || 3);
 const CADA_MS = Number(process.env.FACTURACION_CADA_MS || 10 * 60 * 1000);
 
 const soloFecha = (d: Date) => d.toISOString().slice(0, 10);
+
+/**
+ * Si el pedido se corrige con lo que dice la factura.
+ *
+ * **APAGADO por defecto, y a propósito.**
+ *
+ * Esto ya se desplegó una vez encendido y salió mal: la misma factura acabó copiada en 40
+ * de 207 pedidos. Ahora empareja por folio y no puede repetirse, pero un código que
+ * reescribe pedidos de producción no entra encendido el día que se despliega. Entra
+ * inerte, alguien mira una pasada del cotejo, y entonces se enciende.
+ *
+ * Se enciende con `CORREGIR_DESDE_FACTURA=true`. Apagarlo después devuelve solos todos
+ * los pedidos corregidos a como los tomó el vendedor, desde `itemsOriginal`, en la pasada
+ * siguiente — así que la marcha atrás es una variable y no un despliegue.
+ */
+const CORREGIR = process.env.CORREGIR_DESDE_FACTURA === 'true';
 
 /** Mismo cruce de nombres que el sondeo del catálogo: los slugs de Ventra no se adivinan. */
 function normalizar(s: string): string {
@@ -185,40 +211,125 @@ async function cotejarUnPedido(
   if (r.domicilioFacturado != null) datos.facturaDomicilio = r.domicilioFacturado;
 
   /**
-   * La factura se GUARDA AL LADO. El pedido no se toca.
+   * Y AQUÍ SE CORRIGE EL PEDIDO CON LO QUE DICE LA FACTURA.
    *
-   * # El error que esto corrige
+   * # Por qué
    *
-   * Antes, cuando la factura no cuadraba, se reescribían las líneas del pedido con las de
-   * la factura. La idea era buena —que el pre-despacho cargue lo que de verdad sale— y la
-   * ejecución estaba mal: el cotejo empareja por NOMBRE DE CLIENTE, así que cuando un
-   * cliente tiene dos o tres pedidos el mismo día, los tres se comparan contra las MISMAS
-   * facturas y los tres acababan reescritos con lo mismo. En producción pasó con 40 de
-   * 207 facturas: el mismo producto repetido en varios pedidos, uno completado y los otros
-   * en proceso, y a nadie le cuadraba nada.
+   * El cliente pide veinte cajas y se lleva quince. El pedido dice lo que pidió; lo que
+   * sale en el camión y lo que se cobra es lo facturado. Repartir por el pedido viejo es
+   * cargar de más y descuadrar la caja, y hasta ahora eso lo tenía que arreglar el
+   * vendedor a mano, pedido por pedido — que es justo lo que no se quería.
    *
-   * No hay forma de repartir bien esas facturas entre esos pedidos: el dato que haría
-   * falta —qué factura salió de qué pedido— no está ni en el pedido ni en la factura.
+   * # Por qué AHORA sí, si ya salió mal una vez
    *
-   * Así que el pedido se queda como lo tomó el vendedor, que es la única versión de la que
-   * respondemos, y lo facturado se guarda aparte para poder verlo al lado y comparar.
+   * La versión de julio emparejaba por NOMBRE DE CLIENTE. Un cliente con dos pedidos el
+   * mismo día tenía los dos comparados contra las mismas facturas, y los dos acababan
+   * reescritos con lo mismo: pasó con 40 de 207 facturas.
+   *
+   * Ya no se adivina. `emparejarFactura` ata cada factura a UN pedido por el folio que
+   * Ventra escribe en la nota (`P-PRM25-260901-1808-3`), y aquí llegan sólo las de ESTE
+   * pedido. Lo que faltaba para poder hacer esto era ese dato, y ya existe.
+   *
+   * # Las tres condiciones, todas
+   *
+   *  - Hay factura y dice algo distinto (`cambiado`).
+   *  - Se sabe QUÉ productos: sin líneas no hay con qué reescribir.
+   *  - Está encendido. Se apaga con `CORREGIR_DESDE_FACTURA=false` y todo vuelve a como
+   *    estaba, sin desplegar.
+   *
+   * # Lo que el vendedor tomó no se pierde
+   *
+   * Se guarda entero en `itemsOriginal` la primera vez, y sólo la primera: si se guardara
+   * en cada pasada, la segunda machacaría el original con la versión ya corregida y no
+   * quedaría contra qué comparar. De ahí sale poder decir qué cambió, y poder deshacerlo.
    */
-  if (r.lineas.length > 0) {
+  const seCorrige =
+    CORREGIR &&
+    r.estado === 'cambiado' &&
+    r.lineas.length > 0 &&
+    /**
+     * Y sólo si de verdad hay una factura atada a ESTE pedido.
+     *
+     * `r.numero` viene de las facturas que el folio ató. Sin número no se sabe de dónde
+     * salieron esas líneas, y reescribir un pedido con algo de procedencia desconocida es
+     * exactamente el error de julio.
+     */
+    !!r.numero;
+
+  if (seCorrige) {
+    /**
+     * Cuántas unidades trae cada unidad de venta, para no perder ese dato al reescribir.
+     *
+     * En el pedido, `packs` son las cajas y `unidades` el total: 10 pacas de arroz son
+     * 100 kg. Ventra factura en cajas, así que las unidades hay que reconstruirlas. Se
+     * usa la proporción que ya tenía ESA línea del pedido; para un producto que no
+     * estaba pedido no hay proporción que copiar y se deja igual a las cajas, que es lo
+     * único que se sabe con certeza.
+     */
+    const porUnidad = new Map<string, number>();
+
+    for (const it of p.items) {
+      const packs = Number(it.packs) || 0;
+      const unidades = Number(it.unidades) || 0;
+
+      if (packs > 0 && unidades > 0) porUnidad.set(normalizar(it.producto), unidades / packs);
+    }
+
+    const nuevas = r.lineas.map((l) => {
+      const razon = porUnidad.get(normalizar(l.producto)) ?? 1;
+
+      return {
+        pedidoId: p.id,
+        producto: l.producto,
+        codigo: l.codigo ?? null,
+        packs: l.cantidad,
+        unidades: Math.round(l.cantidad * razon),
+        descripcion: null as string | null,
+      };
+    });
+
+    await prisma.$transaction(async (tx) => {
+      // El original, sólo la primera vez. Ver arriba.
+      if (!p.itemsOriginal) {
+        await tx.pedido.update({
+          where: { id: p.id },
+          data: { itemsOriginal: JSON.stringify(p.items) },
+        });
+      }
+      await tx.pedidoItem.deleteMany({ where: { pedidoId: p.id } });
+      await tx.pedidoItem.createMany({ data: nuevas });
+    });
+
+    /**
+     * Y a partir de ahora el pedido CUADRA, porque es la factura.
+     *
+     * Es lo que permite repartirlo: en una ruta sólo entra lo facturado y que cuadre.
+     * `facturaCorregidoAt` deja dicho que cuadra porque se corrigió y no porque viniera
+     * bien — sin esa marca no habría forma de distinguir las dos cosas después.
+     */
+    datos.facturaEstado = 'igual';
+    datos.facturaCorregidoAt = new Date();
     datos.lineasFactura = JSON.stringify(r.lineas);
+    datos.facturaDiferencias = JSON.stringify(r.diferencias);
+    corregido = true;
+  } else if (r.lineas.length > 0) {
+    // Sin corregir, lo facturado se guarda AL LADO para poder verlo y compararlo.
+    datos.lineasFactura = JSON.stringify(r.lineas);
+    if (r.diferencias.length > 0) datos.facturaDiferencias = JSON.stringify(r.diferencias);
   }
 
   /**
-   * Y se deshace lo que se llegó a reescribir.
+   * Y si se apaga el interruptor, los pedidos corregidos VUELVEN a como los tomó el
+   * vendedor. Solos, en la pasada siguiente.
    *
-   * Los pedidos tocados guardaron sus líneas originales en `itemsOriginal`, así que se
-   * pueden devolver tal cual. Se hace aquí, en la pasada normal, para que se arregle solo
-   * en cuanto esto se despliegue y sin tener que entrar a la base a mano.
+   * Es lo que hace que apagar `CORREGIR_DESDE_FACTURA` sea una marcha atrás de verdad y
+   * no un «deja de corregir a partir de ahora», que dejaría media producción reescrita y
+   * la otra media no. `itemsOriginal` se limpia al restaurar para no repetirlo cada diez
+   * minutos.
    */
-  if (p.itemsOriginal) {
+  if (!CORREGIR && p.itemsOriginal) {
     try {
-      const originales = JSON.parse(p.itemsOriginal) as Array<{
-        producto: string; codigo: string | null; unidades: number; packs: number | null; descripcion: string | null;
-      }>;
+      const originales = JSON.parse(p.itemsOriginal) as PedidoConItems['items'];
 
       if (Array.isArray(originales) && originales.length > 0) {
         await prisma.$transaction(async (tx) => {
@@ -233,8 +344,10 @@ async function cotejarUnPedido(
               descripcion: l.descripcion ?? null,
             })),
           });
-          // Se limpia para no volver a restaurar lo mismo en cada pasada.
-          await tx.pedido.update({ where: { id: p.id }, data: { itemsOriginal: null } });
+          await tx.pedido.update({
+            where: { id: p.id },
+            data: { itemsOriginal: null, facturaCorregidoAt: null },
+          });
         });
         corregido = true;
       }
@@ -243,27 +356,27 @@ async function cotejarUnPedido(
     }
   }
 
-  /**
-   * Y el domicilio, que se cobra por peso: si se lleva menos, cuesta menos.
-   *
-   * Se pesa lo que HAY AHORA en el pedido —que después de corregirlo es la factura— con
-   * los pesos de Ventra, y se le pide el precio a delivery. Si falta el peso de alguna
-   * línea no se pide nada: un precio calculado con la mitad de los kilos entra sin
-   * protestar y pisa el que había, que sí estaba bien.
-   */
-  /**
-   * El precio del domicilio ya NO se rehace desde aquí.
-   *
-   * Se recalculaba porque el pedido se reescribía con lo facturado y cambiaba de peso.
-   * Ahora el pedido no se toca, así que su peso es el mismo y su precio también. Cuando
-   * haga falta cobrar por lo facturado, se hará desde donde se decida esa correspondencia
-   * —que hoy no se puede deducir— y no adivinando aquí.
-   */
-
   if (Object.keys(datos).length > 0 || corregido) {
     if (Object.keys(datos).length > 0) await prisma.pedido.update({ where: { id: p.id }, data: datos });
     // Que se vea sin que nadie recargue.
     emitEvent('pedido', { id: p.id, sucursalId: p.sucursalId, accion: 'update' });
+  }
+
+  /**
+   * Y SE LE CUENTA A ENTREGA, que ya le había puesto precio a otra cosa.
+   *
+   * La APK cotizó el domicilio de un pedido que pesaba veinte cajas y ahora pesa quince.
+   * No se le puede preguntar —trabaja sin conexión—, así que hay que avisarle.
+   *
+   * **Sólo si ese pedido YA tiene costo de domicilio puesto.** Si todavía no lo ha
+   * cotizado no hay nada que corregir: cuando le llegue por el camino normal ya vendrá
+   * con lo facturado, y avisarle de un cambio sobre algo que nunca vio es ruido. Y si el
+   * pedido no lleva domicilio, tampoco: no hay precio que rehacer.
+   */
+  if (seCorrige && p.costoDomicilio != null) {
+    await avisarPedidoCambiado(p.id).catch((e) =>
+      console.warn(`[factura] no se pudo avisar a Entrega del pedido ${p.folio}:`, (e as Error).message),
+    );
   }
 
   return { estado: r.estado, corregido };

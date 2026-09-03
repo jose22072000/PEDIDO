@@ -2,7 +2,13 @@ import { Router, type Request } from 'express';
 import { Prisma } from '@prisma/client';
 import prisma from '../prismaClient';
 import { catalogoDeSucursal, unidadesDeVenta } from '../lib/catalogoSucursal';
-import { mapCsvRecords, type OrderRecordDto } from '../dto/orderRecord.dto';
+import {
+  mapCsvRecords,
+  claveDeGrupo,
+  claveDeCliente,
+  type FoliosYaAsignados,
+  type OrderRecordDto,
+} from '../dto/orderRecord.dto';
 import {
   requireSucursalId,
   resolveSucursalFilter,
@@ -816,6 +822,71 @@ async function resolveSeller(name: string, code: string): Promise<SellerResoluti
  * semana; si se reabre uno ya archivado y no se desarchiva, vuelve a la lista... y no
  * aparece, porque la lista esconde lo archivado. Estaría reabierto e invisible.
  */
+/**
+ * PATCH /:id/factura — escribir A MANO el número de factura de un pedido.
+ *
+ * # Para qué
+ *
+ * El cotejo ata cada factura a su pedido por el folio que Ventra escribe en la nota
+ * (`P-PRM25-260901-1808-3`). Pero eso sólo funciona si la nota lo trae, y a veces no: en
+ * La Habana lo traen 44 de 112 líneas. Muchas de las que faltan son ventas libres —el
+ * cliente llegó sin pedido— y ésas están bien así. Otras no.
+ *
+ * Para ésas, alguien que tiene la factura delante escribe el número aquí y se acabó. No
+ * hace falta una pantalla aparte de atar facturas: el sitio donde se dice de qué factura
+ * es un pedido es el propio pedido.
+ *
+ * # Qué NO hace
+ *
+ * No coteja ni corrige las líneas. Escribir un número no es haber comprobado que lo
+ * facturado coincide con lo pedido, y dar por bueno lo segundo desde lo primero sería
+ * meter en un camión algo que nadie miró. El pedido queda como `sin_cotejar` con su
+ * número escrito, y quien lo revise decide.
+ *
+ * Se puede borrar mandando el número vacío: escribir uno equivocado tiene que poder
+ * deshacerse sin entrar a la base.
+ */
+router.patch('/:id/factura', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const crudo = (req.body as { facturaNumero?: unknown })?.facturaNumero;
+    const numero = crudo == null ? '' : String(crudo).trim().slice(0, 120);
+
+    // Mismo permiso que completar un pedido: decir con qué factura salió es de la misma
+    // familia de decisiones que darlo por cerrado.
+    if (!getRequesterContext(req).puedeCompletarPedidos) {
+      return res.status(403).json({
+        error: 'Tu rol no puede escribir el número de factura. Lo hace el Operador o quien lleva la sucursal.',
+      });
+    }
+
+    const { where, error: sucursalError } = alcancePedido(req);
+
+    if (sucursalError || !where) return res.status(400).json({ error: sucursalError });
+
+    const existente = await prisma.pedido.findFirst({ where: { ...where, id }, select: { id: true } });
+
+    if (!existente) return res.status(404).json({ error: 'Pedido no encontrado' });
+
+    const order = await prisma.pedido.update({
+      where: { id },
+      data: {
+        facturaNumero: numero || null,
+        // Cuándo se dijo. Es lo que distingue «nadie lo ha mirado» de «alguien lo miró
+        // hace tres días», que en pantalla se parecen.
+        facturaAt: numero ? new Date() : null,
+      },
+      include: { items: true, cliente: true, vendedor: true, sucursal: { select: { codigo: true } } },
+    });
+
+    emitEvent('pedido', { id: order.id, sucursalId: order.sucursalId, accion: 'update' });
+
+    return res.json(order);
+  } catch (error) {
+    return res.status(500).json({ error: (error as Error).message });
+  }
+});
+
 router.patch('/:id/estado', async (req, res) => {
   try {
     const { id } = req.params;
@@ -1067,6 +1138,58 @@ export type BulkImportOutcome = {
 };
 
 // Núcleo de la importación masiva, compartido por el endpoint (fallback inline) y el
+/**
+ * Qué folio tiene YA cada cliente, para los folios que trae el archivo.
+ *
+ * Se buscan los pedidos cuyo folio sea el base o empiece por `base-`. Se devuelve
+ * `grupo -> (cliente -> folio exacto)`, que es lo que `asignarSufijos` necesita para no
+ * moverle el folio a nadie que ya lo tenga.
+ *
+ * Una sola consulta para todo el archivo: uno por folio serían cientos.
+ */
+async function foliosYaAsignados(
+  registros: OrderRecordDto[],
+  sucursalId: string | null,
+): Promise<FoliosYaAsignados> {
+  const bases = [...new Set(registros.map((r) => r.order.folio))];
+
+  if (bases.length === 0) return new Map();
+
+  const pedidos = await prisma.pedido.findMany({
+    where: {
+      ...(sucursalId ? { sucursalId } : {}),
+      OR: bases.flatMap((b) => [{ folio: b }, { folio: { startsWith: `${b}-` } }]),
+    },
+    select: {
+      folio: true,
+      cliente: { select: { nombre: true } },
+      vendedor: { select: { codigo: true, nombre: true } },
+    },
+  });
+
+  const salida: FoliosYaAsignados = new Map();
+
+  for (const p of pedidos) {
+    if (!p.cliente?.nombre) continue;
+
+    /**
+     * El folio base se saca quitando el sufijo, y sólo si lo que queda es un folio que
+     * el archivo trae. Sin esa comprobación, un folio que de por sí acaba en `-2` se
+     * partiría por la mitad y se ataría al grupo equivocado.
+     */
+    const base = bases.includes(p.folio) ? p.folio : p.folio.replace(/-\d{1,2}$/, '');
+
+    if (!bases.includes(base)) continue;
+    const vendedor = (p.vendedor?.codigo || p.vendedor?.nombre || '').toUpperCase().trim();
+    const clave = `${vendedor}|${base}`;
+
+    if (!salida.has(clave)) salida.set(clave, new Map());
+    salida.get(clave)!.set(claveDeCliente(p.cliente.nombre), p.folio);
+  }
+
+  return salida;
+}
+
 // WORKER (cola Redis). Resuelve los vendedores (rechaza el archivo entero si hay
 // colisión) y procesa cada registro. No usa `res`, para poder correr fuera del request.
 export async function processBulkImport(
@@ -1076,7 +1199,21 @@ export async function processBulkImport(
   // vendedores (vendedor.gestorId === este id). null = sin restricción (admin/superv).
   restrictToGestorId: string | null = null,
 ): Promise<BulkImportOutcome> {
-  const mappedRecords = mapCsvRecords(records);
+  /**
+   * Antes de repartir los folios, se mira QUÉ FOLIO TIENE YA CADA CLIENTE.
+   *
+   * Un vendedor mete a todos sus clientes de la jornada bajo un folio y aquí se separan
+   * con `-1`, `-2`… Si eso se decidiera sólo con el archivo que llega, un reimporte con
+   * las filas en otro orden le cambiaría el folio a un cliente que ya lo tenía — y con él
+   * se iría la factura de Ventra, porque el operador copia este folio a la nota. Ver
+   * `asignarSufijos`.
+   *
+   * Se mapea sin sufijos primero para saber qué folios base trae el archivo, se pregunta
+   * por ellos, y con la respuesta se reparte.
+   */
+  const previos = mapCsvRecords(records);
+  const yaAsignados = await foliosYaAsignados(previos, uploaderSucursalId);
+  const mappedRecords = mapCsvRecords(records, yaAsignados);
 
   // Resolvemos TODOS los vendedores antes de importar: si alguno colisiona, se rechaza
   // el archivo completo (misma regla que siempre).
