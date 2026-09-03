@@ -139,9 +139,33 @@ X-Webhook-Signature: sha256=<hmac del cuerpo>
 ```json
 { "entregas": [
     { "pedidoId": "cmpo...", "costo": 14.44, "distanciaKm": 3.2 },
+    { "pedidoId": "cmpq...", "costo": 11.80, "distanciaKm": 2.4,
+      "latitud": 21.3811, "longitud": -77.9172, "distanciaDesde": "almacen:HAB" },
     { "folio": "12346", "vendedorCodigo": "andy.almanza", "costo": 9.10 }
 ] }
 ```
+
+### Y de paso, DÓNDE VIVE EL CLIENTE
+
+`latitud` y `longitud` son opcionales y **son la forma de arreglar el mayor problema que
+tenemos hoy**: hay clientes que llegan de Parranda sin coordenadas, y a un cliente sin
+coordenadas no se le puede cotizar el domicilio, ni ponerlo en un mapa, ni meterlo en una
+ruta. Quien va a llevarle el pedido está delante de la puerta: es el único momento en que
+ese dato es fácil.
+
+- Mándalas cuando la tablet esté **en casa del cliente**, con la ubicación del
+  dispositivo. O escritas a mano si se averiguan por teléfono.
+- Se guardan en el cliente, no en el pedido: sirven para **todos** sus pedidos siguientes.
+- Si ya tenía coordenadas, se corrigen y **lo anterior queda guardado**. No se pierde nada.
+- Se descartan las que caen fuera de Cuba y las idénticas a las que ya había. La
+  respuesta lo dice: mira `aplicadas[].guardado`, que trae `ubicacionCliente` cuando la
+  ubicación entró de verdad.
+
+`distanciaDesde` dice desde qué punto mediste (`"almacen:HAB"`). Sin eso la distancia es
+un número sin contexto y no se puede volver a usar.
+
+**Esto ya está funcionando de nuestro lado.** No hay que desplegar nada aquí: en cuanto
+la APK empiece a mandarlo, entra.
 
 - **En lote**, hasta 500 por llamada.
 - **Idempotente**: mandar dos veces lo mismo deja lo mismo. Ante la duda, reintenta.
@@ -184,6 +208,56 @@ POST https://pedidos.procovar.cloud/api/webhooks/ping
 Mismas cabeceras, el cuerpo que quieras. Devuelve `{ "ok": true }` si la firma cuadra.
 Es lo primero que hay que hacer: si esto no pasa, el problema es de firma y no de datos.
 
+## 3. Cuando un pedido CAMBIA después de que lo cotizaste
+
+Esto es nuevo y es lo que falta por hacer en los dos lados.
+
+El cliente pide veinte cajas y se lleva quince. Eso se ve al facturar, y para entonces tú
+ya le pusiste precio al domicilio de un pedido que pesaba otra cosa. Como la APK trabaja
+sin conexión, no hay forma de preguntarte: hay que avisarte.
+
+```json
+{
+  "evento": "pedido.cambiado",
+  "pedidoId": "cmpo...", "folio": "PRM25-260901-1808-3",
+  "facturaNumero": "1024348",
+  "motivo": "la factura cambió lo pedido",
+
+  "costoDomicilioActual": 14.44,
+
+  "items": [ ... ],
+  "pesoTotalKg": 12.10,
+  "pesoTotalAnteriorKg": 16.445,
+  "totalMercancia": 38.20,
+
+  "cliente": { ... }
+}
+```
+
+Es el mismo cuerpo de `domicilio.solicitado` con tres cosas más: el número de factura, el
+peso que tenía antes, y el costo que tú ya habías puesto. Lo que se espera de vuelta es lo
+mismo de siempre —una entrega con el costo nuevo— por la misma URL de entrada.
+
+### La regla que decide si te llega
+
+**Sólo se avisa de los pedidos que YA tienen costo de domicilio puesto.**
+
+Si un pedido cambió y todavía no lo has cotizado, no te mandamos nada: cuando te llegue
+por el camino normal ya vendrá con lo facturado, y avisarte de un cambio sobre algo que
+nunca viste es ruido. Y si el pedido no lleva domicilio, tampoco.
+
+O sea, te llega si y sólo si:
+
+1. El cotejo contra la factura dejó el pedido en `cambiado`, **y**
+2. ese pedido ya tiene `costoDomicilio` con valor.
+
+### Y por qué el folio lleva sufijo
+
+Verás folios como `PRM25-260901-1808-3`. Un vendedor usa **un folio para toda su jornada**
+y mete debajo a todos sus clientes; nosotros los separamos añadiendo `-1`, `-2`… Cada uno
+es un pedido distinto, de un cliente distinto. El sufijo forma parte del folio: trátalo
+como texto y no intentes quitárselo.
+
 ## Qué contestamos cuando algo va mal
 
 | Código | Qué pasó | Qué hacer |
@@ -198,8 +272,13 @@ llegó bien y hay algo concreto que arreglar en esa entrega. El motivo lo dice.
 
 ## Lo que ya no hace delivery
 
-Delivery **deja de calcular domicilios**. Se queda sólo con las rutas manuales y con ver
-los pedidos. Todo el cálculo pasa por aquí.
+Delivery **no calcula ningún precio** (03/09/2026). Llegó a tener cinco fórmulas escritas
+y varias vivas a la vez, así que el mismo pedido costaba una cosa u otra según por dónde
+entrara. Se quitaron todas, con la pantalla que las configuraba.
+
+El precio del domicilio es **tuyo y de nadie más**. Delivery se queda con lo suyo: el peso
+—para saber si la carga cabe en el camión—, la distancia y el recorrido, las rutas y el
+pre y post-despacho.
 
 Los endpoints de lectura (`GET /integration/orders`, `GET /integration/clients`,
 `GET /productos`) siguen igual y son tuyos: los webhooks te avisan **cuándo** pasa algo,

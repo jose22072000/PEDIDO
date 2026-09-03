@@ -187,6 +187,22 @@ model Pedido {
     /// El pedido se queda como lo tomó el vendedor. Esto es lo que se llevó el cliente, y
     /// se enseña al lado para poder comparar.
     lineasFactura      String?
+    /// Cuándo se CORRIGIÓ el pedido con lo que decía la factura.
+    ///
+    /// Distingue las dos formas de cuadrar, que no son la misma: un pedido que se tomó
+    /// bien y coincidió, y uno que no coincidía y se reescribió con lo facturado. Sin
+    /// esta marca los dos quedan en `igual` y no hay forma de saber cuál fue cuál —ni de
+    /// contar cuántos está corrigiendo el sistema, que es lo primero que hay que vigilar
+    /// después de encender esto.
+    ///
+    /// Lo que el vendedor había tomado queda en `itemsOriginal`.
+    facturaCorregidoAt DateTime?
+    /// En qué se diferenciaban, en palabras. JSON en texto.
+    ///
+    /// «ARROZ: pedido 24, facturado 54». Es lo que se le enseña al vendedor y lo que va
+    /// en el aviso a Entrega; recalcularlo comparando dos listas cada vez que alguien
+    /// abre el pedido es rehacer un trabajo que ya estaba hecho.
+    facturaDiferencias String?
     /// En qué punto del REPARTO está el pedido. Lo escribe delivery.
     ///
     ///   despachado   — se cargó en el camión (la ruta se creó con él dentro).

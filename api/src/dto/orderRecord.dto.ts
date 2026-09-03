@@ -142,7 +142,11 @@ export function mapCsvToOrderRecord(csvRecord: any, convencion: Convencion = 'is
 }
 
 // Batch mapper for multiple records with folio suffix logic
-export function mapCsvRecords(csvRecords: any[]): OrderRecordDto[] {
+export function mapCsvRecords(
+  csvRecords: any[],
+  /** Lo que ya está guardado, para no moverle el folio a nadie. Ver `asignarSufijos`. */
+  yaAsignados: FoliosYaAsignados = new Map(),
+): OrderRecordDto[] {
   /**
    * Cómo lee las fechas ESTE archivo, decidido con todas a la vez.
    *
@@ -158,52 +162,135 @@ export function mapCsvRecords(csvRecords: any[]): OrderRecordDto[] {
   // First, map all records
   const mappedRecords = csvRecords.map((r) => mapCsvToOrderRecord(r, convencion));
   
-  // Group records by vendedor + folio to detect multiple clients
-  const folioGroups = new Map<string, OrderRecordDto[]>();
-  
-  mappedRecords.forEach(record => {
-    const key = `${record.seller.name}|${record.order.folio}`;
-    if (!folioGroups.has(key)) {
-      folioGroups.set(key, []);
+  return asignarSufijos(mappedRecords, yaAsignados);
+}
+
+/** Sin tildes, sin signos y en mayúsculas: para reconocer al mismo cliente escrito a mano. */
+export function claveDeCliente(nombre: string): string {
+  return (nombre || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, ' ')
+    .trim();
+}
+
+/** La clave del grupo: un folio es de UN vendedor. Dos vendedores pueden repetirlo. */
+export function claveDeGrupo(r: OrderRecordDto): string {
+  return `${(r.seller.code || r.seller.name).toUpperCase().trim()}|${r.order.folio}`;
+}
+
+/**
+ * Los folios que YA existen en la base para un folio base, y de qué cliente es cada uno.
+ *
+ * Mapa `claveDeGrupo` -> (clave del cliente -> folio exacto que ya tiene).
+ */
+export type FoliosYaAsignados = Map<string, Map<string, string>>;
+
+/**
+ * Repartir los clientes que comparten folio, SIN moverle el suyo a ninguno.
+ *
+ * # Qué es esto
+ *
+ * Un vendedor usa **un folio para toda su jornada** y mete debajo a todos sus clientes.
+ * En La Habana, `PRM25-260901-1808` son seis pedidos de seis clientes distintos. Aquí se
+ * separan: el folio base para uno, y `-1`, `-2`… para los demás.
+ *
+ * No es un caso raro: desde el 1 de agosto hay 1.677 folios así, y en Santiago son 1.038
+ * de 3.008 pedidos.
+ *
+ * # El fallo que esto corrige
+ *
+ * El sufijo se asignaba por el ORDEN en que los clientes aparecían en el CSV. Y ese orden
+ * no es estable: los archivos llegan por tandas y se reimportan. Al reimportar con los
+ * clientes en otro orden, TCP ANA pasaba de `-3` a `-4` **y se quedaba con la factura de
+ * otro** — porque el operador copia el folio de aquí a la nota de Ventra, y esa nota es
+ * lo único que ata una factura a un pedido.
+ *
+ * Un pedido con la factura de otro parece correcto y nadie lo mira. Ése es el error caro.
+ *
+ * # Cómo se arregla
+ *
+ * El folio de un cliente se decide UNA vez y no se le vuelve a tocar. Si ya tiene uno en
+ * la base, se conserva tal cual. Sólo los clientes NUEVOS reciben número, y toman el
+ * primero libre.
+ *
+ * Y los nuevos se ordenan por nombre antes de repartir, para que reimportar el mismo
+ * archivo con las filas en otro orden dé exactamente el mismo resultado.
+ */
+export function asignarSufijos(
+  registros: OrderRecordDto[],
+  yaAsignados: FoliosYaAsignados = new Map(),
+): OrderRecordDto[] {
+  const grupos = new Map<string, OrderRecordDto[]>();
+
+  for (const r of registros) {
+    const clave = claveDeGrupo(r);
+
+    if (!grupos.has(clave)) grupos.set(clave, []);
+    grupos.get(clave)!.push(r);
+  }
+
+  const salida: OrderRecordDto[] = [];
+
+  for (const [claveGrupo, delGrupo] of grupos) {
+    const base = delGrupo[0].order.folio;
+    const conocidos = yaAsignados.get(claveGrupo) ?? new Map<string, string>();
+
+    // Los clientes de este folio EN ESTE ARCHIVO, cada uno con sus filas.
+    const porCliente = new Map<string, OrderRecordDto[]>();
+
+    for (const r of delGrupo) {
+      const c = claveDeCliente(r.client.nombre);
+
+      if (!porCliente.has(c)) porCliente.set(c, []);
+      porCliente.get(c)!.push(r);
     }
-    folioGroups.get(key)!.push(record);
-  });
-  
-  // Process each group to detect multiple clients and add suffixes
-  const processedRecords: OrderRecordDto[] = [];
-  
-  folioGroups.forEach((records, key) => {
-    // Get unique clients in this folio group
-    const clientMap = new Map<string, OrderRecordDto[]>();
-    
-    records.forEach(record => {
-      const clientKey = record.client.nombre;
-      if (!clientMap.has(clientKey)) {
-        clientMap.set(clientKey, []);
-      }
-      clientMap.get(clientKey)!.push(record);
-    });
-    
-    // If only one client, no suffix needed
-    if (clientMap.size === 1) {
-      processedRecords.push(...records);
-    } else {
-      // Multiple clients with same folio - add suffixes
-      let clientIndex = 1;
-      clientMap.forEach((clientRecords) => {
-        clientRecords.forEach(record => {
-          processedRecords.push({
-            ...record,
-            order: {
-              ...record.order,
-              folio: `${record.order.folio}-${clientIndex}`,
-            },
-          });
-        });
-        clientIndex++;
-      });
+
+    /**
+     * Un solo cliente y ninguno guardado antes: el folio se queda como vino.
+     *
+     * Es el caso corriente —la inmensa mayoría de los folios son de un cliente— y no
+     * tiene por qué llevar un `-1` que no significa nada.
+     */
+    if (porCliente.size === 1 && conocidos.size === 0) {
+      salida.push(...delGrupo);
+      continue;
     }
-  });
-  
-  return processedRecords;
+
+    // Lo que ya está ocupado: lo de la base, y lo que se vaya dando aquí.
+    const ocupados = new Set<string>(conocidos.values());
+    const asignado = new Map<string, string>();
+    const nuevos: string[] = [];
+
+    for (const c of porCliente.keys()) {
+      const suyo = conocidos.get(c);
+
+      if (suyo) asignado.set(c, suyo);
+      else nuevos.push(c);
+    }
+
+    // Por nombre, no por orden de aparición: así el mismo archivo da siempre lo mismo.
+    nuevos.sort();
+
+    let n = 0;
+
+    for (const c of nuevos) {
+      let folio = ocupados.has(base) ? `${base}-${++n}` : base;
+
+      // Y si ese número también estaba dado, se sigue buscando. Puede pasar cuando la
+      // base tiene huecos porque un pedido se borró.
+      while (ocupados.has(folio)) folio = `${base}-${++n}`;
+      ocupados.add(folio);
+      asignado.set(c, folio);
+    }
+
+    for (const [c, filas] of porCliente) {
+      const folio = asignado.get(c) as string;
+
+      for (const r of filas) salida.push({ ...r, order: { ...r.order, folio } });
+    }
+  }
+
+  return salida;
 }

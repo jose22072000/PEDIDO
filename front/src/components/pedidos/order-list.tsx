@@ -84,6 +84,23 @@ const facturaChip: Record<string, { color: "success" | "warning" | "default"; te
 };
 
 /**
+ * Un pedido que CUADRA porque se corrigió no es lo mismo que uno que vino bien.
+ *
+ * Los dos quedan en `igual` —cuadran con la factura, y por eso se pueden repartir— pero
+ * uno se tomó bien y el otro se reescribió con lo facturado. Quien mira el pedido tiene
+ * que poder ver cuál es cuál: si no, el vendedor abre el suyo, ve otras cantidades de las
+ * que tomó, y lo único que puede pensar es que alguien se las cambió a escondidas.
+ */
+const chipDeFactura = (
+  order: { facturaEstado?: string | null; facturaCorregidoAt?: string | null },
+): { color: "success" | "warning" | "default"; texto: string } | null => {
+  if (order.facturaCorregidoAt) {
+    return { color: "warning", texto: "Corregido con la factura" };
+  }
+  return order.facturaEstado ? facturaChip[order.facturaEstado] ?? null : null;
+};
+
+/**
  * Las líneas de la factura, que se guardan en TEXTO.
  *
  * En JSON y no en una tabla aparte porque es una foto: no se consulta, no se filtra y no
@@ -103,14 +120,23 @@ function lineasDeFactura(
 }
 
 /**
- * En qué punto del reparto va el pedido. Lo pone delivery.
+ * En qué punto del REPARTO va el pedido. Lo pone delivery, y es OTRA COSA que el estado.
  *
- * `devuelto` y `cancelado` van en rojo porque son los que hay que mirar: significan
- * mercancía que volvió al almacén y dinero que no entró.
+ * Un pedido tiene tres estados a la vez y ninguno manda sobre los otros: el suyo —en
+ * proceso, completado, expirado, que lo mueve el vendedor—, el del reparto que es éste, y
+ * el de la factura. Entregar un pedido NO lo completa, y facturarlo tampoco: completar es
+ * del vendedor. Meterlos en el mismo campo rompe el archivado, el expirado y los filtros
+ * de la lista a la vez.
+ *
+ * Los nombres son los cuatro que se usan en delivery. Los de la izquierda son los valores
+ * que se guardan, que no se tocan: hay meses de pedidos escritos con ellos.
+ *
+ * `devuelto` y `cancelado` no son un punto del reparto sino cómo ACABÓ, y van en rojo
+ * porque son los que hay que mirar: mercancía que volvió al almacén y dinero que no entró.
  */
 const entregaChip: Record<string, { color: "success" | "warning" | "primary" | "danger"; texto: string }> = {
-  despachado: { color: "primary", texto: "Despachado" },
-  en_transito: { color: "warning", texto: "En tránsito" },
+  despachado: { color: "primary", texto: "En despacho" },
+  en_transito: { color: "warning", texto: "En ruta" },
   entregado: { color: "success", texto: "Entregado" },
   devuelto: { color: "danger", texto: "Devuelto" },
   cancelado: { color: "danger", texto: "Cancelado" },
@@ -505,6 +531,60 @@ export const OrdersList = () => {
    * @param fondo  recarga silenciosa: sin esqueleto y sin pintar errores. La usa el
    *               SSE cuando llega un cambio masivo que no se puede aplicar en sitio.
    */
+
+  /**
+   * Escribir A MANO el número de la factura de un pedido.
+   *
+   * El cotejo ata cada factura a su pedido por el folio que Ventra escribe en la nota, y
+   * eso funciona cuando la nota lo trae. En La Habana lo traen 44 de 112 líneas: muchas de
+   * las que faltan son ventas libres —el cliente llegó sin pedido— y ésas están bien así,
+   * pero otras no.
+   *
+   * Para ésas, quien tiene la factura delante escribe el número aquí. No hace falta una
+   * pantalla aparte de atar facturas: el sitio donde se dice de qué factura es un pedido
+   * es el propio pedido.
+   *
+   * Vacío lo borra: escribir uno equivocado tiene que poder deshacerse.
+   */
+  const [facturaAMano, setFacturaAMano] = useState("");
+  const [guardandoFactura, setGuardandoFactura] = useState(false);
+
+  const handleGuardarFactura = useCallback(
+    async (orderId: string, numero: string) => {
+      setGuardandoFactura(true);
+      try {
+        const response = await fetch(`${getApiBaseUrl()}/orders/${orderId}/factura`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ facturaNumero: numero.trim() }),
+        });
+
+        if (!response.ok) {
+          throw new Error(
+            await mensajeDeError(response, "No se pudo guardar el número de factura"),
+          );
+        }
+        void fetchOrders(true);
+        addToast({
+          title: numero.trim() ? "Factura guardada" : "Factura borrada",
+          description: numero.trim()
+            ? `El pedido queda con la factura ${numero.trim()}.`
+            : "El pedido se queda sin número de factura.",
+          color: "success",
+        });
+      } catch (err) {
+        addToast({
+          title: "No se guardó",
+          description:
+            err instanceof Error ? err.message : "No se pudo guardar el número de factura",
+          color: "danger",
+        });
+      } finally {
+        setGuardandoFactura(false);
+      }
+    },
+    [fetchOrders],
+  );
 
   const handleCompletarOrder = useCallback(
     async (orderId: string) => {
@@ -1010,22 +1090,23 @@ export const OrdersList = () => {
                           Archivado
                         </Chip>
                       )}
-                      {order.facturaEstado &&
-                        facturaChip[order.facturaEstado] && (
+                      {chipDeFactura(order) && (
                           <Tooltip
                             content={
-                              order.facturaNumero
-                                ? `Factura ${order.facturaNumero}`
-                                : "Comprobado contra la facturación de Ventra"
+                              order.facturaCorregidoAt
+                                ? `El pedido se reescribió con lo que dice la factura ${order.facturaNumero ?? ""}. Lo que tomaste se guardó.`
+                                : order.facturaNumero
+                                  ? `Factura ${order.facturaNumero}`
+                                  : "Comprobado contra la facturación de Ventra"
                             }
                           >
                             <Chip
                               className="sm:-translate-y-7"
-                              color={facturaChip[order.facturaEstado].color}
+                              color={chipDeFactura(order)!.color}
                               size="sm"
                               variant="flat"
                             >
-                              {facturaChip[order.facturaEstado].texto}
+                              {chipDeFactura(order)!.texto}
                             </Chip>
                           </Tooltip>
                         )}
@@ -1578,6 +1659,53 @@ export const OrdersList = () => {
                       el pedido con la factura y salió mal: un cliente con varios pedidos
                       el mismo día acababa con la misma factura copiada en todos.
                     */}
+                    {/*
+                      ESCRIBIR LA FACTURA A MANO.
+
+                      Sólo cuando el cotejo no la encontró. Si ya la ató por el folio, el
+                      número está bien y ofrecer cambiarlo es invitar a estropearlo.
+                    */}
+                    {selectedOrder &&
+                      !selectedOrder.facturaCorregidoAt &&
+                      selectedOrder.facturaEstado !== "igual" && (
+                        <div className="mt-3 rounded-lg border border-default-200 p-3">
+                          <p className="text-sm font-semibold text-default-700">
+                            Número de factura
+                          </p>
+                          <p className="mt-1 text-xs text-default-500">
+                            Cuando la nota de la factura no trae el folio del pedido, se
+                            escribe aquí. Si el cliente vino sin pedido y se le vendió
+                            libre, no hay nada que escribir.
+                          </p>
+                          <div className="mt-2 flex items-center gap-2">
+                            <Input
+                              placeholder={selectedOrder.facturaNumero ?? "1024348"}
+                              size="sm"
+                              value={facturaAMano}
+                              onValueChange={setFacturaAMano}
+                            />
+                            <Button
+                              color="primary"
+                              isDisabled={guardandoFactura}
+                              size="sm"
+                              onPress={() => {
+                                void handleGuardarFactura(selectedOrder.id, facturaAMano);
+                                setFacturaAMano("");
+                              }}
+                            >
+                              Guardar
+                            </Button>
+                          </div>
+                          {selectedOrder.facturaNumero && (
+                            <p className="mt-2 text-xs text-default-500">
+                              Ahora dice{" "}
+                              <span className="font-mono">{selectedOrder.facturaNumero}</span>.
+                              Guardar vacío lo borra.
+                            </p>
+                          )}
+                        </div>
+                      )}
+
                     {selectedOrder?.lineasFactura && (
                       <details className="mt-3 rounded-lg border border-default-200 p-3" open>
                         <summary className="cursor-pointer text-sm font-semibold text-default-700">

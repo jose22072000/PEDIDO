@@ -144,6 +144,87 @@ export function notifyPedidoCompletado(p: {
 }
 
 /**
+ * Avisarle a ENTREGA de que un pedido cambió DESPUÉS de que ella le pusiera precio.
+ *
+ * # Por qué
+ *
+ * El cliente pide veinte cajas y se lleva quince. Eso se ve al facturar, y para entonces
+ * el repartidor ya cotizó el domicilio de un pedido que pesaba otra cosa. La APK trabaja
+ * sin conexión: no se le puede preguntar, hay que contárselo.
+ *
+ * # A quién se avisa, y a quién NO
+ *
+ * **Sólo a los pedidos que YA tienen costo de domicilio puesto.** Si Entrega todavía no
+ * lo ha cotizado no hay nada que corregir: cuando le llegue por el camino normal ya
+ * vendrá con lo facturado. Avisar de un cambio sobre algo que nunca vio es ruido, y el
+ * ruido en un aviso es lo que hace que se dejen de mirar.
+ *
+ * Esa condición la comprueba quien llama —es donde se sabe—, y aquí se vuelve a mirar por
+ * si acaso: es un aviso que sale de la casa, y cuesta menos comprobarlo dos veces que
+ * explicar después por qué llegaron trescientos que no tocaban.
+ *
+ * # Best-effort
+ *
+ * Si Entrega no contesta, aquí no se rompe nada: el pedido ya está corregido y el aviso
+ * se pierde. Va por la cola durable, así que se reintenta solo.
+ */
+export async function avisarPedidoCambiado(pedidoId: string): Promise<void> {
+  const p = await prisma.pedido.findUnique({
+    where: { id: pedidoId },
+    select: {
+      id: true,
+      folio: true,
+      costoDomicilio: true,
+      requiere_domicilio: true,
+      facturaNumero: true,
+      facturaDiferencias: true,
+      itemsOriginal: true,
+      sucursal: { select: { codigo: true, nombre: true } },
+      cliente: {
+        select: {
+          codigo: true, nombre: true, direccion: true, municipio: true,
+          telefono: true, latitud: true, longitud: true,
+        },
+      },
+      items: { select: { producto: true, codigo: true, unidades: true, packs: true } },
+    },
+  });
+
+  // Sin costo puesto no hay nada que rehacer. Ver arriba.
+  if (!p || p.costoDomicilio == null) return;
+
+  /** Lo que pesaba ANTES, para que Entrega pueda ver de cuánto a cuánto se movió. */
+  let itemsAnteriores: unknown = null;
+
+  if (p.itemsOriginal) {
+    try {
+      itemsAnteriores = JSON.parse(p.itemsOriginal);
+    } catch {
+      // Un JSON ilegible no puede impedir el aviso: lo importante es lo de AHORA.
+    }
+  }
+
+  await entregarWebhook('domicilio', {
+    evento: 'pedido.cambiado',
+    pedidoId: p.id,
+    folio: p.folio,
+    facturaNumero: p.facturaNumero,
+    motivo: 'la factura cambió lo pedido',
+    // Lo que Entrega ya había cobrado. Es lo que tiene que rehacer.
+    costoDomicilioActual: p.costoDomicilio,
+    requiereDomicilio: p.requiere_domicilio,
+    sucursalCodigo: p.sucursal?.codigo ?? null,
+    sucursalNombre: p.sucursal?.nombre ?? null,
+    cliente: p.cliente,
+    // Lo que el pedido dice AHORA, que es lo facturado.
+    items: p.items,
+    // Y lo que decía antes, para poder comparar. Null si no se guardó.
+    itemsAnteriores,
+    diferencias: p.facturaDiferencias ? JSON.parse(p.facturaDiferencias) : [],
+  });
+}
+
+/**
  * Siembra la config de un destino desde el entorno, si viene, la PRIMERA vez.
  *
  * Sólo rellena lo que está VACÍO: nunca pisa lo que alguien puso en la pantalla de

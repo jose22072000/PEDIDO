@@ -76,6 +76,10 @@ export interface Order {
    */
   facturaEstado?: string | null;
   facturaNumero?: string | null;
+  /** Cuándo se reescribió el pedido con lo que decía la factura. Null = vino bien. */
+  facturaCorregidoAt?: string | null;
+  /** En qué se diferenciaba, en palabras. JSON en texto. */
+  facturaDiferencias?: string | null;
   facturaAt?: string | null;
   /**
    * Lo que dice la FACTURA, en JSON, al lado del pedido.
