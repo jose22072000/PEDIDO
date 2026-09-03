@@ -65,12 +65,18 @@ const soloFecha = (d: Date) => d.toISOString().slice(0, 10);
 /**
  * Si el pedido se corrige con lo que dice la factura.
  *
- * Encendido por defecto: es lo que se pidió —que el vendedor no tenga que cambiar nada—
- * y ya se puede hacer sin adivinar, porque las facturas se atan por folio. Se apaga con
- * `CORREGIR_DESDE_FACTURA=false` y todo vuelve a como estaba sin desplegar nada; lo que
- * ya se hubiera corregido se devuelve solo desde `itemsOriginal` en la pasada siguiente.
+ * **APAGADO por defecto, y a propósito.**
+ *
+ * Esto ya se desplegó una vez encendido y salió mal: la misma factura acabó copiada en 40
+ * de 207 pedidos. Ahora empareja por folio y no puede repetirse, pero un código que
+ * reescribe pedidos de producción no entra encendido el día que se despliega. Entra
+ * inerte, alguien mira una pasada del cotejo, y entonces se enciende.
+ *
+ * Se enciende con `CORREGIR_DESDE_FACTURA=true`. Apagarlo después devuelve solos todos
+ * los pedidos corregidos a como los tomó el vendedor, desde `itemsOriginal`, en la pasada
+ * siguiente — así que la marcha atrás es una variable y no un despliegue.
  */
-const CORREGIR = process.env.CORREGIR_DESDE_FACTURA !== 'false';
+const CORREGIR = process.env.CORREGIR_DESDE_FACTURA === 'true';
 
 /** Mismo cruce de nombres que el sondeo del catálogo: los slugs de Ventra no se adivinan. */
 function normalizar(s: string): string {
