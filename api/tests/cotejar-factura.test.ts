@@ -5,7 +5,7 @@
  * más y se cobra de menos; si dice «cambiado» cuando sí cuadra, ese pedido se queda sin
  * repartir. Las dos cosas se ven al final del día, y para entonces ya pasó.
  */
-import test from 'node:test'
+import test, { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { cotejar, mismoProducto, clavesDeProducto } from '../src/lib/cotejarFactura.ts'
 
@@ -116,3 +116,96 @@ test('sin línea de domicilio, no se inventa un cobro', () => {
   // null y no cero: cero se lee como «se repartió gratis», y esto es «se recogió».
   assert.equal(r.domicilioFacturado, null)
 })
+
+/**
+ * Productos de la MISMA familia, que sólo se diferencian en el sabor o la marca.
+ *
+ * Es el fallo que vio Amado el 04/09/2026: un pedido idéntico a su factura salía
+ * «cambiado» con dos diferencias inventadas, sólo porque la factura listaba los
+ * productos en otro orden.
+ */
+describe('familias de productos que se parecen mucho', () => {
+  const refrescos = (nombre: string, packs: number, codigo?: string) => ({
+    producto: nombre, packs, unidades: packs * 24, codigo: codigo ?? null,
+  });
+  const facturado = (nombre: string, cantidad: number, codigo?: string) => ({
+    operNumber: '43455', clienteNombre: 'X', productoNombre: nombre,
+    productoCodigo: codigo ?? null, cantidad, precioUsd: 1,
+  });
+
+  it('el ORDEN de la factura no cambia el resultado', () => {
+    // Tres refrescos que comparten cinco palabras: refresco, santa, 330, caja, 24u.
+    const pedido = [
+      refrescos('REFRESCO REFRESCO SANTA ORANGE 330ML CAJA 24U', 8),
+      refrescos('REFRESCO REFRESCO SANTA COLA 330ML CAJA 24U', 5),
+      refrescos('REFRESCO REFRESCO SANTA PINA 330ML CAJA 24U', 7),
+    ];
+    // La factura los lista al revés, que es lo que rompía.
+    const factura = [
+      facturado('REFRESCO SANTA PINA 330 ML CAJA 24U', 7),
+      facturado('REFRESCO SANTA COLA 330 ML CAJA 24U', 5),
+      facturado('REFRESCO SANTA ORANGE 330 ML CAJA 24U', 8),
+    ];
+    const r = cotejar(pedido, factura);
+
+    assert.deepEqual(r.diferencias, []);
+    assert.equal(r.estado, 'igual');
+  });
+
+  it('y si de verdad cambia una cantidad, se dice de CUÁL', () => {
+    const r = cotejar(
+      [refrescos('REFRESCO REFRESCO SANTA ORANGE 330ML CAJA 24U', 8),
+       refrescos('REFRESCO REFRESCO SANTA PINA 330ML CAJA 24U', 7)],
+      [facturado('REFRESCO SANTA PINA 330 ML CAJA 24U', 7),
+       facturado('REFRESCO SANTA ORANGE 330 ML CAJA 24U', 3)],
+    );
+
+    assert.equal(r.diferencias.length, 1);
+    assert.match(r.diferencias[0], /ORANGE.*pedido 8, facturado 3/);
+  });
+
+  it('el mismo arroz de dos marcas no se confunde', () => {
+    const r = cotejar(
+      [{ producto: 'ALIMENTOS ARROZ RIVIERA 1 KG PACA 10U', packs: 10, unidades: 100 }],
+      [facturado('ARROZ PATEKO 1 KG PACA 10U', 10),
+       facturado('ARROZ RIVIERA 1 KG PACA 10U', 10)],
+    );
+
+    // RIVIERA cuadra; PATEKO sobra y se dice.
+    assert.equal(r.diferencias.length, 1);
+    assert.match(r.diferencias[0], /PATEKO.*no pedido/);
+  });
+
+  it('el mismo aceite en dos tamanos tampoco', () => {
+    const r = cotejar(
+      [{ producto: 'ACEITE SOYA SAUDE 900 ML CAJA 20U', packs: 4, unidades: 80 }],
+      [facturado('ACEITE SOYA SAUDE 500 ML CAJA 20U', 9),
+       facturado('ACEITE SOYA SAUDE 900 ML CAJA 20U', 4)],
+    );
+
+    assert.equal(r.diferencias.length, 1);
+    assert.match(r.diferencias[0], /500.*no pedido/);
+  });
+
+  it('el CODIGO manda sobre el parecido del nombre', () => {
+    // Ventra escribe los nombres a su manera. Cuando los dos lados traen codigo, no hay
+    // nada que interpretar.
+    const r = cotejar(
+      [refrescos('REFRESCO PARRANDA 1.5L', 5, 'PARR0003')],
+      [facturado('CERVEZA PARRANDA 1500 ML BLISTER 6U', 5, 'PARR0003')],
+    );
+
+    assert.deepEqual(r.diferencias, []);
+  });
+
+  it('dos candidatas empatadas NO se eligen a cara o cruz', () => {
+    // Si no se puede distinguir, se dice. Acertar a medias es como se pierde mercancia.
+    const r = cotejar(
+      [{ producto: 'REFRESCO SANTA 330 ML CAJA 24U', packs: 5, unidades: 120 }],
+      [facturado('REFRESCO SANTA COLA 330 ML CAJA 24U', 5),
+       facturado('REFRESCO SANTA PINA 330 ML CAJA 24U', 5)],
+    );
+
+    assert.ok(r.diferencias.length >= 1);
+  });
+});
