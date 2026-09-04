@@ -1388,7 +1388,7 @@ export const OrdersList = () => {
         classNames={{
           // Se ensancha SÓLO cuando la nota está abierta. Fijo en el ancho de dos, un
           // pedido sin factura se quedaría con medio modal vacío al lado.
-          base: verFactura ? "max-w-[80rem]" : "",
+          base: `transition-[max-width] duration-300 ${verFactura ? "max-w-[80rem]" : ""}`,
         }}
         isDismissable={false}
         isOpen={isOpen}
@@ -1399,7 +1399,7 @@ export const OrdersList = () => {
       >
         <ModalContent className="bg-transparent shadow-none">
           {() => (
-            <div className="flex w-full flex-col items-stretch gap-4 lg:flex-row">
+            <div className="flex w-full flex-col items-stretch lg:flex-row">
             {/*
               DOS TARJETAS, UNA AL LADO DE LA OTRA. No una columna dentro del pedido.
 
@@ -1418,7 +1418,7 @@ export const OrdersList = () => {
               así fue como quedó un detalle de pedido que no había forma de cerrar.
               Escrita a mano, dentro de la cabecera del pedido, no puede desaparecer.
             */}
-              <div className="flex min-w-0 flex-1 flex-col rounded-large bg-content1 shadow-medium">
+              <div className="relative z-10 flex min-w-0 flex-1 flex-col rounded-large bg-content1 shadow-medium">
               <ModalHeader className="flex flex-col gap-1">
                 <div className="flex w-full items-start justify-between gap-3">
                   <div className="flex flex-wrap items-center gap-3">
@@ -1990,8 +1990,32 @@ export const OrdersList = () => {
                       del modal se quedaba debajo, así que no había forma de cerrarlo. En
                       un modal esa metáfora no cabe.
                     */}
-                    {verFactura && selectedOrder?.lineasFactura && (
-                      <aside className="flex shrink-0 flex-col gap-2 self-stretch rounded-large border-t-4 border-success-400 bg-content1 p-4 shadow-medium lg:w-[26rem]">
+                    {selectedOrder?.lineasFactura && (
+                      /*
+                        LA NOTA SIEMPRE ESTÁ. Cerrada, asoma por detrás de la tarjeta del
+                        pedido; abierta, sale de ahí y se pone al lado.
+
+                        Es la diferencia entre un panel que aparece de la nada —y que hay
+                        que saber que existe para ir a buscarlo— y una carpeta que se ve
+                        que está ahí desde que abres el pedido.
+
+                        El truco es el margen negativo: cerrada se mete 25rem por debajo
+                        de la tarjeta del pedido, que es opaca y va por delante (`z-10`),
+                        y sólo queda asomando el canto. Abierta, ese margen pasa a ser el
+                        hueco entre las dos. `transition-all` hace el resto.
+
+                        En móvil no hay sitio para las dos al lado, así que ahí no asoma:
+                        o está abierta, debajo del pedido, o no está.
+                      */
+                      <aside
+                        aria-hidden={!verFactura}
+                        className={`relative z-0 shrink-0 flex-col gap-2 self-stretch rounded-large border-t-4 border-success-400 bg-content1 p-4 shadow-medium transition-all duration-300 lg:flex lg:w-[26rem] ${
+                          verFactura
+                            ? "mt-4 flex lg:mt-0 lg:ml-4"
+                            : "hidden lg:-ml-[25rem] lg:cursor-pointer"
+                        }`}
+                        onClick={verFactura ? undefined : () => setVerFactura(true)}
+                      >
                         <div className="flex items-start justify-between gap-2 border-b border-success-200 pb-2">
                           <div className="min-w-0">
                             <p className="text-[10px] font-semibold uppercase tracking-wider text-success-600">
