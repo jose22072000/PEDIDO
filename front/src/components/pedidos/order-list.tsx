@@ -1384,6 +1384,12 @@ export const OrdersList = () => {
 
       {/* Order Details Modal */}
       <Modal
+        hideCloseButton
+        classNames={{
+          // Se ensancha SÓLO cuando la nota está abierta. Fijo en el ancho de dos, un
+          // pedido sin factura se quedaría con medio modal vacío al lado.
+          base: verFactura ? "max-w-[80rem]" : "",
+        }}
         isDismissable={false}
         isOpen={isOpen}
         placement="center"
@@ -1391,11 +1397,31 @@ export const OrdersList = () => {
         size="5xl"
         onClose={onClose}
       >
-        <ModalContent>
+        <ModalContent className="bg-transparent shadow-none">
           {() => (
-            <>
+            <div className="flex w-full flex-col items-stretch gap-4 lg:flex-row">
+            {/*
+              DOS TARJETAS, UNA AL LADO DE LA OTRA. No una columna dentro del pedido.
+
+              El pedido y su factura son DOS PAPELES distintos: uno lo tomó el vendedor
+              y el otro lo emitió Ventra. Metida dentro de la tarjeta del pedido, al
+              lado de sus productos, la factura se lee como más productos del pedido —
+              que es exactamente como alguien acaba cargando el camión con la lista que
+              no era.
+
+              Por eso `ModalContent` va transparente y sin sombra: deja de ser la
+              tarjeta y pasa a ser el sitio donde caben las dos. Cada una pone su
+              propio fondo y su propia sombra.
+
+              Y por eso mismo la ✕ del modal es NUESTRA (`hideCloseButton`): la de
+              HeroUI se dibuja en la esquina de `ModalContent`, que ahora no se ve, y
+              así fue como quedó un detalle de pedido que no había forma de cerrar.
+              Escrita a mano, dentro de la cabecera del pedido, no puede desaparecer.
+            */}
+              <div className="flex min-w-0 flex-1 flex-col rounded-large bg-content1 shadow-medium">
               <ModalHeader className="flex flex-col gap-1">
-                <div className="flex items-center gap-3">
+                <div className="flex w-full items-start justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
                   <h2 className="text-2xl font-bold">
                     Pedido: {selectedOrder?.folio}
                   </h2>
@@ -1421,6 +1447,22 @@ export const OrdersList = () => {
                           : ""}
                       </Chip>
                     )}
+                  </div>
+                  {/* La ✕ del modal, escrita a mano y dentro de la tarjeta del pedido.
+                      Cierra TODO. La de la factura, en la esquina de SU tarjeta, cierra
+                      sólo la nota. Ver el comentario de las dos tarjetas, más arriba. */}
+                  <Button
+                    isIconOnly
+                    aria-label="Cerrar el pedido"
+                    radius="full"
+                    size="sm"
+                    variant="light"
+                    onPress={onClose}
+                  >
+                    <span aria-hidden className="text-lg leading-none">
+                      ✕
+                    </span>
+                  </Button>
                 </div>
               </ModalHeader>
               <ModalBody>
@@ -1662,10 +1704,6 @@ export const OrdersList = () => {
                       )}
                     </div>
                   )}
-                  {/* El pedido y su factura, uno al lado del otro y del MISMO ALTO.
-                      `items-stretch` es lo que hace que la nota llegue abajo en vez de
-                      quedarse a media asta con el pedido largo al lado. */}
-                  <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
                   {/* Products */}
                   <div>
                     <h4 className="mb-2 text-sm font-semibold text-default-700">
@@ -1826,7 +1864,115 @@ export const OrdersList = () => {
                       el mismo día acababa con la misma factura copiada en todos.
                     */}
                   </div>
+                </div>
+              </ModalBody>
+              <ModalFooter className="flex-col items-stretch gap-3">
+                {/* EL TOTAL, fuera de la lista de productos.
+                    Estaba dentro, como una línea más, y ahí se lee como si fuera otro
+                    artículo del pedido — con su borde y su fila, igual que el arroz.
+                    El total no es un producto: es el resultado. Va aparte y encima de
+                    lo que se copia, que es lo último que se mira antes de facturar. */}
+                <div className="flex w-full items-center justify-between rounded-lg border-2 border-default-300 bg-default-100 p-3">
+                  <div>
+                    <p className="text-base font-semibold">Total del pedido</p>
+                    {/* No es "falta un dato": es que ese producto NO ESTÁ en esta
+                        sucursal ahora mismo. Ventra lo deja sin precio ni stock por si
+                        vuelve a haberlo, y decirlo como una carencia nuestra manda a
+                        buscar un fallo donde no lo hay. */}
+                    {(selectedOrder?.lineasSinPrecio ?? 0) > 0 && (
+                      <p className="text-xs text-default-500">
+                        {selectedOrder?.lineasSinPrecio} producto
+                        {selectedOrder?.lineasSinPrecio !== 1 ? "s" : ""} sin existencia
+                        en esta sucursal, no {selectedOrder?.lineasSinPrecio !== 1 ? "cuentan" : "cuenta"} en el total
+                      </p>
+                    )}
+                  </div>
+                  <div className="text-right">
+                    {selectedOrder?.total != null ? (
+                      <p className="text-2xl font-bold tabular-nums">
+                        {$$(selectedOrder.total)}
+                      </p>
+                    ) : (
+                      <Chip size="sm" variant="flat">
+                        ningún producto disponible aquí
+                      </Chip>
+                    )}
+                    {/*
+                      EL PESO TOTAL, debajo del importe.
 
+                      Es lo que decide si esto cabe en un camión y lo que cuesta llevarlo
+                      a domicilio, así que se mira tanto como el dinero. Se dice cuántas
+                      líneas no lo traen: un peso total que se queda corto porque faltan
+                      tres productos engaña más que no enseñar ninguno.
+                    */}
+                    {pesoDelPedido != null && (
+                      <p className="text-xs text-default-500 tabular-nums">
+                        {pesoDelPedido} kg
+                        {lineasSinPeso > 0 && (
+                          <span className="text-warning-600">
+                            {" "}· {lineasSinPeso} sin peso
+                          </span>
+                        )}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="w-full p-3 border rounded-lg bg-warning-50 border-warning-200">
+                  <p className="mb-2 text-xs text-warning-700">
+                    Copia este texto manualmente:
+                  </p>
+                  <code className="block w-full p-2 text-sm break-all bg-white border rounded select-all">
+                    {`P-${selectedOrder?.folio}; V-${selectedOrder?.vendedor?.nombre || "Sin vendedor"}; C-${selectedOrder?.cliente?.codigo || selectedOrder?.cliente?.nombre || "Sin cliente"};`}
+                  </code>
+                </div>
+                <div className="flex justify-between w-full gap-2">
+                  <div>
+                    {canDeleteOrders && (
+                      <Button
+                        color="danger"
+                        startContent={<Icons.trash className="size-5" />}
+                        variant="flat"
+                        onPress={() =>
+                          selectedOrder && handleAskConfirmDelete(selectedOrder)
+                        }
+                      >
+                        Eliminar Pedido
+                      </Button>
+                    )}
+                  </div>
+                  <div>
+                    {/* UN botón que cambia con el estado, no tres apilados.
+                        En proceso se completa; completado o expirado se devuelve a
+                        en proceso. Es la misma casilla de la pantalla y la misma
+                        posición siempre: no hay que buscar dónde apareció el botón
+                        de hoy. */}
+                    {puedeCompletar && selectedOrder && (
+                      selectedOrder.estado === "en_proceso" ? (
+                        <Button
+                          color="primary"
+                          startContent={<Icons.check className="size-5" />}
+                          onPress={() => handleAskConfirmComplete(selectedOrder)}
+                        >
+                          Completar Pedido
+                        </Button>
+                      ) : (
+                        <Button
+                          color="warning"
+                          startContent={<Icons.back className="size-5" />}
+                          variant="flat"
+                          onPress={() => handleAskConfirmReabrir(selectedOrder)}
+                        >
+                          {selectedOrder.estado === "expirada"
+                            ? "Volver a En proceso"
+                            : "Reabrir Pedido"}
+                        </Button>
+                      )
+                    )}
+                  </div>
+                </div>
+              </ModalFooter>
+              </div>
                     {/*
                       LA FACTURA, EN SU PROPIA HOJA AL LADO DEL PEDIDO.
 
@@ -1845,7 +1991,7 @@ export const OrdersList = () => {
                       un modal esa metáfora no cabe.
                     */}
                     {verFactura && selectedOrder?.lineasFactura && (
-                      <aside className="flex flex-col gap-2 self-stretch rounded-large border border-success-200 bg-content1 p-3">
+                      <aside className="flex shrink-0 flex-col gap-2 self-stretch rounded-large border-t-4 border-success-400 bg-content1 p-4 shadow-medium lg:w-[26rem]">
                         <div className="flex items-start justify-between gap-2 border-b border-success-200 pb-2">
                           <div className="min-w-0">
                             <p className="text-[10px] font-semibold uppercase tracking-wider text-success-600">
@@ -2006,116 +2152,7 @@ export const OrdersList = () => {
                           )}
                       </aside>
                     )}
-                  </div>
-                </div>
-              </ModalBody>
-              <ModalFooter className="flex-col items-stretch gap-3">
-                {/* EL TOTAL, fuera de la lista de productos.
-                    Estaba dentro, como una línea más, y ahí se lee como si fuera otro
-                    artículo del pedido — con su borde y su fila, igual que el arroz.
-                    El total no es un producto: es el resultado. Va aparte y encima de
-                    lo que se copia, que es lo último que se mira antes de facturar. */}
-                <div className="flex w-full items-center justify-between rounded-lg border-2 border-default-300 bg-default-100 p-3">
-                  <div>
-                    <p className="text-base font-semibold">Total del pedido</p>
-                    {/* No es "falta un dato": es que ese producto NO ESTÁ en esta
-                        sucursal ahora mismo. Ventra lo deja sin precio ni stock por si
-                        vuelve a haberlo, y decirlo como una carencia nuestra manda a
-                        buscar un fallo donde no lo hay. */}
-                    {(selectedOrder?.lineasSinPrecio ?? 0) > 0 && (
-                      <p className="text-xs text-default-500">
-                        {selectedOrder?.lineasSinPrecio} producto
-                        {selectedOrder?.lineasSinPrecio !== 1 ? "s" : ""} sin existencia
-                        en esta sucursal, no {selectedOrder?.lineasSinPrecio !== 1 ? "cuentan" : "cuenta"} en el total
-                      </p>
-                    )}
-                  </div>
-                  <div className="text-right">
-                    {selectedOrder?.total != null ? (
-                      <p className="text-2xl font-bold tabular-nums">
-                        {$$(selectedOrder.total)}
-                      </p>
-                    ) : (
-                      <Chip size="sm" variant="flat">
-                        ningún producto disponible aquí
-                      </Chip>
-                    )}
-                    {/*
-                      EL PESO TOTAL, debajo del importe.
-
-                      Es lo que decide si esto cabe en un camión y lo que cuesta llevarlo
-                      a domicilio, así que se mira tanto como el dinero. Se dice cuántas
-                      líneas no lo traen: un peso total que se queda corto porque faltan
-                      tres productos engaña más que no enseñar ninguno.
-                    */}
-                    {pesoDelPedido != null && (
-                      <p className="text-xs text-default-500 tabular-nums">
-                        {pesoDelPedido} kg
-                        {lineasSinPeso > 0 && (
-                          <span className="text-warning-600">
-                            {" "}· {lineasSinPeso} sin peso
-                          </span>
-                        )}
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="w-full p-3 border rounded-lg bg-warning-50 border-warning-200">
-                  <p className="mb-2 text-xs text-warning-700">
-                    Copia este texto manualmente:
-                  </p>
-                  <code className="block w-full p-2 text-sm break-all bg-white border rounded select-all">
-                    {`P-${selectedOrder?.folio}; V-${selectedOrder?.vendedor?.nombre || "Sin vendedor"}; C-${selectedOrder?.cliente?.codigo || selectedOrder?.cliente?.nombre || "Sin cliente"};`}
-                  </code>
-                </div>
-                <div className="flex justify-between w-full gap-2">
-                  <div>
-                    {canDeleteOrders && (
-                      <Button
-                        color="danger"
-                        startContent={<Icons.trash className="size-5" />}
-                        variant="flat"
-                        onPress={() =>
-                          selectedOrder && handleAskConfirmDelete(selectedOrder)
-                        }
-                      >
-                        Eliminar Pedido
-                      </Button>
-                    )}
-                  </div>
-                  <div>
-                    {/* UN botón que cambia con el estado, no tres apilados.
-                        En proceso se completa; completado o expirado se devuelve a
-                        en proceso. Es la misma casilla de la pantalla y la misma
-                        posición siempre: no hay que buscar dónde apareció el botón
-                        de hoy. */}
-                    {puedeCompletar && selectedOrder && (
-                      selectedOrder.estado === "en_proceso" ? (
-                        <Button
-                          color="primary"
-                          startContent={<Icons.check className="size-5" />}
-                          onPress={() => handleAskConfirmComplete(selectedOrder)}
-                        >
-                          Completar Pedido
-                        </Button>
-                      ) : (
-                        <Button
-                          color="warning"
-                          startContent={<Icons.back className="size-5" />}
-                          variant="flat"
-                          onPress={() => handleAskConfirmReabrir(selectedOrder)}
-                        >
-                          {selectedOrder.estado === "expirada"
-                            ? "Volver a En proceso"
-                            : "Reabrir Pedido"}
-                        </Button>
-                      )
-                    )}
-                  </div>
-                </div>
-              </ModalFooter>
-            </>
+            </div>
           )}
         </ModalContent>
       </Modal>
