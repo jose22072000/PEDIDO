@@ -7,7 +7,7 @@
  */
 import test, { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { cotejar, mismoProducto, clavesDeProducto } from '../src/lib/cotejarFactura.ts'
+import { cotejar, mismoProducto, clavesDeProducto, unidadesPorFormato } from '../src/lib/cotejarFactura.ts'
 
 // Los nombres REALES: Ventra escribe el formato en mililitros y el pedido en litros.
 const FACTURA = [
@@ -207,5 +207,25 @@ describe('familias de productos que se parecen mucho', () => {
     );
 
     assert.ok(r.diferencias.length >= 1);
+  });
+});
+
+describe('cuantas unidades trae un formato, leido del nombre', () => {
+  it('lo dice el propio nombre, casi siempre', () => {
+    assert.equal(unidadesPorFormato('REFRESCO SANTA PINA 330 ML CAJA 24U'), 24);
+    assert.equal(unidadesPorFormato('CERVEZA PARRANDA 1500 ML BLISTER 6U'), 6);
+    assert.equal(unidadesPorFormato('ARROZ RIVIERA 1 KG PACA 10U'), 10);
+  });
+
+  it('los dos pisos: 12 paquetes de 4 son 48, no 4', () => {
+    // Mirando solo la «U» final saldria 4, y el numero quedaria doce veces corto.
+    assert.equal(unidadesPorFormato('PAPEL HIGIENICO LIRIO 44 M PACA 12P DE 4U'), 48);
+  });
+
+  it('lo que no lo dice se queda en nulo, no en uno', () => {
+    // Suponer «1» es inventarse una cifra que despues alguien suma.
+    assert.equal(unidadesPorFormato('ARROZ BLANCO 25 KG SACO'), null);
+    assert.equal(unidadesPorFormato('QUESO GOUDA LITUANO BARRA'), null);
+    assert.equal(unidadesPorFormato(''), null);
   });
 });
