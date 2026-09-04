@@ -1706,33 +1706,69 @@ export const OrdersList = () => {
                         </div>
                       )}
 
-                    {selectedOrder?.lineasFactura && (
-                      <details className="mt-3 rounded-lg border border-default-200 p-3" open>
-                        <summary className="cursor-pointer text-sm font-semibold text-default-700">
-                          Lo que dice la factura
-                          {selectedOrder.facturaNumero
-                            ? ` ${selectedOrder.facturaNumero}`
-                            : ""}
-                        </summary>
-                        <p className="mt-1 text-xs text-default-500">
-                          Es lo que se llevó el cliente. El pedido de arriba se queda como
-                          se tomó.
-                        </p>
-                        <div className="mt-2 flex flex-col gap-1">
-                          {lineasDeFactura(selectedOrder.lineasFactura).map((l, i) => (
-                            <div
-                              key={`${l.producto}-${i}`}
-                              className="flex items-center justify-between gap-2 rounded-lg bg-default-50 px-3 py-2 text-sm"
-                            >
-                              <span className="min-w-0 break-words">{l.producto}</span>
-                              <span className="shrink-0 tabular-nums text-default-500">
-                                {l.cantidad} formatos
+                    {/*
+                      LA FACTURA, COMO UNA NOTA AL MARGEN.
+
+                      Cuando el pedido y la factura coinciden, repetir la lista entera es
+                      hacerle leer dos veces lo mismo para acabar en «sí, es igual». Basta
+                      con decirlo en una línea.
+
+                      Cuando NO coinciden, lo que se llevó el cliente sí hay que verlo —
+                      pero al lado del pedido, no dentro de su tarjeta: el pedido es lo que
+                      tomó el vendedor y la factura es otra cosa. Metiéndola dentro parecen
+                      lo mismo, y ahí es donde alguien carga el camión con la lista que no
+                      era.
+                    */}
+                    {selectedOrder?.facturaEstado === "igual" && (
+                      <div className="mt-3 flex items-start gap-2 rounded-lg bg-success-50 px-3 py-2 text-sm text-success-700">
+                        <Icons.check className="mt-0.5 shrink-0" />
+                        <span>
+                          El pedido se mantiene contra facturación
+                          {selectedOrder.facturaNumero ? (
+                            <>
+                              {" "}
+                              —{" "}
+                              <span className="font-mono">
+                                factura {selectedOrder.facturaNumero}
                               </span>
-                            </div>
-                          ))}
-                        </div>
-                      </details>
+                            </>
+                          ) : null}
+                          .
+                        </span>
+                      </div>
                     )}
+
+                    {selectedOrder?.facturaEstado !== "igual" &&
+                      selectedOrder?.lineasFactura && (
+                        <aside className="mt-3 border-l-4 border-warning-400 bg-warning-50/40 py-2 pl-3 pr-2">
+                          <p className="text-sm font-semibold text-warning-700">
+                            La factura dice otra cosa
+                            {selectedOrder.facturaNumero
+                              ? ` · ${selectedOrder.facturaNumero}`
+                              : ""}
+                          </p>
+                          <p className="mt-0.5 text-xs text-default-500">
+                            Es lo que se llevó el cliente. El pedido de arriba se queda como
+                            se tomó.
+                          </p>
+                          <div className="mt-2 flex flex-col gap-1">
+                            {lineasDeFactura(selectedOrder.lineasFactura).map((l, i) => (
+                              <div
+                                key={`${l.producto}-${i}`}
+                                className="flex items-center justify-between gap-2 text-sm"
+                              >
+                                <span className="min-w-0 break-words text-default-600">
+                                  {l.producto}
+                                </span>
+                                <span className="shrink-0 tabular-nums font-medium text-warning-700">
+                                  {l.cantidad} formatos
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </aside>
+                      )}
+
                   </div>
                 </div>
               </ModalBody>
