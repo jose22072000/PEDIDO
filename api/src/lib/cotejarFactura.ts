@@ -54,6 +54,28 @@ export interface LineaFactura {
 export type EstadoFactura = 'igual' | 'cambiado' | 'sin_factura'
 
 /** Una línea de la factura con lo mismo que se enseña de una línea del pedido. */
+/**
+ * Cómo quedó una línea de la factura al compararla con el pedido.
+ *
+ *   igual   se pidió y se facturó lo mismo
+ *   cambio  se pidió, pero se facturó otra cantidad
+ *   nuevo   se facturó sin haberse pedido
+ *
+ * Va DENTRO de la línea y no en un texto aparte porque es lo que la pantalla pinta al
+ * lado de cada producto. Deducirlo otra vez en el front sería repetir allí el
+ * emparejador —el que sabe que «PARRANDA 1.5L» y «CERVEZA PARRANDA 1500 ML BLISTER 6U»
+ * son lo mismo— en un sitio donde no está, no se puede probar y se iría separando de
+ * éste sin que nadie lo note.
+ */
+export type MarcaLinea = 'igual' | 'cambio' | 'nuevo'
+
+/** Lo que se pidió y la factura no trae. */
+export interface Faltante {
+  producto: string
+  /** Formatos que se pidieron. */
+  pedido: number
+}
+
 export interface LineaCotejada {
   producto: string
   codigo: string | null
@@ -65,6 +87,10 @@ export interface LineaCotejada {
   pesoKg: number | null
   /** Lo que se cobró por esa línea. */
   importe: number | null
+  /** Cómo quedó frente al pedido. Ver `MarcaLinea`. */
+  marca: MarcaLinea
+  /** Cuántos formatos se pidieron de ese producto. Nulo cuando no se pidió. */
+  pedido: number | null
 }
 
 export interface Cotejo {
@@ -83,6 +109,15 @@ export interface Cotejo {
   lineas: LineaCotejada[]
   /** En qué se diferencian, en palabras. Vacío cuando cuadra. */
   diferencias: string[]
+  /**
+   * Lo que se pidió y NO aparece en la factura.
+   *
+   * Va aparte y no como una línea más de `lineas` porque esa lista es la que reescribe
+   * el pedido cuando se corrige: un producto con cero formatos ahí acabaría subiendo al
+   * camión como un artículo de cero. Aquí no estorba y la pantalla lo pinta al final,
+   * que es donde hace falta — un producto que desapareció es justo lo que hay que ver.
+   */
+  faltantes: Faltante[]
   /**
    * Lo que la factura cobró por el DOMICILIO, si trae esa línea.
    *
@@ -201,10 +236,13 @@ export function mismoProducto(a: string, b: string): boolean {
  *    quieren decir que no se puede distinguir: se deja sin emparejar y sale como
  *    diferencia, que se ve. Elegir una de las dos a cara o cruz es lo que hacía antes.
  */
-export function elegirLinea(
+// Genérica para que la elegida salga con el MISMO tipo que entró. Con una firma que
+// devolviera sólo `{producto, codigo, cantidad}` no se podría marcar la línea que
+// eligió —que es a lo que se llama esto— sin volver a buscarla en la lista.
+export function elegirLinea<T extends { producto: string; codigo: string | null; cantidad: number }>(
   pedido: LineaPedido,
-  candidatas: Array<{ producto: string; codigo: string | null; cantidad: number }>,
-): { producto: string; codigo: string | null; cantidad: number } | null {
+  candidatas: T[],
+): T | null {
   if (candidatas.length === 0) return null
 
   const codigo = (pedido.codigo || '').trim().toUpperCase()
@@ -238,7 +276,7 @@ export function elegirLinea(
  */
 export function cotejar(lineasPedido: LineaPedido[], suyas: LineaFactura[]): Cotejo {
   if (suyas.length === 0) {
-    return { estado: 'sin_factura', numero: null, lineas: [], diferencias: [], domicilioFacturado: null }
+    return { estado: 'sin_factura', numero: null, lineas: [], diferencias: [], faltantes: [], domicilioFacturado: null }
   }
 
   /**
@@ -291,8 +329,14 @@ export function cotejar(lineasPedido: LineaPedido[], suyas: LineaFactura[]): Cot
     unidades: null,
     pesoKg: null,
     importe: v.importe == null ? null : Number(v.importe.toFixed(2)),
+    // Todas empiezan como «no se pidió»; el bucle de abajo va bajando esa marca a
+    // medida que cada línea encuentra su producto en el pedido. Lo que quede sin tocar
+    // es, literalmente, lo que la factura trae de más.
+    marca: 'nuevo' as MarcaLinea,
+    pedido: null as number | null,
   }))
   const diferencias: string[] = []
+  const faltantes: Faltante[] = []
   const usadas = new Set<string>()
 
   for (const l of lineasPedido) {
@@ -305,11 +349,16 @@ export function cotejar(lineasPedido: LineaPedido[], suyas: LineaFactura[]): Cot
 
     if (!encaje) {
       diferencias.push(`${nombre}: pedido ${pedidas}, no facturado`)
+      faltantes.push({ producto: nombre, pedido: pedidas })
       continue
     }
     usadas.add(encaje.producto)
+    encaje.pedido = pedidas
     if (Math.abs(encaje.cantidad - pedidas) > 0.001) {
+      encaje.marca = 'cambio'
       diferencias.push(`${nombre}: pedido ${pedidas}, facturado ${encaje.cantidad}`)
+    } else {
+      encaje.marca = 'igual'
     }
   }
 
@@ -323,6 +372,7 @@ export function cotejar(lineasPedido: LineaPedido[], suyas: LineaFactura[]): Cot
     numero,
     lineas,
     diferencias,
+    faltantes,
     domicilioFacturado,
   }
 }

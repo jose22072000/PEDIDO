@@ -229,3 +229,74 @@ describe('cuantas unidades trae un formato, leido del nombre', () => {
     assert.equal(unidadesPorFormato(''), null);
   });
 });
+
+/**
+ * Cada línea dice cómo quedó frente al pedido.
+ *
+ * Es lo que la pantalla pinta al lado de cada producto de la factura. Si una línea
+ * añadida sale como «igual», quien mira el pedido cree que el cliente pidió algo que
+ * nunca pidió; y si la que cambió no se marca, la diferencia hay que buscarla leyendo
+ * dos listas — que es exactamente lo que esto viene a quitar.
+ */
+describe('cada linea sale marcada', () => {
+  const pedido = [
+    { producto: 'REFRESCO SANTA COLA 330ML CAJA 24U', packs: 6, unidades: 144 },
+    { producto: 'REFRESCO SANTA ORANGE 330ML CAJA 24U', packs: 6, unidades: 144 },
+    { producto: 'DETERGENTE KAPITAL 1 KG PACA 12U', packs: 5, unidades: 60 },
+  ];
+  const factura = [
+    { operNumber: '43511', clienteNombre: 'X', productoNombre: 'REFRESCO SANTA COLA 330 ML CAJA 24U', cantidad: 6, precioUsd: 13.92 },
+    { operNumber: '43511', clienteNombre: 'X', productoNombre: 'REFRESCO SANTA ORANGE 330 ML CAJA 24U', cantidad: 2, precioUsd: 13.92 },
+    { operNumber: '43511', clienteNombre: 'X', productoNombre: 'MALTA GUAJIRA 1500 ML BLISTER 6U', cantidad: 4, precioUsd: 9.90 },
+  ];
+  const marca = (r: ReturnType<typeof cotejar>, trozo: string) =>
+    r.lineas.find((l) => l.producto.includes(trozo))?.marca;
+
+  it('lo que cuadra es igual, lo que no cuadra es cambio, lo que sobra es nuevo', () => {
+    const r = cotejar(pedido, factura);
+
+    assert.equal(marca(r, 'COLA'), 'igual');
+    assert.equal(marca(r, 'ORANGE'), 'cambio');
+    assert.equal(marca(r, 'MALTA'), 'nuevo');
+  });
+
+  it('la que cambio dice CUANTAS se pidieron', () => {
+    // Sin esto la nota diria «2 formatos» y no habria con que compararlo.
+    const r = cotejar(pedido, factura);
+
+    assert.equal(r.lineas.find((l) => l.producto.includes('ORANGE'))?.pedido, 6);
+    assert.equal(r.lineas.find((l) => l.producto.includes('MALTA'))?.pedido, null);
+  });
+
+  it('lo pedido que no se facturo sale en faltantes, NO en lineas', () => {
+    /**
+     * Aparte a proposito: `lineas` es lo que reescribe el pedido cuando se corrige, y un
+     * producto de cero formatos ahi acabaria subiendo al camion como un articulo de cero.
+     */
+    const r = cotejar(pedido, factura);
+
+    assert.deepEqual(r.faltantes, [{ producto: 'DETERGENTE KAPITAL 1 KG PACA 12U', pedido: 5 }]);
+    assert.ok(!r.lineas.some((l) => l.producto.includes('KAPITAL')), 'no puede colarse en las lineas');
+  });
+
+  it('cuando todo cuadra, todas son iguales y no falta nada', () => {
+    const r = cotejar(
+      [{ producto: 'REFRESCO SANTA COLA 330ML CAJA 24U', packs: 6, unidades: 144 }],
+      [factura[0]],
+    );
+
+    assert.equal(r.estado, 'igual');
+    assert.deepEqual(r.faltantes, []);
+    assert.deepEqual(r.lineas.map((l) => l.marca), ['igual']);
+  });
+
+  it('la linea del domicilio no se marca: no es mercancia', () => {
+    const r = cotejar(
+      [{ producto: 'REFRESCO SANTA COLA 330ML CAJA 24U', packs: 6, unidades: 144 }],
+      [factura[0], { operNumber: '43511', clienteNombre: 'X', productoNombre: 'ENTREGA A DOMICILIO', cantidad: 1, precioUsd: 12 }],
+    );
+
+    assert.equal(r.lineas.length, 1, 'el domicilio no puede salir como un producto mas');
+    assert.equal(r.domicilioFacturado, 12);
+  });
+});

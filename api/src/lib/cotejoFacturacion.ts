@@ -199,6 +199,33 @@ export async function cotejarUnaVez(): Promise<ResultadoCotejo[]> {
  * tiene peso. La pantalla pinta el nulo como «—»; un cero se lee como «no pesa» y es
  * mentira.
  */
+/**
+ * Lo que se guarda para PINTAR la factura al lado del pedido: sus líneas, ya marcadas
+ * como iguales, cambiadas o añadidas, y al final lo que se pidió y no llegó a
+ * facturarse.
+ *
+ * Los faltantes no van en `r.lineas` a propósito —esa lista es la que reescribe el
+ * pedido cuando se corrige, y un producto de cero formatos ahí acabaría en el camión—,
+ * pero en la pantalla hacen falta: que un producto desapareciera es justo lo que la
+ * gente abre el pedido a mirar. Se pegan aquí, con `marca: 'falta'`, y quien los pinta
+ * los distingue por esa marca.
+ */
+function paraPintar(r: Cotejo): unknown[] {
+  return [
+    ...r.lineas,
+    ...r.faltantes.map((f) => ({
+      producto: f.producto,
+      codigo: null,
+      cantidad: 0,
+      unidades: null,
+      pesoKg: null,
+      importe: null,
+      marca: 'falta',
+      pedido: f.pedido,
+    })),
+  ];
+}
+
 function enriquecerLineas(
   lineas: Cotejo['lineas'],
   items: PedidoConItems['items'],
@@ -275,7 +302,12 @@ async function cotejarUnPedido(
   let corregido = false;
   const datos: Record<string, unknown> = {};
 
-  if (p.facturaEstado !== r.estado || p.facturaNumero !== r.numero) {
+  // Si el cotejo dice algo DISTINTO de lo que había guardado. Se mira aquí y se guarda
+  // en una variable porque también decide a quién hay que avisar: sin eso, cada pasada
+  // volvería a avisar de lo mismo cada diez minutos.
+  const cotejoNuevo = p.facturaEstado !== r.estado || p.facturaNumero !== r.numero;
+
+  if (cotejoNuevo) {
     datos.facturaEstado = r.estado;
     datos.facturaNumero = r.numero;
     datos.facturaAt = new Date();
@@ -381,12 +413,12 @@ async function cotejarUnPedido(
      */
     datos.facturaEstado = 'igual';
     datos.facturaCorregidoAt = new Date();
-    datos.lineasFactura = JSON.stringify(r.lineas);
+    datos.lineasFactura = JSON.stringify(paraPintar(r));
     datos.facturaDiferencias = JSON.stringify(r.diferencias);
     corregido = true;
   } else if (r.lineas.length > 0) {
     // Sin corregir, lo facturado se guarda AL LADO para poder verlo y compararlo.
-    datos.lineasFactura = JSON.stringify(r.lineas);
+    datos.lineasFactura = JSON.stringify(paraPintar(r));
     if (r.diferencias.length > 0) datos.facturaDiferencias = JSON.stringify(r.diferencias);
   }
 
@@ -444,8 +476,22 @@ async function cotejarUnPedido(
    * cotizado no hay nada que corregir: cuando le llegue por el camino normal ya vendrá
    * con lo facturado, y avisarle de un cambio sobre algo que nunca vio es ruido. Y si el
    * pedido no lleva domicilio, tampoco: no hay precio que rehacer.
+   *
+   * # Y también cuando NO se reescribe el pedido
+   *
+   * Antes esto colgaba sólo de `seCorrige`, o sea de que el interruptor de corregir
+   * estuviera encendido — y está apagado. El resultado era que la factura podía traer
+   * treinta kilos más que el pedido y a Entrega no se le decía nada: seguía cobrando el
+   * reparto de un peso que ya no existe.
+   *
+   * Que el pedido se reescriba o no es una decisión nuestra sobre qué lista sube al
+   * camión. El peso cambió igual. Así que se avisa cuando el cotejo pasa a «cambiado»,
+   * se corrija o no.
+   *
+   * `cotejoNuevo` es lo que impide que esto se convierta en un aviso cada diez minutos:
+   * sólo se manda cuando el cotejo dice algo distinto de lo que ya estaba guardado.
    */
-  if (seCorrige && p.costoDomicilio != null) {
+  if ((seCorrige || (cotejoNuevo && r.estado === 'cambiado')) && p.costoDomicilio != null) {
     await avisarPedidoCambiado(p.id).catch((e) =>
       console.warn(`[factura] no se pudo avisar a Entrega del pedido ${p.folio}:`, (e as Error).message),
     );
