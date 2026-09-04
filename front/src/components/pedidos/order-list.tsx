@@ -107,9 +107,18 @@ const chipDeFactura = (
  * se vuelve a tocar — sólo se enseña al lado del pedido. Y si algún día llegara mal
  * escrito, se devuelve una lista vacía en vez de tumbar la pantalla del pedido entero.
  */
-function lineasDeFactura(
-  json: string,
-): Array<{ producto: string; codigo: string | null; cantidad: number }> {
+interface LineaFacturada {
+  producto: string;
+  codigo: string | null;
+  /** Formatos: las unidades de venta, que es como se factura y se carga el camión. */
+  cantidad: number;
+  /** Nulos cuando no se pueden saber. Se pintan «—»; un cero seria mentira. */
+  unidades: number | null;
+  pesoKg: number | null;
+  importe: number | null;
+}
+
+function lineasDeFactura(json: string): LineaFacturada[] {
   try {
     const v = JSON.parse(json);
 
@@ -533,58 +542,12 @@ export const OrdersList = () => {
    */
 
   /**
-   * Escribir A MANO el número de la factura de un pedido.
+   * Aquí estaba escribir a mano el número de factura.
    *
-   * El cotejo ata cada factura a su pedido por el folio que Ventra escribe en la nota, y
-   * eso funciona cuando la nota lo trae. En La Habana lo traen 44 de 112 líneas: muchas de
-   * las que faltan son ventas libres —el cliente llegó sin pedido— y ésas están bien así,
-   * pero otras no.
-   *
-   * Para ésas, quien tiene la factura delante escribe el número aquí. No hace falta una
-   * pantalla aparte de atar facturas: el sitio donde se dice de qué factura es un pedido
-   * es el propio pedido.
-   *
-   * Vacío lo borra: escribir uno equivocado tiene que poder deshacerse.
+   * Se quitó: el número lo pone el cotejo por el folio que Ventra escribe en la nota, y
+   * dejar cambiarlo a mano es invitar a atar la factura de uno al pedido de otro — que es
+   * exactamente el error que costó caro en julio.
    */
-  const [facturaAMano, setFacturaAMano] = useState("");
-  const [guardandoFactura, setGuardandoFactura] = useState(false);
-
-  const handleGuardarFactura = useCallback(
-    async (orderId: string, numero: string) => {
-      setGuardandoFactura(true);
-      try {
-        const response = await fetch(`${getApiBaseUrl()}/orders/${orderId}/factura`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ facturaNumero: numero.trim() }),
-        });
-
-        if (!response.ok) {
-          throw new Error(
-            await mensajeDeError(response, "No se pudo guardar el número de factura"),
-          );
-        }
-        void fetchOrders(true);
-        addToast({
-          title: numero.trim() ? "Factura guardada" : "Factura borrada",
-          description: numero.trim()
-            ? `El pedido queda con la factura ${numero.trim()}.`
-            : "El pedido se queda sin número de factura.",
-          color: "success",
-        });
-      } catch (err) {
-        addToast({
-          title: "No se guardó",
-          description:
-            err instanceof Error ? err.message : "No se pudo guardar el número de factura",
-          color: "danger",
-        });
-      } finally {
-        setGuardandoFactura(false);
-      }
-    },
-    [fetchOrders],
-  );
 
   const handleCompletarOrder = useCallback(
     async (orderId: string) => {
@@ -1322,12 +1285,13 @@ export const OrdersList = () => {
         isOpen={isOpen}
         placement="center"
         scrollBehavior="outside"
-        size="3xl"
+        size="5xl"
         onClose={onClose}
       >
-        <ModalContent>
+        <ModalContent className="bg-transparent shadow-none">
           {() => (
-            <>
+            <div className="grid grid-cols-1 items-start gap-0 lg:grid-cols-[minmax(0,1fr)_17rem]">
+              <div className="rounded-large bg-content1 shadow-medium">
               <ModalHeader className="flex flex-col gap-1">
                 <div className="flex items-center gap-3">
                   <h2 className="text-2xl font-bold">
@@ -1659,118 +1623,9 @@ export const OrdersList = () => {
                       el pedido con la factura y salió mal: un cliente con varios pedidos
                       el mismo día acababa con la misma factura copiada en todos.
                     */}
-                    {/*
-                      ESCRIBIR LA FACTURA A MANO.
-
-                      Sólo cuando el cotejo no la encontró. Si ya la ató por el folio, el
-                      número está bien y ofrecer cambiarlo es invitar a estropearlo.
-                    */}
-                    {selectedOrder &&
-                      !selectedOrder.facturaCorregidoAt &&
-                      selectedOrder.facturaEstado !== "igual" && (
-                        <div className="mt-3 rounded-lg border border-default-200 p-3">
-                          <p className="text-sm font-semibold text-default-700">
-                            Número de factura
-                          </p>
-                          <p className="mt-1 text-xs text-default-500">
-                            Cuando la nota de la factura no trae el folio del pedido, se
-                            escribe aquí. Si el cliente vino sin pedido y se le vendió
-                            libre, no hay nada que escribir.
-                          </p>
-                          <div className="mt-2 flex items-center gap-2">
-                            <Input
-                              placeholder={selectedOrder.facturaNumero ?? "1024348"}
-                              size="sm"
-                              value={facturaAMano}
-                              onValueChange={setFacturaAMano}
-                            />
-                            <Button
-                              color="primary"
-                              isDisabled={guardandoFactura}
-                              size="sm"
-                              onPress={() => {
-                                void handleGuardarFactura(selectedOrder.id, facturaAMano);
-                                setFacturaAMano("");
-                              }}
-                            >
-                              Guardar
-                            </Button>
-                          </div>
-                          {selectedOrder.facturaNumero && (
-                            <p className="mt-2 text-xs text-default-500">
-                              Ahora dice{" "}
-                              <span className="font-mono">{selectedOrder.facturaNumero}</span>.
-                              Guardar vacío lo borra.
-                            </p>
-                          )}
-                        </div>
-                      )}
-
-                    {/*
-                      LA FACTURA, COMO UNA NOTA AL MARGEN.
-
-                      Cuando el pedido y la factura coinciden, repetir la lista entera es
-                      hacerle leer dos veces lo mismo para acabar en «sí, es igual». Basta
-                      con decirlo en una línea.
-
-                      Cuando NO coinciden, lo que se llevó el cliente sí hay que verlo —
-                      pero al lado del pedido, no dentro de su tarjeta: el pedido es lo que
-                      tomó el vendedor y la factura es otra cosa. Metiéndola dentro parecen
-                      lo mismo, y ahí es donde alguien carga el camión con la lista que no
-                      era.
-                    */}
-                    {selectedOrder?.facturaEstado === "igual" && (
-                      <div className="mt-3 flex items-start gap-2 rounded-lg bg-success-50 px-3 py-2 text-sm text-success-700">
-                        <Icons.check className="mt-0.5 shrink-0" />
-                        <span>
-                          El pedido se mantiene contra facturación
-                          {selectedOrder.facturaNumero ? (
-                            <>
-                              {" "}
-                              —{" "}
-                              <span className="font-mono">
-                                factura {selectedOrder.facturaNumero}
-                              </span>
-                            </>
-                          ) : null}
-                          .
-                        </span>
-                      </div>
-                    )}
-
-                    {selectedOrder?.facturaEstado !== "igual" &&
-                      selectedOrder?.lineasFactura && (
-                        <aside className="mt-3 border-l-4 border-warning-400 bg-warning-50/40 py-2 pl-3 pr-2">
-                          <p className="text-sm font-semibold text-warning-700">
-                            La factura dice otra cosa
-                            {selectedOrder.facturaNumero
-                              ? ` · ${selectedOrder.facturaNumero}`
-                              : ""}
-                          </p>
-                          <p className="mt-0.5 text-xs text-default-500">
-                            Es lo que se llevó el cliente. El pedido de arriba se queda como
-                            se tomó.
-                          </p>
-                          <div className="mt-2 flex flex-col gap-1">
-                            {lineasDeFactura(selectedOrder.lineasFactura).map((l, i) => (
-                              <div
-                                key={`${l.producto}-${i}`}
-                                className="flex items-center justify-between gap-2 text-sm"
-                              >
-                                <span className="min-w-0 break-words text-default-600">
-                                  {l.producto}
-                                </span>
-                                <span className="shrink-0 tabular-nums font-medium text-warning-700">
-                                  {l.cantidad} formatos
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        </aside>
-                      )}
+                  </div>
 
                   </div>
-                </div>
               </ModalBody>
               <ModalFooter className="flex-col items-stretch gap-3">
                 {/* EL TOTAL, fuera de la lista de productos.
@@ -1878,7 +1733,100 @@ export const OrdersList = () => {
                   </div>
                 </div>
               </ModalFooter>
-            </>
+              </div>
+              {/*
+                LA FACTURA, FUERA DE LA TARJETA DEL PEDIDO.
+
+                El pedido es el cuerpo y no se toca; esto es una anotación al margen,
+                unida con una línea. Estaba DENTRO de la tarjeta y ahí las dos listas
+                parecen la misma cosa — y es justo así como alguien carga el camión con la
+                que no era.
+
+                Va sobre el velo del modal, así que el texto es claro. En pantalla
+                estrecha baja debajo, con una barra al lado: dos columnas de cuarenta
+                caracteres no se leen.
+              */}
+              <aside className="relative mt-4 border-l-2 border-warning-400 pl-4 lg:mt-0 lg:border-l-0 lg:pl-9">
+<div>
+                    <h4 className="mb-2 flex items-center gap-2 text-sm font-semibold text-warning-400">
+                      Factura
+                      {selectedOrder?.facturaNumero && (
+                        <span className="font-mono text-default-500">
+                          {selectedOrder.facturaNumero}
+                        </span>
+                      )}
+                    </h4>
+
+                    {selectedOrder?.facturaEstado === "igual" ? (
+                      <div className="flex items-start gap-2 rounded-lg bg-success-50 px-3 py-3 text-sm text-success-700">
+                        <Icons.check className="mt-0.5 shrink-0" />
+                        <span>El pedido se mantiene contra facturación.</span>
+                      </div>
+                    ) : selectedOrder?.lineasFactura ? (
+                      <>
+                        <p className="mb-2 text-xs text-warning-600">
+                          Es lo que se llevó el cliente. El pedido de al lado se queda
+                          como se tomó.
+                        </p>
+                        <div className="flex max-h-60 flex-col gap-2 overflow-y-auto">
+                          {lineasDeFactura(selectedOrder.lineasFactura).map((l, i) => (
+                            <div
+                              key={`${l.producto}-${i}`}
+                              className="rounded-lg border-l-4 border-warning-400 bg-default-50 px-3 py-2"
+                            >
+                              <p className="break-words text-sm font-medium">{l.producto}</p>
+                              <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
+                                <Chip size="sm" variant="flat">
+                                  {l.cantidad} formatos
+                                </Chip>
+                                <Chip size="sm" variant="flat">
+                                  {l.unidades == null ? "—" : `${l.unidades} unidades`}
+                                </Chip>
+                                <Chip size="sm" variant="flat">
+                                  {l.pesoKg == null ? "—" : `${l.pesoKg} kg`}
+                                </Chip>
+                                {l.importe != null && (
+                                  <span className="ml-auto font-semibold text-default-700">
+                                    {$$(l.importe)}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* El total de la factura, para poder compararlo con el del
+                            pedido sin sumar a mano. */}
+                        <div className="mt-2 flex items-center justify-between rounded-lg bg-warning-50 px-3 py-2">
+                          <span className="text-sm font-semibold text-warning-700">
+                            Total de la factura
+                          </span>
+                          <div className="text-right">
+                            <p className="font-semibold text-warning-700">
+                              {$$(
+                                lineasDeFactura(selectedOrder.lineasFactura).reduce(
+                                  (t, l) => t + (l.importe ?? 0),
+                                  0,
+                                ),
+                              )}
+                            </p>
+                            <p className="text-xs text-default-500">
+                              {lineasDeFactura(selectedOrder.lineasFactura)
+                                .reduce((t, l) => t + (l.pesoKg ?? 0), 0)
+                                .toFixed(2)}{" "}
+                              kg
+                            </p>
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="rounded-lg bg-default-50 px-3 py-3 text-sm text-default-500">
+                        Sin facturar todavía.
+                      </div>
+                    )}
+                  </div>
+              </aside>
+            </div>
           )}
         </ModalContent>
       </Modal>

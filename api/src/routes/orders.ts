@@ -823,69 +823,12 @@ async function resolveSeller(name: string, code: string): Promise<SellerResoluti
  * aparece, porque la lista esconde lo archivado. Estaría reabierto e invisible.
  */
 /**
- * PATCH /:id/factura — escribir A MANO el número de factura de un pedido.
+ * Aquí estaba `PATCH /:id/factura`, para escribir el número a mano.
  *
- * # Para qué
- *
- * El cotejo ata cada factura a su pedido por el folio que Ventra escribe en la nota
- * (`P-PRM25-260901-1808-3`). Pero eso sólo funciona si la nota lo trae, y a veces no: en
- * La Habana lo traen 44 de 112 líneas. Muchas de las que faltan son ventas libres —el
- * cliente llegó sin pedido— y ésas están bien así. Otras no.
- *
- * Para ésas, alguien que tiene la factura delante escribe el número aquí y se acabó. No
- * hace falta una pantalla aparte de atar facturas: el sitio donde se dice de qué factura
- * es un pedido es el propio pedido.
- *
- * # Qué NO hace
- *
- * No coteja ni corrige las líneas. Escribir un número no es haber comprobado que lo
- * facturado coincide con lo pedido, y dar por bueno lo segundo desde lo primero sería
- * meter en un camión algo que nadie miró. El pedido queda como `sin_cotejar` con su
- * número escrito, y quien lo revise decide.
- *
- * Se puede borrar mandando el número vacío: escribir uno equivocado tiene que poder
- * deshacerse sin entrar a la base.
+ * Se quitó con su pantalla: el número lo pone el cotejo por el folio que Ventra escribe
+ * en la nota, y dejar cambiarlo a mano es invitar a atar la factura de uno al pedido de
+ * otro — el error que costó caro en julio.
  */
-router.patch('/:id/factura', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const crudo = (req.body as { facturaNumero?: unknown })?.facturaNumero;
-    const numero = crudo == null ? '' : String(crudo).trim().slice(0, 120);
-
-    // Mismo permiso que completar un pedido: decir con qué factura salió es de la misma
-    // familia de decisiones que darlo por cerrado.
-    if (!getRequesterContext(req).puedeCompletarPedidos) {
-      return res.status(403).json({
-        error: 'Tu rol no puede escribir el número de factura. Lo hace el Operador o quien lleva la sucursal.',
-      });
-    }
-
-    const { where, error: sucursalError } = alcancePedido(req);
-
-    if (sucursalError || !where) return res.status(400).json({ error: sucursalError });
-
-    const existente = await prisma.pedido.findFirst({ where: { ...where, id }, select: { id: true } });
-
-    if (!existente) return res.status(404).json({ error: 'Pedido no encontrado' });
-
-    const order = await prisma.pedido.update({
-      where: { id },
-      data: {
-        facturaNumero: numero || null,
-        // Cuándo se dijo. Es lo que distingue «nadie lo ha mirado» de «alguien lo miró
-        // hace tres días», que en pantalla se parecen.
-        facturaAt: numero ? new Date() : null,
-      },
-      include: { items: true, cliente: true, vendedor: true, sucursal: { select: { codigo: true } } },
-    });
-
-    emitEvent('pedido', { id: order.id, sucursalId: order.sucursalId, accion: 'update' });
-
-    return res.json(order);
-  } catch (error) {
-    return res.status(500).json({ error: (error as Error).message });
-  }
-});
 
 router.patch('/:id/estado', async (req, res) => {
   try {

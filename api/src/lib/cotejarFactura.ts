@@ -53,11 +53,34 @@ export interface LineaFactura {
 
 export type EstadoFactura = 'igual' | 'cambiado' | 'sin_factura'
 
+/** Una línea de la factura con lo mismo que se enseña de una línea del pedido. */
+export interface LineaCotejada {
+  producto: string
+  codigo: string | null
+  /** Formatos: las unidades de venta, que es como se factura y como se carga el camión. */
+  cantidad: number
+  /** Unidades sueltas. Nulo cuando no hay de dónde deducir cuántas trae el formato. */
+  unidades: number | null
+  /** Kilos de la línea entera. Nulo cuando el producto no está en el catálogo. */
+  pesoKg: number | null
+  /** Lo que se cobró por esa línea. */
+  importe: number | null
+}
+
 export interface Cotejo {
   estado: EstadoFactura
   numero: string | null
-  /** Lo que la factura dice, por producto. Sirve para poder corregir el pedido. */
-  lineas: Array<{ producto: string; codigo: string | null; cantidad: number }>
+  /**
+   * Lo que la factura dice, por producto, con lo mismo que se enseña del pedido:
+   * formatos, unidades, kilos e importe. Sin eso hay que mirar dos pantallas para
+   * comparar dos listas que están una encima de la otra.
+   *
+   * `unidades` y `pesoKg` van en nulo cuando no se pueden saber —un producto que no
+   * estaba en el pedido no tiene de dónde sacar cuántas unidades trae el formato, y uno
+   * que no está en el catálogo no tiene peso—. Nulo se pinta como «—»; un cero se lee
+   * como que no pesa.
+   */
+  lineas: LineaCotejada[]
   /** En qué se diferencian, en palabras. Vacío cuando cuadra. */
   diferencias: string[]
   /**
@@ -101,6 +124,39 @@ export function clavesDeProducto(nombre: string): Set<string> {
     .replace(/(\d+)\s*l\b/g, (_, a) => ` ${Number(a) * 1000} `)
 
   return new Set(normalizar(enMl).split(' ').filter((p) => p.length > 2))
+}
+
+/**
+ * Cuántas unidades trae un formato, leído del NOMBRE del producto.
+ *
+ * Casi siempre lo dice: «CAJA 24U», «BLISTER 6U», «PACA 10U». Y a veces en dos pisos —
+ * «PACA 12P DE 4U» son doce paquetes de cuatro, o sea cuarenta y ocho.
+ *
+ * Hace falta para los productos que la factura trae y el pedido no: de ésos no hay
+ * ninguna línea de la que copiar la proporción, y sin esto salían con las unidades en
+ * blanco. El dato estaba escrito ahí delante todo el tiempo.
+ *
+ * Devuelve `null` cuando el nombre no lo dice. Suponer «1» sería inventarse una cifra que
+ * después alguien suma.
+ */
+export function unidadesPorFormato(nombre: string): number | null {
+  const n = (nombre || '').toUpperCase()
+
+  // Dos pisos primero: «12P DE 4U» son 48, no 4. Mirando sólo la «U» final saldría 4.
+  const dosPisos = /(\d+)\s*P\s+DE\s+(\d+)\s*U\b/.exec(n)
+
+  if (dosPisos) return Number(dosPisos[1]) * Number(dosPisos[2])
+
+  // Y el corriente: «CAJA 24U», «BLISTER 6U», «PACA 10U».
+  const simple = /(\d+)\s*U\b/.exec(n)
+
+  if (simple) {
+    const v = Number(simple[1])
+
+    return v > 0 ? v : null
+  }
+
+  return null
 }
 
 /** Cuántas palabras comparten dos nombres de producto. */
@@ -209,20 +265,33 @@ export function cotejar(lineasPedido: LineaPedido[], suyas: LineaFactura[]): Cot
    * «cambiado» siempre, y la mitad de los pedidos se quedarían fuera de la ruta.
    */
   const numero = [...new Set(suyas.map((f) => f.operNumber))].sort().join(', ')
-  const facturado = new Map<string, { codigo: string | null; cantidad: number }>()
+  const facturado = new Map<string, { codigo: string | null; cantidad: number; importe: number | null }>()
 
   for (const f of mercancia) {
     const previo = facturado.get(f.productoNombre)
+    // Lo que se cobró por la línea. Si Ventra no manda precio se queda en nulo y se
+    // pinta como «—»: un cero ahí se lee como que ese producto salió gratis.
+    const precio = Number(f.precioUsd)
+    const suma = Number.isFinite(precio) ? precio * f.cantidad : null
 
     facturado.set(f.productoNombre, {
       // El código se guarda para poder pesar la factura por sku, que es exacto; el
       // nombre queda para lo que Ventra no codifica.
       codigo: previo?.codigo ?? f.productoCodigo ?? null,
       cantidad: (previo?.cantidad ?? 0) + f.cantidad,
+      importe: suma == null ? (previo?.importe ?? null) : (previo?.importe ?? 0) + suma,
     })
   }
 
-  const lineas = [...facturado.entries()].map(([producto, v]) => ({ producto, codigo: v.codigo, cantidad: v.cantidad }))
+  const lineas: LineaCotejada[] = [...facturado.entries()].map(([producto, v]) => ({
+    producto,
+    codigo: v.codigo,
+    cantidad: v.cantidad,
+    // Se rellenan fuera, con el pedido y el catálogo delante. Ver `enriquecerLineas`.
+    unidades: null,
+    pesoKg: null,
+    importe: v.importe == null ? null : Number(v.importe.toFixed(2)),
+  }))
   const diferencias: string[] = []
   const usadas = new Set<string>()
 

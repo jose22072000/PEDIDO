@@ -50,8 +50,15 @@
  */
 import prisma from '../prismaClient';
 import { databases, ventasDeSucursal, type LineaVentaVentra } from './ventra';
-import { cotejar, type LineaFactura, type LineaPedido } from './cotejarFactura';
+import {
+  cotejar,
+  unidadesPorFormato,
+  type Cotejo,
+  type LineaFactura,
+  type LineaPedido,
+} from './cotejarFactura';
 import { facturasPorFolio } from './emparejarFactura';
+import { catalogoDeSucursal, type CatalogoSucursal } from './catalogoSucursal';
 import { emitEvent } from './events';
 import { avisarPedidoCambiado } from './webhook';
 
@@ -144,9 +151,24 @@ export async function cotejarUnaVez(): Promise<ResultadoCotejo[]> {
        */
       const porFolio = facturasPorFolio(ventas);
 
+      /**
+       * El catálogo de la sucursal, UNA vez para todos sus pedidos.
+       *
+       * De aquí sale el peso de cada línea facturada. Pedirlo por pedido serían
+       * doscientas consultas para el mismo dato. Si falla, las líneas se quedan sin peso
+       * y el cotejo sigue: el peso es para enseñarlo, no para decidir nada.
+       */
+      let catalogo: CatalogoSucursal | null = null;
+
+      try {
+        catalogo = await catalogoDeSucursal(suc.id);
+      } catch {
+        catalogo = null;
+      }
+
       for (const p of pedidos) {
         const suyas = porFolio.get(p.folio.toUpperCase());
-        const cambios = await cotejarUnPedido(p, suyas ? ventas.filter((v) => suyas.has(v.operNumber)) : []);
+        const cambios = await cotejarUnPedido(p, suyas ? ventas.filter((v) => suyas.has(v.operNumber)) : [], catalogo);
 
         if (cambios.estado === 'igual') r.igual++;
         else if (cambios.estado === 'cambiado') r.cambiado++;
@@ -162,6 +184,53 @@ export async function cotejarUnaVez(): Promise<ResultadoCotejo[]> {
   }
 
   return salida;
+}
+
+/**
+ * Rellenar las líneas de la factura con lo mismo que se enseña del pedido.
+ *
+ * La factura de Ventra sólo trae formatos y precio. Las UNIDADES y los KILOS hay que
+ * componerlos, y se hace aquí porque es donde están las dos cosas que hacen falta: el
+ * pedido —de donde sale cuántas unidades trae un formato— y el catálogo de la sucursal,
+ * que es de donde sale el peso.
+ *
+ * Lo que no se puede saber se queda en **nulo**, nunca en cero: un producto que no estaba
+ * en el pedido no tiene de dónde deducir su formato, y uno que no está en el catálogo no
+ * tiene peso. La pantalla pinta el nulo como «—»; un cero se lee como «no pesa» y es
+ * mentira.
+ */
+function enriquecerLineas(
+  lineas: Cotejo['lineas'],
+  items: PedidoConItems['items'],
+  catalogo: CatalogoSucursal | null,
+): void {
+  // Cuántas unidades trae un formato, según lo que el vendedor tomó de ESE producto.
+  const porFormato = new Map<string, number>();
+
+  for (const it of items) {
+    const packs = Number(it.packs) || 0;
+    const unidades = Number(it.unidades) || 0;
+
+    if (packs > 0 && unidades > 0) porFormato.set(normalizar(it.producto), unidades / packs);
+  }
+
+  for (const l of lineas) {
+    const clave = normalizar(l.producto);
+    const razon = porFormato.get(clave);
+
+    /**
+     * Primero la proporción del propio pedido, que es la verdad de ESE producto. Si no
+     * está —porque la factura lo trae y el pedido no—, se lee del nombre: casi siempre
+     * lo dice, «CAJA 24U», «BLISTER 6U», «PACA 12P DE 4U».
+     */
+    const porUnidad = razon ?? unidadesPorFormato(l.producto);
+
+    if (porUnidad) l.unidades = Math.round(l.cantidad * porUnidad);
+
+    const fila = catalogo?.buscar(l.producto);
+
+    if (fila?.pesoKg) l.pesoKg = Number((fila.pesoKg * l.cantidad).toFixed(3));
+  }
 }
 
 type PedidoConItems = {
@@ -188,6 +257,7 @@ type PedidoConItems = {
 async function cotejarUnPedido(
   p: PedidoConItems,
   ventas: LineaVentaVentra[],
+  catalogo: CatalogoSucursal | null = null,
 ): Promise<{ estado: string; corregido: boolean }> {
   const suyas = ventas.map<LineaFactura>((v) => ({
     operNumber: v.operNumber,
@@ -199,6 +269,8 @@ async function cotejarUnPedido(
   }));
 
   const r = cotejar(p.items as LineaPedido[], suyas);
+
+  enriquecerLineas(r.lineas, p.items, catalogo);
 
   let corregido = false;
   const datos: Record<string, unknown> = {};
