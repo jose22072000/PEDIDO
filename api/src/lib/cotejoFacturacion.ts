@@ -584,16 +584,28 @@ export function arrancarCotejoFacturacion(): void {
    */
   const RAPIDO_MS = Number(process.env.FACTURACION_RAPIDO_MS || 30_000);
 
+  /**
+   * El recuento de la vuelta anterior, para no repetir la misma línea cada treinta
+   * segundos.
+   *
+   * El rápido vuelve a cotejar los mismos pedidos de hoy una y otra vez, así que sus
+   * totales son casi siempre idénticos. Escribiéndolos siempre, el registro se llena de
+   * dos mil líneas al día que dicen lo mismo y la que importa —la factura que acaba de
+   * entrar— se pierde entre ellas. Se escribe sólo cuando el número SE MUEVE, que es
+   * justo cuando ha pasado algo.
+   */
+  let ultimo = '';
+
   const correrRapido = () => {
     cotejarUnaVez(true)
       .then((rs) => {
         const cambiados = rs.reduce((a, r) => a + (r.error ? 0 : r.cambiado), 0);
         const nuevos = rs.reduce((a, r) => a + (r.error ? 0 : r.igual), 0);
+        const ahora = `${nuevos}/${cambiados}`;
 
-        // Sólo se dice algo cuando hay algo que decir: una línea cada treinta segundos
-        // diciendo «nada» tapa el registro y con él lo que sí importa.
-        if (cambiados || nuevos) {
-          console.log(`[factura/rápido] ${nuevos} igual, ${cambiados} cambiados`);
+        if (ahora !== ultimo) {
+          console.log(`[factura/rápido] hoy: ${nuevos} igual, ${cambiados} cambiados`);
+          ultimo = ahora;
         }
       })
       .catch((e) => console.error('[factura/rápido] falló:', (e as Error).message));
