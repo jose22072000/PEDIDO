@@ -1399,7 +1399,7 @@ export const OrdersList = () => {
       >
         <ModalContent className="bg-transparent shadow-none">
           {() => (
-            <div className="flex w-full flex-col items-stretch lg:flex-row">
+            <div className="flex w-full flex-col items-start lg:flex-row">
             {/*
               DOS TARJETAS, UNA AL LADO DE LA OTRA. No una columna dentro del pedido.
 
@@ -1418,7 +1418,7 @@ export const OrdersList = () => {
               así fue como quedó un detalle de pedido que no había forma de cerrar.
               Escrita a mano, dentro de la cabecera del pedido, no puede desaparecer.
             */}
-              <div className="relative z-10 flex min-w-0 flex-1 flex-col rounded-large bg-content1 shadow-medium">
+              <div className="relative z-10 flex w-full min-w-0 flex-1 flex-col rounded-large bg-content1 shadow-medium">
               <ModalHeader className="flex flex-col gap-1">
                 <div className="flex w-full items-start justify-between gap-3">
                   <div className="flex flex-wrap items-center gap-3">
@@ -1817,14 +1817,15 @@ export const OrdersList = () => {
                               nuevo y de la diferencia — o sea, donde se entiende.
                             */}
                             {selectedOrder?.facturaEstado === "cambiado" &&
-                            selectedOrder?.costoDomicilio != null ? (
+                            (selectedOrder?.costoDomicilio != null ||
+                              selectedOrder?.facturaDomicilio != null) ? (
                               <Button
                                 color="primary"
                                 size="sm"
                                 variant="flat"
                                 onPress={() => setVerFactura(true)}
                               >
-                                El pedido cambió · verlo en la factura
+                                El pedido cambió · míralo en la factura
                               </Button>
                             ) : selectedOrder?.costoDomicilio != null ? (
                               /* Copiable de un toque: este número se teclea en otro
@@ -2009,7 +2010,7 @@ export const OrdersList = () => {
                       */
                       <aside
                         aria-hidden={!verFactura}
-                        className={`relative z-0 shrink-0 flex-col gap-2 self-stretch rounded-large border-t-4 border-success-400 bg-content1 p-4 shadow-medium transition-all duration-300 lg:flex lg:w-[26rem] ${
+                        className={`z-0 shrink-0 flex-col gap-2 self-start rounded-large border-t-4 border-success-400 bg-content1 p-4 shadow-medium transition-all duration-300 lg:sticky lg:top-4 lg:flex lg:max-h-[calc(100vh-2rem)] lg:w-[26rem] lg:overflow-y-auto ${
                           verFactura
                             ? "mt-4 flex lg:mt-0 lg:ml-4"
                             : "hidden lg:-ml-[25rem] lg:cursor-pointer"
@@ -2086,10 +2087,34 @@ export const OrdersList = () => {
                           );
                         })}
 
+                        {/*
+                          EL REPARTO, COMO UNA LÍNEA MÁS DE LA FACTURA.
+
+                          Ventra lo factura así —un producto de servicio— y el cotejo lo
+                          aparta antes de comparar, porque nunca está en el pedido y con
+                          él dentro TODOS los pedidos a domicilio salían «cambiados».
+                          Apartarlo para comparar está bien; esconderlo también, no: es
+                          dinero que el cliente pagó y que no aparecía por ningún lado.
+                        */}
+                        {selectedOrder.facturaDomicilio != null && (
+                          <div className="rounded-lg border-l-4 border-primary-400 bg-primary-50 px-3 py-2">
+                            <p className="break-words text-sm font-medium">
+                              ENTREGA A DOMICILIO
+                            </p>
+                            <div className="mt-1 flex items-center justify-between gap-2 text-xs">
+                              <span className="text-default-500">Servicio</span>
+                              <span className="font-semibold text-default-700 tabular-nums">
+                                {$$(selectedOrder.facturaDomicilio)}
+                              </span>
+                            </div>
+                          </div>
+                        )}
+
                         {(() => {
                           const r = resumenFactura(
                             lineasDeFactura(selectedOrder.lineasFactura),
                           );
+                          const reparto = selectedOrder.facturaDomicilio ?? 0;
 
                           return (
                             <div className="mt-1 flex items-center justify-between rounded-lg bg-success-50 px-3 py-2">
@@ -2103,8 +2128,15 @@ export const OrdersList = () => {
                               </div>
                               <div className="text-right">
                                 <p className="font-semibold text-success-700 tabular-nums">
-                                  {$$(r.importe)}
+                                  {$$(r.importe + reparto)}
                                 </p>
+                                {/* Desglosado sólo cuando hay reparto: si no, la resta
+                                    sobra y el total se lee de un vistazo. */}
+                                {reparto > 0 && (
+                                  <p className="text-[11px] text-default-500 tabular-nums">
+                                    {$$(r.importe)} de mercancía + {$$(reparto)} de reparto
+                                  </p>
+                                )}
                                 <p className="text-xs text-default-500 tabular-nums">
                                   {r.kg} kg
                                 </p>
@@ -2123,21 +2155,27 @@ export const OrdersList = () => {
 
                           Así que arriba queda un aviso que trae hasta aquí, y el número
                           viejo se enseña donde se puede explicar: al lado del peso nuevo.
-                          El precio no lo calculamos nosotros; se le avisa a Entrega y lo
-                          rehace la APK, que es la que sabe la tarifa.
+
+                          El reparto es NUESTRO servicio, no una línea de Ventra: lo
+                          calcula la APK de Entrega con su tarifa. Aquí no se inventa un
+                          precio ni se copia ninguno — se dice cuál era, por qué ya no
+                          vale, y que el nuevo viene de la APK.
                         */}
                         {selectedOrder.facturaEstado === "cambiado" &&
-                          selectedOrder.costoDomicilio != null && (
+                          (selectedOrder.costoDomicilio != null ||
+                            selectedOrder.facturaDomicilio != null) && (
                             <div className="rounded-lg border-l-4 border-primary-400 bg-primary-50 px-3 py-2">
                               <p className="text-xs font-semibold text-primary-700">
-                                Entrega a domicilio · hay que recalcularla
+                                Entrega a domicilio · hay que rehacerla
                               </p>
                               <p className="mt-1 text-xs text-default-600 tabular-nums">
-                                La APK cobró {$$(selectedOrder.costoDomicilio)}
-                                {pesoDelPedido != null
-                                  ? ` por los ${pesoDelPedido} kg del pedido`
-                                  : ""}
-                                .
+                                {selectedOrder.costoDomicilio == null
+                                  ? "La APK todavía no le había puesto precio al reparto."
+                                  : `Estaba en ${$$(selectedOrder.costoDomicilio)}${
+                                      pesoDelPedido != null
+                                        ? `, por los ${pesoDelPedido} kg del pedido`
+                                        : ""
+                                    }.`}
                               </p>
                               {(() => {
                                 const kg = resumenFactura(
@@ -2163,14 +2201,9 @@ export const OrdersList = () => {
                                   </p>
                                 );
                               })()}
-                              {selectedOrder.facturaDomicilio != null && (
-                                <p className="text-xs text-default-600 tabular-nums">
-                                  La factura cobró {$$(selectedOrder.facturaDomicilio)} por
-                                  el reparto.
-                                </p>
-                              )}
                               <p className="mt-1 text-[11px] font-semibold text-primary-700">
-                                Se le avisó a Entrega para que lo rehaga.
+                                Se le avisó a Entrega. El precio nuevo lo pone la APK y sale
+                                aquí en cuanto lo mande.
                               </p>
                             </div>
                           )}

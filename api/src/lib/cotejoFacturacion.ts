@@ -103,9 +103,17 @@ export interface ResultadoCotejo {
   error?: string;
 }
 
-export async function cotejarUnaVez(): Promise<ResultadoCotejo[]> {
+/**
+ * Una pasada del cotejo.
+ *
+ * @param rapido  el CARRIL RÁPIDO: sólo lo de hoy y sólo las sucursales que tienen algún
+ *                pedido esperando factura. Ver `arrancarCotejoFacturacion`.
+ */
+export async function cotejarUnaVez(rapido = false): Promise<ResultadoCotejo[]> {
   const hasta = new Date();
-  const desde = new Date(hasta.getTime() - DIAS * 86400000);
+  const desde = rapido
+    ? new Date(hasta.getFullYear(), hasta.getMonth(), hasta.getDate())
+    : new Date(hasta.getTime() - DIAS * 86400000);
   const sucursales = await prisma.sucursal.findMany({ select: { id: true, nombre: true, codigo: true } });
   const bases = await databases();
   const salida: ResultadoCotejo[] = [];
@@ -125,6 +133,32 @@ export async function cotejarUnaVez(): Promise<ResultadoCotejo[]> {
     }
 
     try {
+      /**
+       * EN EL CARRIL RÁPIDO, PRIMERO SE MIRA SI HAY A QUIÉN ESPERAR.
+       *
+       * Preguntar antes a nuestra propia base cuesta una consulta; preguntarle a Ventra
+       * cuesta una vuelta por la VPN. Corriendo cada medio minuto, sondear las ocho
+       * sucursales sin tener un solo pedido pendiente sería castigar a Ventra todo el día
+       * para no enterarse de nada.
+       *
+       * Se cuentan los que TODAVÍA no tienen factura. En cuanto a uno le sale, la pasada
+       * completa —la de cada diez minutos— se ocupa de lo demás.
+       */
+      if (rapido) {
+        const esperando = await prisma.pedido.count({
+          where: {
+            sucursalId: suc.id,
+            fecha: { gte: desde },
+            OR: [{ facturaEstado: null }, { facturaEstado: 'sin_factura' }],
+          },
+        });
+
+        if (esperando === 0) {
+          salida.push(r);
+          continue;
+        }
+      }
+
       const ventas = await ventasDeSucursal(base.database, soloFecha(desde), soloFecha(hasta));
 
       r.lineas = ventas.length;
@@ -524,9 +558,57 @@ export function arrancarCotejoFacturacion(): void {
       .catch((e) => console.error('[factura] cotejo falló:', (e as Error).message));
   };
 
+  /**
+   * EL CARRIL RÁPIDO: enterarse de la factura en segundos, no en diez minutos.
+   *
+   * # Por qué hacen falta dos relojes
+   *
+   * Cuando la factura sale distinta del pedido, el reparto que la APK de Entrega ya
+   * había cotizado deja de valer: se calculó sobre un peso que no es el que va a subir
+   * al camión. Ese aviso tiene que llegarle a Entrega mientras el pedido todavía está en
+   * el mostrador, no diez minutos después, cuando el camión ya salió.
+   *
+   * La pasada completa no se puede acelerar sin más: son mil cuatrocientos pedidos de
+   * tres días por ocho sucursales, con su catálogo y sus correcciones. Corriéndola cada
+   * treinta segundos se pasaría el día entero cotejando lo mismo.
+   *
+   * # Qué hace el rápido, entonces
+   *
+   * Sólo HOY, y sólo las sucursales que tienen algún pedido esperando factura. La
+   * mayoría de las vueltas no llegan ni a preguntarle a Ventra: cuentan en nuestra base,
+   * ven que no hay nadie esperando y se van. Cuando sí hay alguien, se coteja esa
+   * sucursal y, si la factura cambió el pedido, el aviso a Entrega sale ahí mismo.
+   *
+   * Lo demás —el histórico de tres días, las restauraciones, los pedidos viejos que
+   * cambian tarde— sigue siendo cosa de la pasada completa.
+   */
+  const RAPIDO_MS = Number(process.env.FACTURACION_RAPIDO_MS || 30_000);
+
+  const correrRapido = () => {
+    cotejarUnaVez(true)
+      .then((rs) => {
+        const cambiados = rs.reduce((a, r) => a + (r.error ? 0 : r.cambiado), 0);
+        const nuevos = rs.reduce((a, r) => a + (r.error ? 0 : r.igual), 0);
+
+        // Sólo se dice algo cuando hay algo que decir: una línea cada treinta segundos
+        // diciendo «nada» tapa el registro y con él lo que sí importa.
+        if (cambiados || nuevos) {
+          console.log(`[factura/rápido] ${nuevos} igual, ${cambiados} cambiados`);
+        }
+      })
+      .catch((e) => console.error('[factura/rápido] falló:', (e as Error).message));
+  };
+
   // Margen al arrancar, igual que el catálogo: durante el despliegue la VPN puede no
   // estar lista y un fallo en el primer segundo no dice nada.
   setTimeout(correr, 90_000);
   setInterval(correr, CADA_MS);
-  console.log(`[factura] cotejo contra Ventra cada ${(CADA_MS / 60000).toFixed(0)} min`);
+  // El rápido arranca desfasado, para no coincidir con la pasada completa y pedirle a
+  // Ventra dos cosas a la vez.
+  setTimeout(correrRapido, 120_000);
+  setInterval(correrRapido, RAPIDO_MS);
+  console.log(
+    `[factura] cotejo contra Ventra cada ${(CADA_MS / 60000).toFixed(0)} min · ` +
+      `carril rápido de hoy cada ${(RAPIDO_MS / 1000).toFixed(0)} s`,
+  );
 }
