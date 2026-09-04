@@ -108,12 +108,22 @@ export interface ResultadoCotejo {
  *
  * @param rapido  el CARRIL RÁPIDO: sólo lo de hoy y sólo las sucursales que tienen algún
  *                pedido esperando factura. Ver `arrancarCotejoFacturacion`.
+ * @param desde   desde qué día mirar, si se quiere otra ventana que la de siempre. Lo usa
+ *                la recuperación —`scripts/recuperar-cotejo`— para volver a pasar por
+ *                encima de pedidos viejos: los cotejados antes de que se guardaran las
+ *                unidades, los kilos y los importes tienen las líneas a medias, y en la
+ *                pantalla salen con guiones para siempre porque la ventana normal ya no
+ *                los alcanza.
  */
-export async function cotejarUnaVez(rapido = false): Promise<ResultadoCotejo[]> {
+export async function cotejarUnaVez(
+  { rapido = false, desde: desdeFijo }: { rapido?: boolean; desde?: Date } = {},
+): Promise<ResultadoCotejo[]> {
   const hasta = new Date();
-  const desde = rapido
-    ? new Date(hasta.getFullYear(), hasta.getMonth(), hasta.getDate())
-    : new Date(hasta.getTime() - DIAS * 86400000);
+  const desde =
+    desdeFijo ??
+    (rapido
+      ? new Date(hasta.getFullYear(), hasta.getMonth(), hasta.getDate())
+      : new Date(hasta.getTime() - DIAS * 86400000));
   const sucursales = await prisma.sucursal.findMany({ select: { id: true, nombre: true, codigo: true } });
   const bases = await databases();
   const salida: ResultadoCotejo[] = [];
@@ -541,7 +551,7 @@ export function arrancarCotejoFacturacion(): void {
   }
 
   const correr = () => {
-    cotejarUnaVez()
+    cotejarUnaVez({})
       .then((rs) => {
         const ok = rs.filter((r) => !r.error);
         const mal = rs.filter((r) => r.error);
@@ -597,7 +607,7 @@ export function arrancarCotejoFacturacion(): void {
   let ultimo = '';
 
   const correrRapido = () => {
-    cotejarUnaVez(true)
+    cotejarUnaVez({ rapido: true })
       .then((rs) => {
         const cambiados = rs.reduce((a, r) => a + (r.error ? 0 : r.cambiado), 0);
         const nuevos = rs.reduce((a, r) => a + (r.error ? 0 : r.igual), 0);

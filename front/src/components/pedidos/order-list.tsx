@@ -1718,16 +1718,19 @@ export const OrdersList = () => {
                           <p className="text-sm text-default-600">Sin facturar todavía.</p>
                         )}
                       </div>
-                      {selectedOrder.lineasFactura && (
-                        <Button
-                          color="success"
-                          size="sm"
-                          variant="flat"
-                          onPress={() => setVerFactura((v) => !v)}
-                        >
-                          {verFactura ? "Ocultar la factura" : "Ver la factura"}
-                        </Button>
-                      )}
+                      {/* Sin nota que llamar, no hay botón: un botón que no abre nada
+                          es peor que ninguno. */}
+                      {selectedOrder.facturaEstado === "cambiado" &&
+                        selectedOrder.lineasFactura && (
+                          <Button
+                            color="success"
+                            size="sm"
+                            variant="flat"
+                            onPress={() => setVerFactura((v) => !v)}
+                          >
+                            {verFactura ? "Ocultar la factura" : "Ver la factura"}
+                          </Button>
+                        )}
                     </div>
                   )}
                   {/* Products */}
@@ -2017,7 +2020,19 @@ export const OrdersList = () => {
                       del modal se quedaba debajo, así que no había forma de cerrarlo. En
                       un modal esa metáfora no cabe.
                     */}
-                    {selectedOrder?.lineasFactura && (
+                    {/*
+                      LA NOTA SÓLO SALE CUANDO HAY ALGO QUE MIRAR.
+
+                      Si la factura coincide con el pedido, la nota repetiría la lista
+                      que ya está a la izquierda, producto por producto. Eso no informa:
+                      hace leer dos veces lo mismo para acabar donde se empezó. Lo que
+                      hay que saber —que se mantiene— cabe en la línea verde de arriba.
+
+                      Estuvo saliendo también en ese caso, asomando por detrás, y la
+                      primera vez que se vio en pantalla sobraba.
+                    */}
+                    {selectedOrder?.facturaEstado === "cambiado" &&
+                      selectedOrder?.lineasFactura && (
                       /*
                         LA NOTA SIEMPRE ESTÁ. Cerrada, asoma por detrás de la tarjeta del
                         pedido; abierta, sale de ahí y se pone al lado.
