@@ -34,6 +34,8 @@ import { esServicio, esEntregaADomicilio } from './servicios'
 export interface LineaPedido {
   producto?: string | null
   descripcion?: string | null
+  /** El código de Ventra, si el pedido lo trae. Es la forma EXACTA de emparejar. */
+  codigo?: string | null
   packs?: number | null
   unidades?: number | null
 }
@@ -101,15 +103,76 @@ export function clavesDeProducto(nombre: string): Set<string> {
   return new Set(normalizar(enMl).split(' ').filter((p) => p.length > 2))
 }
 
-/** ¿Son el mismo producto? Comparten marca y formato. */
-export function mismoProducto(a: string, b: string): boolean {
+/** Cuántas palabras comparten dos nombres de producto. */
+export function parecido(a: string, b: string): number {
   const ca = clavesDeProducto(a)
   const cb = clavesDeProducto(b)
-  const comunes = [...ca].filter((p) => cb.has(p))
 
+  return [...ca].filter((p) => cb.has(p)).length
+}
+
+/** ¿Son el mismo producto? Comparten marca y formato. */
+export function mismoProducto(a: string, b: string): boolean {
   // Al menos dos coincidencias: con una sola, «PARRANDA» casaría con cualquier parranda
   // de cualquier formato y el cotejo diría que cuadra cuando no.
-  return comunes.length >= 2
+  return parecido(a, b) >= 2
+}
+
+/**
+ * Cuál de las líneas facturadas es ESTA línea del pedido.
+ *
+ * # El fallo que esto corrige
+ *
+ * Antes se cogía la PRIMERA que compartiera dos palabras, y con eso el orden de la
+ * factura decidía el resultado. Un pedido de tres refrescos:
+ *
+ *     REFRESCO SANTA ORANGE 330 ML CAJA 24U
+ *     REFRESCO SANTA COLA   330 ML CAJA 24U
+ *     REFRESCO SANTA PINA   330 ML CAJA 24U
+ *
+ * comparte CINCO palabras entre los tres —refresco, santa, 330, caja, 24u— y sólo se
+ * diferencia en el sabor. Así que ORANGE casaba con PIÑA, PIÑA con ORANGE, y un pedido
+ * idéntico a su factura salía «cambiado» con dos diferencias inventadas.
+ *
+ * No es cosa de los refrescos: pasa con `ARROZ RIVIERA 1 KG PACA 10U` contra
+ * `ARROZ PATEKO 1 KG PACA 10U`, y con el mismo aceite en dos tamaños. Es justo lo que
+ * distingue un producto de otro —la marca, el sabor, el formato— lo que se ignoraba.
+ *
+ * # Cómo se elige ahora
+ *
+ * 1. **Por código**, si los dos lo traen. Es exacto y no hay nada que interpretar.
+ * 2. Si no, la que MÁS palabras comparta, y sólo si gana sola. Dos empatadas en lo alto
+ *    quieren decir que no se puede distinguir: se deja sin emparejar y sale como
+ *    diferencia, que se ve. Elegir una de las dos a cara o cruz es lo que hacía antes.
+ */
+export function elegirLinea(
+  pedido: LineaPedido,
+  candidatas: Array<{ producto: string; codigo: string | null; cantidad: number }>,
+): { producto: string; codigo: string | null; cantidad: number } | null {
+  if (candidatas.length === 0) return null
+
+  const codigo = (pedido.codigo || '').trim().toUpperCase()
+
+  if (codigo) {
+    const exacta = candidatas.find((c) => (c.codigo || '').trim().toUpperCase() === codigo)
+
+    if (exacta) return exacta
+  }
+
+  const nombre = (pedido.producto || pedido.descripcion || '').trim()
+
+  if (!nombre) return null
+
+  const puntuadas = candidatas
+    .map((c) => ({ c, puntos: parecido(nombre, c.producto) }))
+    .filter((x) => x.puntos >= 2)
+    .sort((a, b) => b.puntos - a.puntos)
+
+  if (puntuadas.length === 0) return null
+  // Si dos empatan arriba, no se puede saber cuál es: mejor decirlo que acertar a medias.
+  if (puntuadas.length > 1 && puntuadas[1].puntos === puntuadas[0].puntos) return null
+
+  return puntuadas[0].c
 }
 
 /**
@@ -169,7 +232,7 @@ export function cotejar(lineasPedido: LineaPedido[], suyas: LineaFactura[]): Cot
     if (!nombre) continue
     // Lo pedido va en unidades de VENTA (los packs), igual que la cantidad de Ventra.
     const pedidas = Number(l.packs) > 0 ? Number(l.packs) : Number(l.unidades) || 0
-    const encaje = lineas.find((f) => !usadas.has(f.producto) && mismoProducto(nombre, f.producto))
+    const encaje = elegirLinea(l, lineas.filter((f) => !usadas.has(f.producto)))
 
     if (!encaje) {
       diferencias.push(`${nombre}: pedido ${pedidas}, no facturado`)
