@@ -67,3 +67,57 @@ describe("¿es pulsar fuera del modal?", () => {
     assert.equal(esPulsacionFuera({} as never), false);
   });
 });
+
+/**
+ * El modal del pedido son DOS tarjetas: el pedido y la factura al lado.
+ *
+ * Entre las dos, y debajo de la más corta, queda hueco transparente que sigue estando
+ * dentro del diálogo. Se ve velo, se pulsa, y antes no pasaba nada.
+ */
+describe("un modal partido en dos tarjetas", () => {
+  /** Simula `closest` con la lista de selectores a los que pertenece el elemento. */
+  const elemento = (...dentroDe: string[]) => ({
+    closest: (sel: string) =>
+      sel.split(",").some((s) => dentroDe.includes(s.trim())) ? {} : null,
+  });
+
+  test("el hueco entre las dos tarjetas CIERRA", () => {
+    const hueco = elemento('[data-slot="wrapper"]', '[role="dialog"]', "[data-partido]");
+
+    assert.equal(esPulsacionFuera(hueco), true);
+  });
+
+  test("pero pulsar la tarjeta del PEDIDO no cierra", () => {
+    const dentro = elemento(
+      '[data-slot="wrapper"]', '[role="dialog"]', "[data-partido]", "[data-tarjeta]",
+    );
+
+    assert.equal(esPulsacionFuera(dentro), false);
+  });
+
+  test("ni pulsar la tarjeta de la FACTURA", () => {
+    // Es el mismo caso —las dos llevan `data-tarjeta`— y va escrito aparte a propósito:
+    // el día que alguien le quite la marca a una de las dos, esto lo dice.
+    const enLaNota = elemento(
+      '[data-slot="wrapper"]', '[role="dialog"]', "[data-partido]", "[data-tarjeta]",
+    );
+
+    assert.equal(esPulsacionFuera(enLaNota), false);
+  });
+
+  test("y los modales de UNA tarjeta siguen igual que siempre", () => {
+    // Sin `data-partido` no hay hueco que valga: cualquier cosa dentro del diálogo es
+    // usar el modal. Si esto se rompe, se cierran solos a media edición.
+    const otroModal = elemento('[data-slot="wrapper"]', '[role="dialog"]');
+
+    assert.equal(esPulsacionFuera(otroModal), false);
+  });
+
+  test("un desplegable dentro del modal partido tampoco cierra", () => {
+    const opcion = elemento(
+      '[data-slot="wrapper"]', '[role="dialog"]', "[data-partido]", '[role="option"]',
+    );
+
+    assert.equal(esPulsacionFuera(opcion), false);
+  });
+});

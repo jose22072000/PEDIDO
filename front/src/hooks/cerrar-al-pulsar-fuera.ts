@@ -47,11 +47,28 @@ export function esPulsacionFuera(destino: ElementoConClosest | null): boolean {
   // aviso flotante. No es "pulsar fuera de ESTE modal".
   if (!destino.closest('[data-slot="wrapper"]')) return false;
 
-  // Dentro del modal: se esta usando.
-  if (destino.closest('[role="dialog"]')) return false;
-
   // Un desplegable abierto dentro del marco tampoco cuenta.
   if (destino.closest('[role="listbox"],[role="menu"],[role="option"]')) return false;
+
+  // Dentro de una TARJETA del modal: se esta usando.
+  if (destino.closest("[data-tarjeta]")) return false;
+
+  /**
+   * Un modal PARTIDO en dos tarjetas (`data-partido`) deja hueco transparente entre
+   * ellas y debajo de la mas corta.
+   *
+   * Ese hueco esta dentro del dialogo, asi que por la regla de abajo contaba como "se
+   * esta usando el modal" y pulsarlo no hacia nada: se ve el velo, se pulsa, y el modal
+   * sigue ahi. Pero es velo con otro nombre — no hay tarjeta debajo—, y tiene que
+   * cerrar como cualquier otro sitio vacio.
+   *
+   * Va ANTES de la comprobacion del dialogo y DESPUES de la de las tarjetas: primero se
+   * descarta que se haya pulsado algo de verdad, y solo entonces el hueco cuenta.
+   */
+  if (destino.closest("[data-partido]")) return true;
+
+  // Dentro del modal: se esta usando.
+  if (destino.closest('[role="dialog"]')) return false;
 
   return true;
 }

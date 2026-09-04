@@ -181,6 +181,18 @@ function resumenFactura(ls: LineaFacturada[]) {
     unidades: reales.reduce((t, l) => t + (l.unidades ?? 0), 0),
     kg: Number(reales.reduce((t, l) => t + (l.pesoKg ?? 0), 0).toFixed(2)),
     importe: reales.reduce((t, l) => t + (l.importe ?? 0), 0),
+    /**
+     * CUÁNTAS líneas traen de verdad cada cifra.
+     *
+     * Las facturas cotejadas antes de que se guardaran importes y pesos tienen las
+     * líneas a medias —producto, código y formatos, nada más—, y sumarlas daba «$0.00»
+     * y «0 kg» en el total. Eso no es un dato que falta: es una factura diciendo que no
+     * vale nada, que es peor que no decir nada. Con esto, el que pinta sabe cuándo tiene
+     * que callarse y poner un guion.
+     */
+    conImporte: reales.filter((l) => l.importe != null).length,
+    conPeso: reales.filter((l) => l.pesoKg != null).length,
+    conUnidades: reales.filter((l) => l.unidades != null).length,
   };
 }
 
@@ -1399,7 +1411,14 @@ export const OrdersList = () => {
       >
         <ModalContent className="bg-transparent shadow-none">
           {() => (
-            <div className="flex w-full flex-col items-start lg:flex-row">
+            <div
+              className="flex w-full flex-col items-start lg:flex-row"
+              data-partido="1"
+            >
+              {/* `data-partido`: este modal son DOS tarjetas, así que entre ellas y
+                  debajo de la más corta queda hueco transparente. Ese hueco es velo con
+                  otro nombre y pulsarlo tiene que cerrar — quien decide eso es
+                  `esPulsacionFuera`, que busca esta marca y las de `data-tarjeta`. */}
             {/*
               DOS TARJETAS, UNA AL LADO DE LA OTRA. No una columna dentro del pedido.
 
@@ -1418,7 +1437,10 @@ export const OrdersList = () => {
               así fue como quedó un detalle de pedido que no había forma de cerrar.
               Escrita a mano, dentro de la cabecera del pedido, no puede desaparecer.
             */}
-              <div className="relative z-10 flex w-full min-w-0 flex-1 flex-col rounded-large bg-content1 shadow-medium">
+              <div
+                className="relative z-10 flex w-full min-w-0 flex-1 flex-col rounded-large bg-content1 shadow-medium"
+                data-tarjeta="pedido"
+              >
               <ModalHeader className="flex flex-col gap-1">
                 <div className="flex w-full items-start justify-between gap-3">
                   <div className="flex flex-wrap items-center gap-3">
@@ -1683,7 +1705,11 @@ export const OrdersList = () => {
                                       lineasDeFactura(selectedOrder.lineasFactura),
                                     );
 
-                                    return ` · ${r.lineas} línea${r.lineas === 1 ? "" : "s"} · ${r.kg} kg · ${$$(r.importe)}`;
+                                    return (
+                                      ` · ${r.lineas} línea${r.lineas === 1 ? "" : "s"}` +
+                                      (r.conPeso > 0 ? ` · ${r.kg} kg` : "") +
+                                      (r.conImporte > 0 ? ` · ${$$(r.importe)}` : "")
+                                    );
                                   })()
                                 : ""}
                             </p>
@@ -2010,6 +2036,7 @@ export const OrdersList = () => {
                       */
                       <aside
                         aria-hidden={!verFactura}
+                        data-tarjeta="factura"
                         className={`z-0 shrink-0 flex-col gap-2 self-start rounded-large border-t-4 border-success-400 bg-content1 p-4 shadow-medium transition-all duration-300 lg:sticky lg:top-4 lg:flex lg:max-h-[calc(100vh-2rem)] lg:w-[26rem] lg:overflow-y-auto ${
                           verFactura
                             ? "mt-4 flex lg:mt-0 lg:ml-4"
@@ -2123,12 +2150,15 @@ export const OrdersList = () => {
                                   Total de la factura
                                 </p>
                                 <p className="text-[11px] text-default-500 tabular-nums">
-                                  {r.formatos} formatos · {r.unidades} unidades
+                                  {r.formatos} formatos
+                                  {r.conUnidades > 0 ? ` · ${r.unidades} unidades` : ""}
                                 </p>
                               </div>
                               <div className="text-right">
                                 <p className="font-semibold text-success-700 tabular-nums">
-                                  {$$(r.importe + reparto)}
+                                  {r.conImporte > 0 || reparto > 0
+                                    ? $$(r.importe + reparto)
+                                    : "—"}
                                 </p>
                                 {/* Desglosado sólo cuando hay reparto: si no, la resta
                                     sobra y el total se lee de un vistazo. */}
@@ -2137,9 +2167,18 @@ export const OrdersList = () => {
                                     {$$(r.importe)} de mercancía + {$$(reparto)} de reparto
                                   </p>
                                 )}
-                                <p className="text-xs text-default-500 tabular-nums">
-                                  {r.kg} kg
-                                </p>
+                                {r.conPeso > 0 && (
+                                  <p className="text-xs text-default-500 tabular-nums">
+                                    {r.kg} kg
+                                  </p>
+                                )}
+                                {/* Y se dice POR QUÉ no hay cifras, en vez de dejar un
+                                    guion mudo que parece un fallo de ahora mismo. */}
+                                {r.conImporte === 0 && (
+                                  <p className="text-[11px] text-default-400">
+                                    cotejada antes de que se guardara el detalle
+                                  </p>
+                                )}
                               </div>
                             </div>
                           );
