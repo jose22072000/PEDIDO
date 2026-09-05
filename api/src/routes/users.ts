@@ -2,6 +2,7 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { normalizarUsuario } from '../lib/nombreUsuario';
 import prisma from '../prismaClient';
+import { decidirBorrado } from '../lib/borradoUsuario';
 import { getRequesterContext, resolveSucursalScope } from '../lib/sucursalContext';
 import { emitEvent } from '../lib/events';
 import { ROLES_ENLAZABLES, backfillSucursalDeVendedor } from '../lib/gestores';
@@ -338,6 +339,70 @@ router.patch('/:id', async (req, res) => {
     // en Camagüey siendo global), y el backend se la aplicaba como filtro.
     if (pasaASuperAdmin) updateData.sucursalId = null;
 
+    /**
+     * CAMBIAR DE SUCURSAL A UN USUARIO SE LLEVA A LOS SUYOS.
+     *
+     * La ingesta ya funciona así: la sucursal del vendedor sale de SU GESTOR, y la del
+     * cliente sale del gestor del vendedor que trae el pedido. Pero eso sólo se aplica
+     * en la importación siguiente, así que entre medias el usuario está en la sucursal
+     * nueva y sus vendedores y pedidos siguen figurando en la vieja. Alguien mira, no
+     * cuadra, y lo vuelve a cambiar.
+     *
+     * Aquí no se inventa una regla: se aplica la misma, ya.
+     *
+     * # Los clientes compartidos NO se mueven
+     *
+     * Un cliente puede comprarle a varios vendedores —hoy 1.160 lo hacen— y arrastrarlo
+     * detrás de uno se lo quita a los demás, que siguen en la sucursal de antes. Sólo se
+     * mueven los que compran EXCLUSIVAMENTE a los vendedores de este usuario. Los otros
+     * se cuentan y se devuelven, para que quien lo hace sepa qué quedó fuera en vez de
+     * enterarse por un informe descuadrado.
+     */
+    const cambiaDeSucursal =
+      updateData.sucursalId !== undefined && updateData.sucursalId !== existingUser.sucursalId;
+    const arrastre = { vendedores: 0, clientes: 0, clientesCompartidos: 0 };
+
+    if (cambiaDeSucursal) {
+      const destino = (updateData.sucursalId as string | null) ?? null;
+      const suyos = await prisma.vendedor.findMany({
+        where: { gestorId: id },
+        select: { id: true },
+      });
+      const ids = suyos.map((v) => v.id);
+
+      if (ids.length) {
+        const compradores = await prisma.pedido.findMany({
+          where: { vendedorId: { in: ids }, clienteId: { not: null } },
+          select: { clienteId: true },
+          distinct: ['clienteId'],
+        });
+        const clientes = compradores.map((p) => p.clienteId!).filter(Boolean);
+
+        // De esos, los que también le compran a alguien de fuera se quedan donde están.
+        const compartidos = clientes.length
+          ? (
+              await prisma.pedido.findMany({
+                where: { clienteId: { in: clientes }, vendedorId: { notIn: ids } },
+                select: { clienteId: true },
+                distinct: ['clienteId'],
+              })
+            ).map((p) => p.clienteId!)
+          : [];
+        const soloSuyos = clientes.filter((c) => !compartidos.includes(c));
+
+        await prisma.$transaction([
+          prisma.vendedor.updateMany({ where: { id: { in: ids } }, data: { sucursalId: destino } }),
+          ...(soloSuyos.length
+            ? [prisma.cliente.updateMany({ where: { id: { in: soloSuyos } }, data: { sucursalId: destino } })]
+            : []),
+        ]);
+
+        arrastre.vendedores = ids.length;
+        arrastre.clientes = soloSuyos.length;
+        arrastre.clientesCompartidos = compartidos.length;
+      }
+    }
+
     const user = await prisma.usuario.update({
       where: { id },
       data: updateData,
@@ -360,8 +425,17 @@ router.patch('/:id', async (req, res) => {
         accion: 'update',
         datos: userWithoutPassword,
       });
+      // Y que las listas de vendedores y clientes de LAS DOS sucursales se recarguen:
+      // acaban de cambiar de sitio y quien las tenga abiertas vería lo de antes.
+      if (cambiaDeSucursal && arrastre.vendedores > 0) {
+        emitEvent('vendedor', { sucursalId: scope, accion: 'bulk' });
+        emitEvent('cliente', { sucursalId: scope, accion: 'bulk' });
+      }
     }
-    res.json(userWithoutPassword);
+
+    // Se dice QUÉ se movió con él. Un traspaso silencioso obliga a ir a mirar a otras
+    // dos pantallas para saber si funcionó.
+    res.json(cambiaDeSucursal ? { ...userWithoutPassword, arrastre } : userWithoutPassword);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to update user' });
@@ -404,15 +478,31 @@ router.delete('/:id', async (req, res) => {
     // dejaron de verse. Ahora se bloquea y se dice exactamente a quién afecta.
     const vendedoresACargo = await prisma.vendedor.findMany({
       where: { gestorId: id },
-      select: { id: true, nombre: true, codigo: true, _count: { select: { pedidos: true } } },
+      select: {
+        id: true, nombre: true, codigo: true, activo: true, sucursalId: true,
+        _count: { select: { pedidos: true } },
+      },
       orderBy: { nombre: 'asc' },
     });
+    const decision = decidirBorrado(vendedoresACargo);
 
-    if (vendedoresACargo.length) {
+    /**
+     * SÓLO BLOQUEA SI ALGUNO SIGUE ACTIVO.
+     *
+     * Un vendedor activo sin gestor es el fallo de Holguín: la ingesta le pone la
+     * sucursal de su gestor, y sin gestor se la deja en nulo. Queda «sin asignar», y
+     * todo lo que suba a partir de ahí desaparece de la vista sin un aviso.
+     *
+     * Uno de baja no tiene ese problema: su CSV ya no llega —la ingesta lo rechaza— así
+     * que nadie le va a tocar la sucursal. Puede quedarse sin usuario tranquilamente.
+     */
+    if (!decision.permitido) {
       return res.status(409).json({
-        error: `No se puede eliminar: ${existingUser.username} lleva ${vendedoresACargo.length} vendedor(es). Reasígnalos a otro usuario primero.`,
+        error:
+          `No se puede eliminar: ${existingUser.username} lleva ${decision.activos.length} vendedor(es) en activo. ` +
+          'Dales de baja o reasígnalos a otro usuario primero.',
         codigo: 'VENDEDORES_ASIGNADOS',
-        vendedores: vendedoresACargo.map((v) => ({
+        vendedores: decision.activos.map((v) => ({
           id: v.id,
           nombre: v.nombre,
           codigo: v.codigo,
@@ -421,12 +511,45 @@ router.delete('/:id', async (req, res) => {
       });
     }
 
+    /**
+     * LOS DE BAJA SE QUEDAN, CON SU SUCURSAL Y SIN USUARIO.
+     *
+     * Borrar el usuario no puede llevarse por delante lo que ya se recogió: sus pedidos,
+     * sus clientes y su histórico siguen haciendo falta para hacer seguimiento aunque esa
+     * persona ya no trabaje.
+     *
+     * Así que el vendedor no se borra ni se vacía: pierde el gestor y **conserva la
+     * sucursal a la que pertenecía**. Sin eso quedaría «sin asignar» y sus pedidos
+     * saldrían de los informes de esa sucursal, que es justo el histórico que se quiere
+     * conservar.
+     */
+    if (decision.aLiberar.length) {
+      await prisma.vendedor.updateMany({
+        where: { id: { in: decision.aLiberar.map((v) => v.id) } },
+        data: { gestorId: null },
+      });
+    }
+
     await prisma.usuario.delete({
       where: { id },
     });
 
     emitEvent('usuario', { sucursalId: existingUser.sucursalId, id, accion: 'delete' });
-    res.json({ message: 'User deleted successfully' });
+    if (vendedoresACargo.length) {
+      emitEvent('vendedor', { sucursalId: existingUser.sucursalId, accion: 'bulk' });
+    }
+
+    // Se dice QUÉ quedó, no sólo que se borró: el que lo hace tiene que saber que esos
+    // vendedores siguen ahí, de baja y con su sucursal, con todo su histórico.
+    res.json({
+      message: 'User deleted successfully',
+      vendedoresLiberados: vendedoresACargo.map((v) => ({
+        id: v.id,
+        nombre: v.nombre,
+        codigo: v.codigo,
+        pedidos: v._count.pedidos,
+      })),
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to delete user' });
