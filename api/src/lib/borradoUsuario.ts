@@ -22,7 +22,16 @@ export interface DecisionBorrado {
   permitido: boolean;
   /** Los que lo impiden. Vacío cuando se permite. */
   activos: VendedorACargo[];
-  /** Los que se quedan sin gestor, conservando su sucursal. Vacío cuando no se permite. */
+  /**
+   * Los que se van CON el usuario. Son los que no tienen ni un pedido: fichas creadas a
+   * mano por equivocación, sin nada que conservar. Dejarlas sueltas obliga a ir a
+   * borrarlas una a una a otra pantalla, y mientras tanto ensucian las listas.
+   */
+  aBorrar: VendedorACargo[];
+  /**
+   * Los que se QUEDAN, sin gestor y con su sucursal. Son los que llevan pedidos: ahí hay
+   * histórico que hace falta para seguir mirando lo que vendió alguien que ya no está.
+   */
   aLiberar: VendedorACargo[];
 }
 
@@ -43,15 +52,27 @@ export interface DecisionBorrado {
  * prueba— y hoy son 27 de 101. Obligar a reasignarlos antes de borrar a su usuario es
  * pedir un trámite para mover una ficha vacía.
  *
- * Los de baja **no se borran ni se vacían**: pierden el gestor y **conservan su
- * sucursal**, con todo su histórico. Borrar al usuario no puede llevarse por delante lo
- * que ya se recogió: hace falta para hacer seguimiento aunque esa persona ya no
- * trabaje.
+ * # Y qué pasa con los que no bloquean
+ *
+ * **Con pedidos**: se quedan. Pierden el gestor y **conservan su sucursal**, con todo su
+ * histórico. Borrar al usuario no puede llevarse por delante lo que ya se recogió: hace
+ * falta para seguir mirando lo que vendió alguien que ya no trabaja.
+ *
+ * **Sin ningún pedido**: se van con el usuario. No hay nada que conservar, y dejarlos
+ * sueltos obliga a ir a borrarlos uno a uno a otra pantalla. Si alguno volviera a hacer
+ * falta, el CSV lo crea otra vez.
  */
 export function decidirBorrado(vendedores: VendedorACargo[]): DecisionBorrado {
   const activos = vendedores.filter((v) => v.activo && (v._count?.pedidos ?? 0) > 0);
 
-  return activos.length
-    ? { permitido: false, activos, aLiberar: [] }
-    : { permitido: true, activos: [], aLiberar: vendedores };
+  if (activos.length) return { permitido: false, activos, aBorrar: [], aLiberar: [] };
+
+  const conPedidos = (v: VendedorACargo) => (v._count?.pedidos ?? 0) > 0;
+
+  return {
+    permitido: true,
+    activos: [],
+    aBorrar: vendedores.filter((v) => !conPedidos(v)),
+    aLiberar: vendedores.filter(conPedidos),
+  };
 }

@@ -22,21 +22,32 @@ describe('borrar un usuario', () => {
     assert.deepEqual(d.activos.map((x) => x.nombre), ['yoan'])
   })
 
-  test('con uno activo SIN NINGÚN PEDIDO, sí: no hay histórico que esconder', () => {
-    // Son los creados a mano por equivocación. Y si vuelven a hacer falta, el CSV los
-    // trae otra vez.
+  test('con uno activo SIN NINGÚN PEDIDO, sí: y se va EN CASCADA con él', () => {
+    // Son los creados a mano por equivocación: no hay nada que conservar, y dejarlo
+    // suelto obliga a ir a borrarlo a otra pantalla. Si vuelve a hacer falta, el CSV
+    // lo crea otra vez.
     const d = decidirBorrado([v('prueba', true, 0)])
 
     assert.equal(d.permitido, true)
-    assert.deepEqual(d.aLiberar.map((x) => x.nombre), ['prueba'])
+    assert.deepEqual(d.aBorrar.map((x) => x.nombre), ['prueba'])
+    assert.deepEqual(d.aLiberar, [])
   })
 
-  test('con todos DE BAJA, sí: se quedan sin usuario y conservan lo suyo', () => {
-    // Su CSV ya no llega, así que nadie les va a tocar la sucursal.
+  test('con todos DE BAJA y con pedidos, se QUEDAN con su histórico', () => {
+    // Su CSV ya no llega, así que nadie les va a tocar la sucursal. Y sus pedidos hacen
+    // falta para seguir mirando lo que vendieron.
     const d = decidirBorrado([v('yoan', false, 2210), v('luis', false, 634)])
 
     assert.equal(d.permitido, true)
     assert.deepEqual(d.aLiberar.map((x) => x.nombre), ['yoan', 'luis'])
+    assert.deepEqual(d.aBorrar, [])
+  })
+
+  test('mezcla: el vacío se va, el que tiene pedidos se queda', () => {
+    const d = decidirBorrado([v('vacio', true, 0), v('conHistorial', false, 87)])
+
+    assert.deepEqual(d.aBorrar.map((x) => x.nombre), ['vacio'])
+    assert.deepEqual(d.aLiberar.map((x) => x.nombre), ['conHistorial'])
   })
 
   test('basta UNO activo con pedidos entre varios inofensivos', () => {
@@ -60,6 +71,7 @@ describe('borrar un usuario', () => {
     const d = decidirBorrado([v('yoan', true, 5), v('ana', false, 3)])
 
     assert.deepEqual(d.aLiberar, [])
+    assert.deepEqual(d.aBorrar, [])
   })
 
   test('sin `_count` se trata como cero, no como "quién sabe"', () => {
@@ -68,5 +80,6 @@ describe('borrar un usuario', () => {
     const d = decidirBorrado([{ id: 'x', nombre: 'x', codigo: null, activo: true }])
 
     assert.equal(d.permitido, true)
+    assert.deepEqual(d.aBorrar.map((y) => y.nombre), ['x'])
   })
 })

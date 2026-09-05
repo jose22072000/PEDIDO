@@ -529,43 +529,55 @@ router.delete('/:id', async (req, res) => {
     }
 
     /**
-     * LOS DE BAJA SE QUEDAN, CON SU SUCURSAL Y SIN USUARIO.
+     * SUS VENDEDORES: unos se van con él, otros se quedan.
      *
-     * Borrar el usuario no puede llevarse por delante lo que ya se recogió: sus pedidos,
-     * sus clientes y su histórico siguen haciendo falta para hacer seguimiento aunque esa
-     * persona ya no trabaje.
+     * **Los que no tienen ni un pedido se borran en cascada.** Son fichas creadas a mano
+     * por equivocación —un nombre mal escrito, uno duplicado, uno de prueba— sin nada
+     * que conservar. Dejarlas sueltas obliga a ir a borrarlas una a una a la pantalla de
+     * vendedores, y mientras tanto ensucian las listas. Si alguna volviera a hacer falta,
+     * el CSV la crea otra vez.
      *
-     * Así que el vendedor no se borra ni se vacía: pierde el gestor y **conserva la
-     * sucursal a la que pertenecía**. Sin eso quedaría «sin asignar» y sus pedidos
-     * saldrían de los informes de esa sucursal, que es justo el histórico que se quiere
-     * conservar.
+     * **Los que llevan pedidos se quedan**, sin gestor y **con su sucursal**. Borrar el
+     * usuario no puede llevarse por delante lo que ya se recogió: hace falta para seguir
+     * mirando lo que vendió alguien que ya no trabaja. Sin conservar la sucursal
+     * quedarían «sin asignar» y ese histórico saldría de los informes.
+     *
+     * Todo en una transacción con el borrado del usuario: a medias quedaría un usuario
+     * borrado con vendedores todavía apuntándole, o al revés.
      */
-    if (decision.aLiberar.length) {
-      await prisma.vendedor.updateMany({
-        where: { id: { in: decision.aLiberar.map((v) => v.id) } },
-        data: { gestorId: null },
-      });
-    }
-
-    await prisma.usuario.delete({
-      where: { id },
-    });
+    await prisma.$transaction([
+      ...(decision.aBorrar.length
+        ? [prisma.vendedor.deleteMany({ where: { id: { in: decision.aBorrar.map((v) => v.id) } } })]
+        : []),
+      ...(decision.aLiberar.length
+        ? [
+            prisma.vendedor.updateMany({
+              where: { id: { in: decision.aLiberar.map((v) => v.id) } },
+              data: { gestorId: null },
+            }),
+          ]
+        : []),
+      prisma.usuario.delete({ where: { id } }),
+    ]);
 
     emitEvent('usuario', { sucursalId: existingUser.sucursalId, id, accion: 'delete' });
     if (vendedoresACargo.length) {
       emitEvent('vendedor', { sucursalId: existingUser.sucursalId, accion: 'bulk' });
     }
 
-    // Se dice QUÉ quedó, no sólo que se borró: el que lo hace tiene que saber que esos
-    // vendedores siguen ahí, de baja y con su sucursal, con todo su histórico.
+    // Se dice QUÉ pasó con cada uno: cuáles se fueron con él y cuáles siguen ahí con su
+    // histórico. Sin eso hay que ir a otra pantalla a comprobarlo.
+    const contar = (v: (typeof vendedoresACargo)[number]) => ({
+      id: v.id,
+      nombre: v.nombre,
+      codigo: v.codigo,
+      pedidos: v._count.pedidos,
+    });
+
     res.json({
       message: 'User deleted successfully',
-      vendedoresLiberados: vendedoresACargo.map((v) => ({
-        id: v.id,
-        nombre: v.nombre,
-        codigo: v.codigo,
-        pedidos: v._count.pedidos,
-      })),
+      vendedoresEliminados: decision.aBorrar.map((v) => contar(v as never)),
+      vendedoresLiberados: decision.aLiberar.map((v) => contar(v as never)),
     });
   } catch (err) {
     console.error(err);
@@ -590,7 +602,7 @@ router.get('/:id/vendedores', async (req, res) => {
     const [vendedores, candidatos] = await Promise.all([
       prisma.vendedor.findMany({
         where: { gestorId: id },
-        select: { id: true, nombre: true, codigo: true, _count: { select: { pedidos: true } } },
+        select: { id: true, nombre: true, codigo: true, activo: true, _count: { select: { pedidos: true } } },
         orderBy: { nombre: 'asc' },
       }),
       // Solo de la MISMA sucursal: pasarle un vendedor a un gestor de otra movería

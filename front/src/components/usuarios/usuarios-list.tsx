@@ -51,7 +51,13 @@ import { useCerrarAlPulsarFuera } from "@/hooks/cerrar-al-pulsar-fuera";
  * la vista. Ahora la pantalla enseña el problema y su solución a la vez.
  */
 type DependenciasUsuario = {
-  vendedores: Array<{ id: string; nombre: string; codigo: string | null; pedidos: number }>;
+  vendedores: Array<{
+    id: string;
+    nombre: string;
+    codigo: string | null;
+    pedidos: number;
+    activo: boolean;
+  }>;
   // El usuario no tiene campo `nombre` en el modelo: se identifica por username.
   candidatos: Array<{ id: string; username: string }>;
   sePuedeEliminar: boolean;
@@ -767,9 +773,19 @@ export const UsuariosList = () => {
                           No se puede eliminar todavía
                         </p>
                         <p className="text-warning-700/80">
-                          Lleva {dependencias.vendedores.length} vendedor(es). Si lo
-                          borras, quedan sin gestor y sus pedidos dejan de verse.
-                          Pásaselos a otro usuario primero.
+                          {/* Sólo bloquean los que están EN ACTIVO Y CON PEDIDOS: sin
+                              gestor quedarían «sin asignar» y ese histórico saldría de
+                              los informes. Decir «lleva N vendedores» a secas hace
+                              buscar el problema en los que no lo son. */}
+                          Lleva{" "}
+                          {
+                            dependencias.vendedores.filter(
+                              (v) => v.activo && v.pedidos > 0,
+                            ).length
+                          }{" "}
+                          vendedor(es) en activo con pedidos. Si lo borras, quedan sin
+                          gestor y sus pedidos dejan de verse. Dales de baja o pásaselos
+                          a otro usuario primero.
                         </p>
                       </div>
                     </div>
@@ -825,10 +841,52 @@ export const UsuariosList = () => {
                   </div>
                 )}
 
+                {/* Se puede borrar: pero antes se dice QUÉ se lleva por delante y qué
+                    se queda. «No se puede deshacer» a secas no dice si va a perder
+                    algo, y aquí la respuesta depende de lo que lleve cada vendedor. */}
                 {!cargandoDependencias && dependencias?.sePuedeEliminar && (
-                  <p className="text-small text-default-500">
-                    No lleva vendedores. Esta acción no se puede deshacer.
-                  </p>
+                  <div className="flex flex-col gap-2 text-small">
+                    {(() => {
+                      const vs = dependencias.vendedores;
+                      const seVan = vs.filter((v) => v.pedidos === 0);
+                      const seQuedan = vs.filter((v) => v.pedidos > 0);
+
+                      return (
+                        <>
+                          {seVan.length > 0 && (
+                            <div className="rounded-large border border-danger-200 bg-danger-50 p-3">
+                              <p className="font-semibold text-danger-700">
+                                Se borran también {seVan.length} vendedor(es)
+                              </p>
+                              <p className="text-danger-700/80">
+                                {seVan.map((v) => v.nombre).join(", ")} — no tienen
+                                ningún pedido, así que no se pierde nada. Si vuelven a
+                                aparecer en un CSV, se crean otra vez.
+                              </p>
+                            </div>
+                          )}
+                          {seQuedan.length > 0 && (
+                            <div className="rounded-large border border-default-200 bg-default-50 p-3">
+                              <p className="font-semibold text-default-700">
+                                Se quedan {seQuedan.length} vendedor(es), con su histórico
+                              </p>
+                              <p className="text-default-500">
+                                {seQuedan
+                                  .map((v) => `${v.nombre} (${v.pedidos} pedidos)`)
+                                  .join(", ")}{" "}
+                                — pierden el gestor y conservan su sucursal y sus pedidos.
+                              </p>
+                            </div>
+                          )}
+                          {vs.length === 0 && (
+                            <p className="text-default-500">
+                              No lleva vendedores. Esta acción no se puede deshacer.
+                            </p>
+                          )}
+                        </>
+                      );
+                    })()}
+                  </div>
                 )}
               </ModalBody>
               <ModalFooter>
