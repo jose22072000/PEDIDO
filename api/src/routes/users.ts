@@ -628,7 +628,11 @@ router.get('/:id/vendedores', async (req, res) => {
         pedidos: v._count.pedidos,
       })),
       candidatos,
-      sePuedeEliminar: vendedores.length === 0,
+      // LA MISMA regla que decide al borrar de verdad, no una copia. Estaba escrita
+      // aparte como «no lleva ninguno» y decía que no se podía borrar a quien sí se
+      // podía: la pantalla pedía reasignar un vendedor vacío que se iba a borrar solo.
+      // Dos reglas para la misma pregunta siempre acaban dando respuestas distintas.
+      sePuedeEliminar: decidirBorrado(vendedores).permitido,
     });
   } catch (err) {
     console.error('Error listando vendedores del usuario:', err);
