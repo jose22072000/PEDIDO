@@ -22,10 +22,6 @@ import {
   Autocomplete,
   AutocompleteItem,
   Select,
-  Accordion,
-  AccordionItem,
-  CheckboxGroup,
-  Checkbox,
   SelectItem,
   addToast,
   Tooltip,
@@ -242,20 +238,6 @@ const entregaChip: Record<string, { color: "success" | "warning" | "primary" | "
 };
 
 /**
- * Sin tildes y en minúscula, para buscar.
- *
- * «facturacion» tiene que encontrar «Facturación»: quien teclea deprisa en el buscador
- * de un desplegable no pone las tildes, y si no sale nada da por hecho que ese filtro
- * no existe.
- */
-const normalizar = (t: string) =>
-  t
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .trim();
-
-/**
  * Los otros dos estados por los que se filtra.
  *
  * Se arman desde los mismos diccionarios que pintan los chips, para que la opción del
@@ -431,7 +413,6 @@ export const OrdersList = () => {
   const [estadosSel, setEstadosSel] = useState<string[]>([]);
   const [repartosSel, setRepartosSel] = useState<string[]>([]);
   const [facturasSel, setFacturasSel] = useState<string[]>([]);
-  const [buscaFiltro, setBuscaFiltro] = useState("");
 
   /**
    * LO MARCADO Y LO APLICADO SON DOS COSAS.
@@ -475,8 +456,19 @@ export const OrdersList = () => {
     setBorrDomicilio(domicilioFilter);
     setBorrVendedor(vendedorFilter);
     setBorrArchivados(incluirArchivados);
-    setBuscaFiltro("");
     abrirFiltros();
+  };
+
+  /** Deja la lista como si nadie hubiera tocado nada. Una sola consulta. */
+  const quitarTodosLosFiltros = () => {
+    setEstadosSel([]);
+    setRepartosSel([]);
+    setFacturasSel([]);
+    setProductoFilter("");
+    setDomicilioFilter("todos");
+    setVendedorFilter("todos");
+    setIncluirArchivados(false);
+    setPage(1);
   };
 
   const aplicarFiltros = () => {
@@ -505,15 +497,7 @@ export const OrdersList = () => {
   ].map((g) => ({
     ...g,
     // «Todos» es la ausencia de filtro, no una opción que marcar.
-    // Y lo que no case con la búsqueda se cae, salvo que esté MARCADO: esconder algo
-    // que está filtrando la lista es cómo alguien mira una lista corta sin entender
-    // por qué.
-    opciones: g.opciones.filter(
-      (o) =>
-        o.value !== "todos" &&
-        (g.valor.includes(o.value) ||
-          normalizar(o.label).includes(normalizar(buscaFiltro))),
-    ),
+    opciones: g.opciones.filter((o) => o.value !== "todos"),
   }));
   const [domicilioFilter, setDomicilioFilter] = useState<string>("todos");
   const [vendedorFilter, setVendedorFilter] = useState<string>("todos");
@@ -1392,7 +1376,11 @@ export const OrdersList = () => {
       {/* Filters */}
       <Card className={cn(cards({ border: "default" }))}>
         <CardBody className="gap-4">
-          <div className="flex flex-col gap-4 md:flex-row">
+          {/* `items-stretch`: el botón de filtros toma el alto del buscador en vez de
+              llevarlo escrito. Con un `h-14` a mano ya falló dos veces —un Input con
+              etiqueta dentro mide más que su tamaño nominal— y volvería a fallar el día
+              que la librería lo cambie. */}
+          <div className="flex flex-col items-stretch gap-4 md:flex-row">
             <Input
               isClearable
               className="flex-1"
@@ -1419,12 +1407,8 @@ export const OrdersList = () => {
               desplegable sólo deja escoger uno. Con casillas se marcan los que sean, y
               cada grupo se cruza con los otros: pedido Y reparto Y factura.
             */}
-            {/* `h-14` y `border-medium`: es lo que mide y cómo se dibuja un Input `lg`
-                con borde. Con el `lg` del Button quedaba más bajo y con el borde más
-                fino que el buscador de al lado, y dos controles pegados que no coinciden
-                se ven antes que cualquier otra cosa de la pantalla. */}
             <Button
-              className="h-14 w-full justify-between rounded-medium border-medium px-4 sm:w-56"
+              className="h-auto w-full justify-between rounded-medium border-medium px-4 sm:w-56"
               variant="bordered"
               onPress={abrirCajonDeFiltros}
             >
@@ -1441,6 +1425,19 @@ export const OrdersList = () => {
                 </Chip>
               )}
             </Button>
+            {/* Quitarlos todos de una, sin abrir el cajón.
+                Sólo cuando hay alguno puesto: un botón que no hace nada ocupa sitio y
+                deja pensando si se pulsó bien. */}
+            {marcados > 0 && (
+              <Button
+                className="h-auto w-full justify-center rounded-medium border-medium px-4 sm:w-auto"
+                variant="bordered"
+                onPress={quitarTodosLosFiltros}
+              >
+                <Icons.close className="size-4 text-default-400" />
+                Quitar filtros
+              </Button>
+            )}
           </div>
           <div className="flex flex-col gap-4 sm:flex-row">
             <Input
@@ -2233,6 +2230,80 @@ export const OrdersList = () => {
                           </div>
                         </div>
                       ))}
+                {/* Filtrar por producto: "enséñame los pedidos que llevan ESTO". Es lo
+                    que se necesita cuando falta mercancía y hay que avisar a quien la
+                    pidió. La lista sale de las líneas reales de esta sucursal, así que
+                    no hay opciones que devuelvan cero. */}
+                {/* Autocompletado y no un desplegable a secas: son cientos de productos.
+                    Bajar por una lista de esas es inservible —hay que escribir "arroz" y
+                    que salgan los arroces—, y además el desplegable dejaba el primero
+                    medio tapado por el borde del campo. */}
+                <Autocomplete
+                  allowsCustomValue={false}
+                  className="w-full"
+                  // Cada opción son DOS líneas (producto y categoría). Sin altura ni
+                  // separación se montan una encima de otra y no se distingue dónde
+                  // acaba una y empieza la siguiente. El `py` de la lista es para que la
+                  // primera no nazca pegada al borde, que salía cortada.
+                  // `h-auto` es lo que arregla el solapamiento: la opción traía altura
+                  // fija del tema, así que un nombre que ocupa dos líneas se salía de su
+                  // caja y se montaba encima de la siguiente.
+                  listboxProps={{
+                    itemClasses: {
+                      base: "py-2 h-auto data-[hover=true]:bg-default-100",
+                    },
+                  }}
+                  popoverProps={{ classNames: { content: "py-1" } }}
+                  defaultItems={productos.map((nombre) => ({
+                    nombre,
+                    ...partirProducto(nombre),
+                  }))}
+                  label="Producto"
+                  placeholder="Todos · escribe para buscar"
+                  selectedKey={productoFilter || null}
+                  size="lg"
+                  variant="bordered"
+                  onSelectionChange={(k) => setProductoFilter(k ? String(k) : "")}
+                >
+                  {(item: { nombre: string; categoria: string; producto: string }) => (
+                    // `textValue` es por lo que se busca al teclear: el nombre ENTERO, para
+                    // que quien escriba "alimentos" o "arroz" lo encuentre igual.
+                    <AutocompleteItem key={item.nombre} textValue={item.nombre}>
+                      {/* Una sola línea: el nombre y, a la derecha, su categoría en
+                          pequeño. Apiladas se montaban una encima de otra en cuanto el
+                          nombre no cabía de un renglón — y casi ninguno cabe. */}
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="text-sm truncate">{item.producto}</span>
+                        {item.categoria && (
+                          <span className="shrink-0 text-[10px] uppercase tracking-wide text-default-400">
+                            {item.categoria}
+                          </span>
+                        )}
+                      </div>
+                    </AutocompleteItem>
+                  )}
+                </Autocomplete>
+                <Select
+                  className="w-full"
+                  label="Domicilio"
+                  selectedKeys={[borrDomicilio]}
+                  size="lg"
+                  startContent={
+                    <Icons.delivery className="size-5 text-default-400" />
+                  }
+                  variant="bordered"
+                  onChange={(e) => setBorrDomicilio(e.target.value || "todos")}
+                >
+                  {domicilioOptions.map((option) => (
+                    <SelectItem key={option.value}>{option.label}</SelectItem>
+                  ))}
+                </Select>
+                <VendedorSelect
+                  className="w-full"
+                  value={borrVendedor}
+                  vendedores={vendedores}
+                  onChange={setBorrVendedor}
+                />
 
                       {/* El domicilio es UNA LÍNEA MÁS, no un campo aparte.
                           Es un producto de servicio —así se llama en Ventra, código
@@ -2470,7 +2541,17 @@ export const OrdersList = () => {
         Con buscador porque son varias decenas de combinaciones y bajar por la lista
         para encontrar «facturado pero distinto» es más lento que teclear «fact».
       */}
-      <Drawer isOpen={filtrosAbiertos} placement="right" size="sm" onClose={cerrarFiltros}>
+      {/* `isDismissable={false}`: las listas de los desplegables se dibujan FUERA del
+          cajón, así que elegir una opción contaba como pulsar fuera y lo cerraba de
+          golpe — justo lo contrario de esperar a que se le dé a Aplicar. Se cierra con
+          la ✕, con Esc o aplicando. */}
+      <Drawer
+        isDismissable={false}
+        isOpen={filtrosAbiertos}
+        placement="right"
+        size="sm"
+        onClose={cerrarFiltros}
+      >
         <DrawerContent>
           <DrawerHeader className="flex-col items-start gap-0">
             <p className="text-lg font-semibold">Filtros</p>
@@ -2479,146 +2560,31 @@ export const OrdersList = () => {
             </p>
           </DrawerHeader>
           <DrawerBody className="gap-4">
-                <Input
-                  isClearable
-                  placeholder="Buscar un estado…"
-                  size="sm"
-                  startContent={<Icons.search className="size-4 text-default-400" />}
-                  value={buscaFiltro}
-                  variant="bordered"
-                  onValueChange={setBuscaFiltro}
-                />
                 {/*
-                  Cada grupo se pliega. Abiertos de entrada —para ver de un vistazo qué
-                  hay marcado sin abrir nada—, pero con seis grupos y una veintena de
-                  opciones el cajón se hace largo, y quien sólo va a tocar la facturación
-                  no tiene por qué bajar por todo lo demás.
+                  Los tres estados, con el MISMO desplegable que producto, domicilio y
+                  vendedor. Estuvieron como casillas dentro de un acordeón y quedaba un
+                  cajón con dos aspectos distintos: la mitad de arriba parecía de otra
+                  aplicación.
 
-                  `selectionMode="multiple"` para que cerrar uno no abra otro: son
-                  independientes, no pestañas.
+                  `selectionMode="multiple"` es lo que hace falta de todas formas: las
+                  preguntas que se hacen son «en proceso O expirado», «devuelto O
+                  cancelado». Con uno solo no se pueden pedir.
                 */}
-                <Accordion
-                  className="px-0"
-                  defaultExpandedKeys={[
-                    ...gruposDeEstado.map((g) => g.titulo),
-                    "Producto",
-                    "Domicilio",
-                    "Vendedor",
-                  ]}
-                  itemClasses={{
-                    trigger: "py-2",
-                    title: "text-xs font-semibold uppercase tracking-wide text-default-500",
-                    content: "pt-0 pb-2",
-                  }}
-                  selectionMode="multiple"
-                  showDivider={false}
-                  variant="light"
-                >
-                  {[
-                    ...gruposDeEstado
-                      .filter((g) => g.opciones.length > 0)
-                      .map((g) => (
-                      <AccordionItem
-                        key={g.titulo}
-                        aria-label={g.titulo}
-                        // Cuántos hay marcados en ESTE grupo, para verlo con el grupo
-                        // cerrado. Sin esto, plegar es esconder lo que está filtrando.
-                        startContent={
-                          g.valor.length > 0 ? (
-                            <Chip color="primary" size="sm" variant="flat">
-                              {g.valor.length}
-                            </Chip>
-                          ) : null
-                        }
-                        title={g.titulo}
-                      >
-                        <CheckboxGroup size="sm" value={g.valor} onValueChange={g.poner}>
-                          {g.opciones.map((o) => (
-                            <Checkbox key={o.value} value={o.value}>
-                              {o.label}
-                            </Checkbox>
-                          ))}
-                        </CheckboxGroup>
-                        </AccordionItem>
-                      )),
-                    <AccordionItem key="Producto" aria-label="Producto" title="Producto">
-                      {/* Filtrar por producto: "enséñame los pedidos que llevan ESTO". Es lo
-                      que se necesita cuando falta mercancía y hay que avisar a quien la
-                      pidió. La lista sale de las líneas reales de esta sucursal, así que
-                      no hay opciones que devuelvan cero. */}
-                      {/* Autocompletado y no un desplegable a secas: son cientos de productos.
-                      Bajar por una lista de esas es inservible —hay que escribir "arroz" y
-                      que salgan los arroces—, y además el desplegable dejaba el primero
-                      medio tapado por el borde del campo. */}
-                      <Autocomplete
-                      allowsCustomValue={false}
-                      className="w-full"
-                      // Cada opción son DOS líneas (producto y categoría). Sin altura ni
-                      // separación se montan una encima de otra y no se distingue dónde
-                      // acaba una y empieza la siguiente. El `py` de la lista es para que la
-                      // primera no nazca pegada al borde, que salía cortada.
-                      // `h-auto` es lo que arregla el solapamiento: la opción traía altura
-                      // fija del tema, así que un nombre que ocupa dos líneas se salía de su
-                      // caja y se montaba encima de la siguiente.
-                      listboxProps={{
-                      itemClasses: {
-                      base: "py-2 h-auto data-[hover=true]:bg-default-100",
-                      },
-                      }}
-                      popoverProps={{ classNames: { content: "py-1" } }}
-                      defaultItems={productos.map((nombre) => ({
-                      nombre,
-                      ...partirProducto(nombre),
-                      }))}
-                      placeholder="Todos · escribe para buscar"
-                      selectedKey={productoFilter || null}
-                      variant="bordered"
-                      onSelectionChange={(k) => setProductoFilter(k ? String(k) : "")}
-                      >
-                      {(item: { nombre: string; categoria: string; producto: string }) => (
-                      // `textValue` es por lo que se busca al teclear: el nombre ENTERO, para
-                      // que quien escriba "alimentos" o "arroz" lo encuentre igual.
-                      <AutocompleteItem key={item.nombre} textValue={item.nombre}>
-                      {/* Una sola línea: el nombre y, a la derecha, su categoría en
-                      pequeño. Apiladas se montaban una encima de otra en cuanto el
-                      nombre no cabía de un renglón — y casi ninguno cabe. */}
-                      <div className="flex items-baseline justify-between gap-2">
-                      <span className="text-sm truncate">{item.producto}</span>
-                      {item.categoria && (
-                      <span className="shrink-0 text-[10px] uppercase tracking-wide text-default-400">
-                      {item.categoria}
-                      </span>
-                      )}
-                      </div>
-                      </AutocompleteItem>
-                      )}
-                      </Autocomplete>
-                    </AccordionItem>,
-                    <AccordionItem key="Domicilio" aria-label="Domicilio" title="Domicilio">
-                      <Select
-                      className="w-full"
-                      selectedKeys={[borrDomicilio]}
-                      startContent={
-                      <Icons.delivery className="size-5 text-default-400" />
-                      }
-                      variant="bordered"
-                      onChange={(e) => setBorrDomicilio(e.target.value || "todos")}
-                      >
-                      {domicilioOptions.map((option) => (
-                      <SelectItem key={option.value}>{option.label}</SelectItem>
-                      ))}
-                      </Select>
-                    </AccordionItem>,
-                    <AccordionItem key="Vendedor" aria-label="Vendedor" title="Vendedor">
-                      <VendedorSelect
-                      className="w-full"
-                      value={borrVendedor}
-                      vendedores={vendedores}
-                      onChange={setBorrVendedor}
-                      />
-                    </AccordionItem>,
-                  ]}
-                </Accordion>
+                {gruposDeEstado.map((g) => (
+                  <Select
+                    key={g.titulo}
+                    label={g.titulo}
+                    selectedKeys={new Set(g.valor)}
+                    selectionMode="multiple"
+                    size="lg"
+                    variant="bordered"
+                    onSelectionChange={(k) => g.poner([...(k as Set<string>)].map(String))}
+                  >
+                    {g.opciones.map((o) => (
+                      <SelectItem key={o.value}>{o.label}</SelectItem>
+                    ))}
+                  </Select>
+                ))}
                 {gruposDeEstado.every((g) => g.opciones.length === 0) && (
                   <p className="py-2 text-center text-xs text-default-400">
                     Ningún estado se llama así.
@@ -2654,7 +2620,6 @@ export const OrdersList = () => {
                   setBorrEstados([]);
                   setBorrRepartos([]);
                   setBorrFacturas([]);
-                  setBuscaFiltro("");
                 }}
               >
                 Desmarcar todo
