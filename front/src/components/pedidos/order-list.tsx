@@ -12,6 +12,11 @@ import {
   ModalHeader,
   ModalBody,
   ModalFooter,
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerBody,
+  DrawerFooter,
   useDisclosure,
   Divider,
   Autocomplete,
@@ -25,6 +30,9 @@ import {
   Tabs,
 } from "@heroui/react";
 import { useEffect, useState, useCallback, useRef } from "react";
+import type { ElementType } from "react";
+
+import { usePantallaChica } from "../../hooks/pantalla";
 
 import { cards } from "../primitives";
 import Icons from "../icons/iconify";
@@ -476,6 +484,32 @@ export const OrdersList = () => {
 
   // Pulsar fuera cierra; elegir en un desplegable NO (se dibuja fuera del modal).
   useCerrarAlPulsarFuera(isOpen, onClose);
+
+  /**
+   * EN MÓVIL Y TABLET, CAJÓN. EN ESCRITORIO, MODAL.
+   *
+   * En pantalla pequeña un modal se come el sitio, deja el contenido apretado y el
+   * gesto de cerrar no cae donde la mano espera. El cajón entra desde el borde, ocupa
+   * lo que necesita y se cierra arrastrando.
+   *
+   * Es el MISMO contenido en los dos: sólo cambia el envase. Duplicar la pantalla para
+   * la versión pequeña es cómo se acaba con dos detalles de pedido que dicen cosas
+   * distintas — uno se arregla y el otro no.
+   */
+  const pantallaChica = usePantallaChica();
+
+  /**
+   * `ElementType` y no el tipo de cada componente: `Modal` y `Drawer` no aceptan las
+   * mismas props —el cajón se coloca a la derecha y el modal no sabe qué es eso— y
+   * TypeScript, al unirlos, se queda con las del modal y rechaza el cajón. Aquí no hay
+   * nada que ganar peleándose con eso: las props se eligen justo debajo, a mano, según
+   * cuál de los dos sea.
+   */
+  const Envase: ElementType = pantallaChica ? Drawer : Modal;
+  const EnvaseContenido: ElementType = pantallaChica ? DrawerContent : ModalContent;
+  const EnvaseCabecera: ElementType = pantallaChica ? DrawerHeader : ModalHeader;
+  const EnvaseCuerpo: ElementType = pantallaChica ? DrawerBody : ModalBody;
+  const EnvasePie: ElementType = pantallaChica ? DrawerFooter : ModalFooter;
 
   /**
    * SI LA NOTA DE LA FACTURA ESTÁ ABIERTA.
@@ -1395,21 +1429,33 @@ export const OrdersList = () => {
       )}
 
       {/* Order Details Modal */}
-      <Modal
+      <Envase
         hideCloseButton
-        classNames={{
-          // Se ensancha SÓLO cuando la nota está abierta. Fijo en el ancho de dos, un
-          // pedido sin factura se quedaría con medio modal vacío al lado.
-          base: `transition-[max-width] duration-300 ${verFactura ? "max-w-[80rem]" : ""}`,
-        }}
+        classNames={
+          pantallaChica
+            ? undefined
+            : {
+                // Se ensancha SÓLO cuando la nota está abierta. Fijo en el ancho de
+                // dos, un pedido sin factura se quedaría con medio modal vacío al lado.
+                base: `transition-[max-width] duration-300 ${verFactura ? "max-w-[80rem]" : ""}`,
+              }
+        }
         isDismissable={false}
         isOpen={isOpen}
-        placement="center"
-        scrollBehavior="outside"
-        size="5xl"
         onClose={onClose}
+        {...(pantallaChica
+          ? // El cajón entra por la derecha y a pantalla completa: en un teléfono no
+            // hay sitio para dejar la lista asomando, y verla a medias sólo estorba.
+            { placement: "right" as const, size: "full" as const }
+          : {
+              placement: "center" as const,
+              scrollBehavior: "outside" as const,
+              size: "5xl" as const,
+            })}
       >
-        <ModalContent className="bg-transparent shadow-none">
+        {/* Transparente y sin sombra: deja de ser la tarjeta y pasa a ser el sitio
+            donde caben las dos. Cada tarjeta pone la suya. */}
+        <EnvaseContenido className="bg-transparent shadow-none">
           {() => (
             <div
               className="flex w-full flex-col items-start lg:flex-row"
@@ -1441,7 +1487,7 @@ export const OrdersList = () => {
                 className="relative z-10 flex w-full min-w-0 flex-1 flex-col rounded-large bg-content1 shadow-medium"
                 data-tarjeta="pedido"
               >
-              <ModalHeader className="flex flex-col gap-1">
+              <EnvaseCabecera className="flex flex-col gap-1">
                 <div className="flex w-full items-start justify-between gap-3">
                   <div className="flex flex-wrap items-center gap-3">
                   <h2 className="text-2xl font-bold">
@@ -1486,8 +1532,8 @@ export const OrdersList = () => {
                     </span>
                   </Button>
                 </div>
-              </ModalHeader>
-              <ModalBody>
+              </EnvaseCabecera>
+              <EnvaseCuerpo>
                 <div className="flex flex-col gap-4">
                   {/* Vendedor y Cliente */}
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -1895,8 +1941,8 @@ export const OrdersList = () => {
                     */}
                   </div>
                 </div>
-              </ModalBody>
-              <ModalFooter className="flex-col items-stretch gap-3">
+              </EnvaseCuerpo>
+              <EnvasePie className="flex-col items-stretch gap-3">
                 {/* EL TOTAL, fuera de la lista de productos.
                     Estaba dentro, como una línea más, y ahí se lee como si fuera otro
                     artículo del pedido — con su borde y su fila, igual que el arroz.
@@ -2001,7 +2047,7 @@ export const OrdersList = () => {
                     )}
                   </div>
                 </div>
-              </ModalFooter>
+              </EnvasePie>
               </div>
                     {/*
                       LA FACTURA, EN SU PROPIA HOJA AL LADO DEL PEDIDO.
@@ -2265,8 +2311,8 @@ export const OrdersList = () => {
                     )}
             </div>
           )}
-        </ModalContent>
-      </Modal>
+        </EnvaseContenido>
+      </Envase>
 
       {/* Confirmar que se devuelve a "en proceso" */}
       <Modal isOpen={isReabrirConfirmOpen} placement="center" onClose={onReabrirConfirmClose}>
