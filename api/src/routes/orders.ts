@@ -1204,21 +1204,43 @@ export async function processBulkImport(
   const yaAsignados = await foliosYaAsignados(previos, uploaderSucursalId);
   const mappedRecords = mapCsvRecords(records, yaAsignados);
 
-  // Resolvemos TODOS los vendedores antes de importar: si alguno colisiona, se rechaza
-  // el archivo completo (misma regla que siempre).
+  /**
+   * Se resuelven TODOS los vendedores antes de importar.
+   *
+   * # Antes esto tiraba el archivo entero
+   *
+   * Un vendedor renombrado —alguien le cambió el nombre aquí, o Parranda lo escribe de
+   * otra forma— o uno de baja hacían saltar el error, y con él se rechazaba la
+   * importación completa: los pedidos de los otros veinte vendedores tampoco entraban.
+   * Una fila mala paraba el día de toda la sucursal.
+   *
+   * Ahora **se apartan sus filas y se sigue**. Lo que no se pudo importar se cuenta y
+   * se dice, con nombre y motivo, para poder arreglarlo y volver a subirlo. Que no
+   * entren los de uno es un problema; que no entren los de nadie es otro mucho mayor.
+   */
   const sellersByCode = new Map<string, SellerResolution>();
-  try {
-    for (const r of mappedRecords) {
-      const key = r.seller.code || r.seller.name.toUpperCase().trim();
-      if (!sellersByCode.has(key)) {
-        sellersByCode.set(key, await resolveSeller(r.seller.name, r.seller.code));
+  const vendedoresRechazados = new Map<string, string>();
+
+  for (const r of mappedRecords) {
+    const key = r.seller.code || r.seller.name.toUpperCase().trim();
+
+    if (sellersByCode.has(key) || vendedoresRechazados.has(key)) continue;
+
+    try {
+      sellersByCode.set(key, await resolveSeller(r.seller.name, r.seller.code));
+    } catch (error) {
+      if (error instanceof VendedorColisionError || error instanceof VendedorInactivoError) {
+        vendedoresRechazados.set(key, error.message);
+        continue;
       }
+      throw error;
     }
-  } catch (error) {
-    if (error instanceof VendedorColisionError || error instanceof VendedorInactivoError) {
-      return { ok: false, error: error.message };
-    }
-    throw error;
+  }
+
+  // Si NINGUNO se pudo resolver, no es una fila mala: es que el archivo no es de aquí,
+  // o que se renombró a todo el mundo. Ahí sí se rechaza entero y se dice por qué.
+  if (sellersByCode.size === 0 && vendedoresRechazados.size > 0) {
+    return { ok: false, error: [...vendedoresRechazados.values()][0] };
   }
 
   // Scoping del GESTOR: solo puede importar pedidos de SUS vendedores. Si el archivo
@@ -1244,6 +1266,16 @@ export async function processBulkImport(
   const results: BulkImportResults = { created: 0, updated: 0, failed: 0, sinAsignar: 0, errors: [] };
   for (const record of mappedRecords) {
     const key = record.seller.code || record.seller.name.toUpperCase().trim();
+    const rechazo = vendedoresRechazados.get(key);
+
+    // Las filas de un vendedor que no se pudo resolver se apartan con su motivo; las
+    // de los demás siguen entrando.
+    if (rechazo) {
+      results.failed++;
+      results.errors.push({ record: record.order.folio, error: rechazo });
+      continue;
+    }
+
     const resolved = sellersByCode.get(key)!;
 
     /**
