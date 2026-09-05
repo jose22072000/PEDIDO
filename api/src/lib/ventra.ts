@@ -195,6 +195,24 @@ export async function ventasDeSucursal(
     ? d
     : (cuerpo?.rows as unknown[]) || (cuerpo?.items as unknown[]) || (cuerpo?.data as unknown[]) || []) as Record<string, unknown>[];
 
+  /**
+   * SI VUELVE EXACTAMENTE EL TOPE, Ventra CORTÓ — y no lo dice en ninguna parte.
+   *
+   * Es el fallo que no se ve: la consulta responde 200, con datos que parecen bien, y
+   * faltan las facturas del final. El cotejo entonces marca «sin factura» pedidos que sí
+   * la tienen, y esos pedidos se quedan fuera de la ruta sin que nadie sepa por qué.
+   *
+   * Aquí no se puede arreglar —Ventra no pagina, sólo acepta `limit`—, así que se grita.
+   * Quien pida un rango que no cabe tiene que trocearlo: es lo que hace
+   * `scripts/recuperar-cotejo`, mes a mes.
+   */
+  if (filas.length >= tope) {
+    console.warn(
+      `[ventra] TRUNCADO: ${database} ${desde}..${hasta} devolvió ${filas.length} líneas, ` +
+        'que es el tope. FALTAN facturas. Hay que pedir el rango en tramos más cortos.',
+    );
+  }
+
   return filas
     .map((f) => ({
       id: String(f.id ?? ''),

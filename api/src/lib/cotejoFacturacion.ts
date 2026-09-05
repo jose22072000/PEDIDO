@@ -116,9 +116,13 @@ export interface ResultadoCotejo {
  *                los alcanza.
  */
 export async function cotejarUnaVez(
-  { rapido = false, desde: desdeFijo }: { rapido?: boolean; desde?: Date } = {},
+  { rapido = false, desde: desdeFijo, hasta: hastaFijo }: {
+    rapido?: boolean;
+    desde?: Date;
+    hasta?: Date;
+  } = {},
 ): Promise<ResultadoCotejo[]> {
-  const hasta = new Date();
+  const hasta = hastaFijo ?? new Date();
   const desde =
     desdeFijo ??
     (rapido
@@ -180,8 +184,20 @@ export async function cotejarUnaVez(
        * facturación de tres días marcaría como «sin factura» cuarenta mil pedidos viejos
        * que nadie va a repartir.
        */
+      /**
+       * Y CON TOPE POR ARRIBA cuando la ventana lo lleva.
+       *
+       * En la pasada normal no hace falta: `hasta` es ahora mismo y no hay pedidos del
+       * futuro. Pero la recuperación va MES A MES, y sin este tope el tramo de julio
+       * cogería los pedidos de julio **hasta hoy** y los compararía contra facturas de
+       * julio nada más: agosto y septiembre enteros saldrían «sin factura», y con eso
+       * fuera de la ruta. Un arreglo que rompe más de lo que arregla.
+       */
       const pedidos = await prisma.pedido.findMany({
-        where: { sucursalId: suc.id, fecha: { gte: desde } },
+        where: {
+          sucursalId: suc.id,
+          fecha: hastaFijo ? { gte: desde, lte: hasta } : { gte: desde },
+        },
         include: { items: true, cliente: true },
       });
 
