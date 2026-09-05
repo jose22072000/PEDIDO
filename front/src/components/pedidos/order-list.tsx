@@ -430,6 +430,23 @@ export const OrdersList = () => {
     onOpen: abrirFiltros,
     onClose: cerrarFiltros,
   } = useDisclosure();
+
+  /**
+   * PULSAR FUERA CIERRA EL CAJÓN; ELEGIR UNA OPCIÓN NO.
+   *
+   * El `isDismissable` de la librería no distingue: las listas de los desplegables se
+   * dibujan fuera del cajón, así que elegir un vendedor contaba como pulsar fuera y lo
+   * cerraba de golpe, perdiendo lo que se llevaba marcado.
+   *
+   * Se intentó dibujarlas dentro con `portalContainer` y no valió: `VendedorSelect` es
+   * un componente nuestro y no reenvía esa propiedad, así que unos desplegables cerraban
+   * el cajón y otros no — peor que antes, porque es impredecible.
+   *
+   * `esPulsacionFuera` ya resuelve exactamente esto: descarta lo que caiga en un
+   * `listbox`, un `menu` o una `option`, venga dibujado donde venga. Es la misma regla
+   * que usa el detalle del pedido, y está probada.
+   */
+  useCerrarAlPulsarFuera(filtrosAbiertos, cerrarFiltros);
   const [borrEstados, setBorrEstados] = useState<string[]>([]);
   const [borrRepartos, setBorrRepartos] = useState<string[]>([]);
   const [borrFacturas, setBorrFacturas] = useState<string[]>([]);
@@ -438,20 +455,6 @@ export const OrdersList = () => {
   const [borrVendedor, setBorrVendedor] = useState("todos");
   const [borrArchivados, setBorrArchivados] = useState(false);
 
-  /**
-   * DÓNDE SE DIBUJAN LAS LISTAS DE LOS DESPLEGABLES DEL CAJÓN.
-   *
-   * Por defecto van al final del `body`, o sea FUERA del cajón, y entonces elegir una
-   * opción cuenta como pulsar fuera y lo cierra de golpe. Se arregló poniendo
-   * `isDismissable={false}`, y eso trajo el problema contrario: pulsar el velo ya no
-   * cerraba nada.
-   *
-   * Dibujándolas dentro, las dos cosas vuelven a funcionar: elegir no cierra, y pulsar
-   * fuera sí. Es un estado y no una `ref` a propósito: una `ref` está vacía en el primer
-   * pintado y los desplegables ya se habrían dibujado con ella en nulo.
-   */
-  const [anclaFiltros, setAnclaFiltros] = useState<HTMLElement | null>(null);
-  const dentroDelCajon = { portalContainer: anclaFiltros ?? undefined };
   const borrMarcados =
     borrEstados.length +
     borrRepartos.length +
@@ -2483,6 +2486,9 @@ export const OrdersList = () => {
         para encontrar «facturado pero distinto» es más lento que teclear «fact».
       */}
       <Drawer
+        // Sin el de la librería: cierra al elegir en un desplegable. Lo hace
+        // `useCerrarAlPulsarFuera`, que sabe que una lista no es "fuera".
+        isDismissable={false}
         isOpen={filtrosAbiertos}
         placement="right"
         size="sm"
@@ -2496,7 +2502,7 @@ export const OrdersList = () => {
             </p>
           </DrawerHeader>
           <DrawerBody className="gap-4">
-            <div ref={setAnclaFiltros} className="flex flex-col gap-4">
+            <div className="flex flex-col gap-4">
                 {/*
                   Los tres estados, con el MISMO desplegable que producto, domicilio y
                   vendedor. Estuvieron como casillas dentro de un acordeón y quedaba un
@@ -2512,7 +2518,6 @@ export const OrdersList = () => {
                     key={g.titulo}
                     label={g.titulo}
                     selectedKeys={new Set(g.valor)}
-                    popoverProps={dentroDelCajon}
                     selectionMode="multiple"
                     size="lg"
                     variant="bordered"
@@ -2551,7 +2556,7 @@ export const OrdersList = () => {
                       base: "py-2 h-auto data-[hover=true]:bg-default-100",
                     },
                   }}
-                  popoverProps={{ ...dentroDelCajon, classNames: { content: "py-1" } }}
+                  popoverProps={{ classNames: { content: "py-1" } }}
                   defaultItems={productos.map((nombre) => ({
                     nombre,
                     ...partirProducto(nombre),
@@ -2584,7 +2589,6 @@ export const OrdersList = () => {
                 <Select
                   className="w-full"
                   label="Domicilio"
-                  popoverProps={dentroDelCajon}
                 selectedKeys={[borrDomicilio]}
                   size="lg"
                   startContent={
