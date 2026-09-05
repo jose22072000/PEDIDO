@@ -686,6 +686,21 @@ export const OrdersList = () => {
   }, [selectedOrder?.id, selectedOrder?.facturaEstado]);
 
   /**
+   * SI LA NOTA SE VE, DE VERDAD.
+   *
+   * `verFactura` es lo que alguien pidió; esto es lo que corresponde a ESTE pedido. El
+   * efecto de arriba corrige el interruptor, pero corre DESPUÉS de pintar: abriendo un
+   * pedido que no cambió justo detrás de uno que sí, la nota alcanzaba a dibujarse y se
+   * cerraba sola con su animación. Un parpadeo que parece un fallo, y encima enseña
+   * medio segundo la factura del cliente anterior.
+   *
+   * Derivándolo, no hay instante intermedio: un pedido que no cambió no puede enseñar
+   * nota aunque el interruptor venga encendido de antes.
+   */
+  const notaAbierta = verFactura && selectedOrder?.facturaEstado === "cambiado";
+
+
+  /**
    * Esc cierra PRIMERO la nota, y sólo cierra el pedido si la nota ya estaba cerrada.
    *
    * En fase de captura para llegar antes que el modal, que también escucha Esc. Sin
@@ -693,7 +708,7 @@ export const OrdersList = () => {
    * otra vez en la lista.
    */
   useEffect(() => {
-    if (!verFactura) return;
+    if (!notaAbierta) return;
 
     const alPulsar = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
@@ -704,7 +719,7 @@ export const OrdersList = () => {
     document.addEventListener("keydown", alPulsar, true);
 
     return () => document.removeEventListener("keydown", alPulsar, true);
-  }, [verFactura]);
+  }, [notaAbierta]);
 
   const lineasSinPeso =
     selectedOrder?.items.filter((i) => i.pesoLineaKg == null).length ?? 0;
@@ -997,14 +1012,14 @@ export const OrdersList = () => {
                           o está abierta, debajo del pedido, o no está.
                         */
                         <aside
-                          aria-hidden={!verFactura}
+                          aria-hidden={!notaAbierta}
                           data-tarjeta="factura"
                           className={`z-0 shrink-0 flex-col gap-2 self-start rounded-large border-t-4 border-success-400 bg-content1 p-4 shadow-medium transition-all duration-300 lg:sticky lg:top-4 lg:flex lg:max-h-[calc(100vh-2rem)] lg:w-[26rem] lg:overflow-y-auto ${
-                            verFactura
+                            notaAbierta
                               ? "mt-4 flex lg:mt-0 lg:ml-4"
                               : "hidden lg:-ml-[25rem] lg:cursor-pointer"
                           }`}
-                          onClick={verFactura ? undefined : () => setVerFactura(true)}
+                          onClick={notaAbierta ? undefined : () => setVerFactura(true)}
                         >
                           <div className="flex items-start justify-between gap-2 border-b border-success-200 pb-2">
                             <div className="min-w-0">
@@ -1750,7 +1765,7 @@ export const OrdersList = () => {
             : {
                 // Se ensancha SÓLO cuando la nota está abierta. Fijo en el ancho de
                 // dos, un pedido sin factura se quedaría con medio modal vacío al lado.
-                base: `transition-[max-width] duration-300 ${verFactura ? "max-w-[80rem]" : ""}`,
+                base: `transition-[max-width] duration-300 ${notaAbierta ? "max-w-[80rem]" : ""}`,
               }
         }
         isDismissable={false}
@@ -2087,7 +2102,7 @@ export const OrdersList = () => {
                             variant="flat"
                             onPress={() => setVerFactura((v) => !v)}
                           >
-                            {verFactura ? "Ocultar la factura" : "Ver la factura"}
+                            {notaAbierta ? "Ocultar la factura" : "Ver la factura"}
                           </Button>
                         )}
                     </div>
@@ -2402,7 +2417,7 @@ export const OrdersList = () => {
       */}
       {pantallaChica && (
         <Drawer
-          isOpen={isOpen && verFactura}
+          isOpen={isOpen && !!notaAbierta}
           placement="bottom"
           size="4xl"
           onClose={() => setVerFactura(false)}
