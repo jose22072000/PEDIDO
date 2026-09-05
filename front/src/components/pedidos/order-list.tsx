@@ -1419,9 +1419,12 @@ export const OrdersList = () => {
               desplegable sólo deja escoger uno. Con casillas se marcan los que sean, y
               cada grupo se cruza con los otros: pedido Y reparto Y factura.
             */}
+            {/* `h-14` y `border-medium`: es lo que mide y cómo se dibuja un Input `lg`
+                con borde. Con el `lg` del Button quedaba más bajo y con el borde más
+                fino que el buscador de al lado, y dos controles pegados que no coinciden
+                se ven antes que cualquier otra cosa de la pantalla. */}
             <Button
-              className="w-full justify-between sm:w-56"
-              size="lg"
+              className="h-14 w-full justify-between rounded-medium border-medium px-4 sm:w-56"
               variant="bordered"
               onPress={abrirCajonDeFiltros}
             >
@@ -2496,7 +2499,12 @@ export const OrdersList = () => {
                 */}
                 <Accordion
                   className="px-0"
-                  defaultExpandedKeys={gruposDeEstado.map((g) => g.titulo)}
+                  defaultExpandedKeys={[
+                    ...gruposDeEstado.map((g) => g.titulo),
+                    "Producto",
+                    "Domicilio",
+                    "Vendedor",
+                  ]}
                   itemClasses={{
                     trigger: "py-2",
                     title: "text-xs font-semibold uppercase tracking-wide text-default-500",
@@ -2506,9 +2514,10 @@ export const OrdersList = () => {
                   showDivider={false}
                   variant="light"
                 >
-                  {gruposDeEstado
-                    .filter((g) => g.opciones.length > 0)
-                    .map((g) => (
+                  {[
+                    ...gruposDeEstado
+                      .filter((g) => g.opciones.length > 0)
+                      .map((g) => (
                       <AccordionItem
                         key={g.titulo}
                         aria-label={g.titulo}
@@ -2530,89 +2539,91 @@ export const OrdersList = () => {
                             </Checkbox>
                           ))}
                         </CheckboxGroup>
-                      </AccordionItem>
-                    ))}
+                        </AccordionItem>
+                      )),
+                    <AccordionItem key="Producto" aria-label="Producto" title="Producto">
+                      {/* Filtrar por producto: "enséñame los pedidos que llevan ESTO". Es lo
+                      que se necesita cuando falta mercancía y hay que avisar a quien la
+                      pidió. La lista sale de las líneas reales de esta sucursal, así que
+                      no hay opciones que devuelvan cero. */}
+                      {/* Autocompletado y no un desplegable a secas: son cientos de productos.
+                      Bajar por una lista de esas es inservible —hay que escribir "arroz" y
+                      que salgan los arroces—, y además el desplegable dejaba el primero
+                      medio tapado por el borde del campo. */}
+                      <Autocomplete
+                      allowsCustomValue={false}
+                      className="w-full"
+                      // Cada opción son DOS líneas (producto y categoría). Sin altura ni
+                      // separación se montan una encima de otra y no se distingue dónde
+                      // acaba una y empieza la siguiente. El `py` de la lista es para que la
+                      // primera no nazca pegada al borde, que salía cortada.
+                      // `h-auto` es lo que arregla el solapamiento: la opción traía altura
+                      // fija del tema, así que un nombre que ocupa dos líneas se salía de su
+                      // caja y se montaba encima de la siguiente.
+                      listboxProps={{
+                      itemClasses: {
+                      base: "py-2 h-auto data-[hover=true]:bg-default-100",
+                      },
+                      }}
+                      popoverProps={{ classNames: { content: "py-1" } }}
+                      defaultItems={productos.map((nombre) => ({
+                      nombre,
+                      ...partirProducto(nombre),
+                      }))}
+                      placeholder="Todos · escribe para buscar"
+                      selectedKey={productoFilter || null}
+                      variant="bordered"
+                      onSelectionChange={(k) => setProductoFilter(k ? String(k) : "")}
+                      >
+                      {(item: { nombre: string; categoria: string; producto: string }) => (
+                      // `textValue` es por lo que se busca al teclear: el nombre ENTERO, para
+                      // que quien escriba "alimentos" o "arroz" lo encuentre igual.
+                      <AutocompleteItem key={item.nombre} textValue={item.nombre}>
+                      {/* Una sola línea: el nombre y, a la derecha, su categoría en
+                      pequeño. Apiladas se montaban una encima de otra en cuanto el
+                      nombre no cabía de un renglón — y casi ninguno cabe. */}
+                      <div className="flex items-baseline justify-between gap-2">
+                      <span className="text-sm truncate">{item.producto}</span>
+                      {item.categoria && (
+                      <span className="shrink-0 text-[10px] uppercase tracking-wide text-default-400">
+                      {item.categoria}
+                      </span>
+                      )}
+                      </div>
+                      </AutocompleteItem>
+                      )}
+                      </Autocomplete>
+                    </AccordionItem>,
+                    <AccordionItem key="Domicilio" aria-label="Domicilio" title="Domicilio">
+                      <Select
+                      className="w-full"
+                      selectedKeys={[borrDomicilio]}
+                      startContent={
+                      <Icons.delivery className="size-5 text-default-400" />
+                      }
+                      variant="bordered"
+                      onChange={(e) => setBorrDomicilio(e.target.value || "todos")}
+                      >
+                      {domicilioOptions.map((option) => (
+                      <SelectItem key={option.value}>{option.label}</SelectItem>
+                      ))}
+                      </Select>
+                    </AccordionItem>,
+                    <AccordionItem key="Vendedor" aria-label="Vendedor" title="Vendedor">
+                      <VendedorSelect
+                      className="w-full"
+                      value={borrVendedor}
+                      vendedores={vendedores}
+                      onChange={setBorrVendedor}
+                      />
+                    </AccordionItem>,
+                  ]}
                 </Accordion>
                 {gruposDeEstado.every((g) => g.opciones.length === 0) && (
                   <p className="py-2 text-center text-xs text-default-400">
                     Ningún estado se llama así.
                   </p>
                 )}
-            <Divider />
-              {/* Filtrar por producto: "enséñame los pedidos que llevan ESTO". Es lo
-                  que se necesita cuando falta mercancía y hay que avisar a quien la
-                  pidió. La lista sale de las líneas reales de esta sucursal, así que
-                  no hay opciones que devuelvan cero. */}
-              {/* Autocompletado y no un desplegable a secas: son cientos de productos.
-                  Bajar por una lista de esas es inservible —hay que escribir "arroz" y
-                  que salgan los arroces—, y además el desplegable dejaba el primero
-                  medio tapado por el borde del campo. */}
-              <Autocomplete
-                allowsCustomValue={false}
-                className="w-full"
-                // Cada opción son DOS líneas (producto y categoría). Sin altura ni
-                // separación se montan una encima de otra y no se distingue dónde
-                // acaba una y empieza la siguiente. El `py` de la lista es para que la
-                // primera no nazca pegada al borde, que salía cortada.
-                // `h-auto` es lo que arregla el solapamiento: la opción traía altura
-                // fija del tema, así que un nombre que ocupa dos líneas se salía de su
-                // caja y se montaba encima de la siguiente.
-                listboxProps={{
-                  itemClasses: {
-                    base: "py-2 h-auto data-[hover=true]:bg-default-100",
-                  },
-                }}
-                popoverProps={{ classNames: { content: "py-1" } }}
-                defaultItems={productos.map((nombre) => ({
-                  nombre,
-                  ...partirProducto(nombre),
-                }))}
-                label="Producto"
-                placeholder="Todos · escribe para buscar"
-                selectedKey={productoFilter || null}
-                size="lg"
-                variant="bordered"
-                onSelectionChange={(k) => setProductoFilter(k ? String(k) : "")}
-              >
-                {(item: { nombre: string; categoria: string; producto: string }) => (
-                  // `textValue` es por lo que se busca al teclear: el nombre ENTERO, para
-                  // que quien escriba "alimentos" o "arroz" lo encuentre igual.
-                  <AutocompleteItem key={item.nombre} textValue={item.nombre}>
-                    {/* Una sola línea: el nombre y, a la derecha, su categoría en
-                        pequeño. Apiladas se montaban una encima de otra en cuanto el
-                        nombre no cabía de un renglón — y casi ninguno cabe. */}
-                    <div className="flex items-baseline justify-between gap-2">
-                      <span className="text-sm truncate">{item.producto}</span>
-                      {item.categoria && (
-                        <span className="shrink-0 text-[10px] uppercase tracking-wide text-default-400">
-                          {item.categoria}
-                        </span>
-                      )}
-                    </div>
-                  </AutocompleteItem>
-                )}
-              </Autocomplete>
-              <Select
-                className="w-full"
-                label="Domicilio"
-                selectedKeys={[borrDomicilio]}
-                size="lg"
-                startContent={
-                  <Icons.delivery className="size-5 text-default-400" />
-                }
-                variant="bordered"
-                onChange={(e) => setBorrDomicilio(e.target.value || "todos")}
-              >
-                {domicilioOptions.map((option) => (
-                  <SelectItem key={option.value}>{option.label}</SelectItem>
-                ))}
-              </Select>
-              <VendedorSelect
-                className="w-full"
-                value={borrVendedor}
-                vendedores={vendedores}
-                onChange={setBorrVendedor}
-              />
               <Switch
                 isSelected={borrArchivados}
                 size="sm"
