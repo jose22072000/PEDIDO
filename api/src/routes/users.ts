@@ -103,7 +103,7 @@ router.get('/:id', async (req, res) => {
     });
 
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ error: 'Ese usuario no existe o no es de tu sucursal.' });
     }
 
     // Remove password from response
@@ -275,12 +275,24 @@ router.patch('/:id', async (req, res) => {
       return res.status(400).json({ error: 'Debes tener una sucursal asignada para actualizar usuarios.' });
     }
 
+      /**
+       * UN SUPER ADMIN LLEGA A CUALQUIER USUARIO, ESTÉ EN LA SUCURSAL QUE ESTÉ.
+       *
+       * Antes esto se acotaba también para él por la sucursal activa del panel. La
+       * lista se le enseña entera —puede elegir «todas»— así que veía a todo el mundo
+       * y, al abrir uno de otra sucursal, la búsqueda no lo encontraba y salía
+       * «User not found»: un mensaje que manda a pensar que el usuario no existe
+       * cuando existe y se está mirando en ese momento.
+       *
+       * Para los demás el acotado se queda: un administrador de sucursal no puede
+       * tocar los usuarios de otra.
+       */
     const existingUser = await prisma.usuario.findFirst({
-      where: activeSucursalId ? { id, sucursalId: activeSucursalId } : { id },
+      where: !requester.isGlobalAdmin && activeSucursalId ? { id, sucursalId: activeSucursalId } : { id },
     });
 
     if (!existingUser) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ error: 'Ese usuario no existe o no es de tu sucursal.' });
     }
 
     const updateData: any = {};
@@ -458,12 +470,14 @@ router.delete('/:id', async (req, res) => {
       return res.status(400).json({ error: 'Debes tener una sucursal asignada para eliminar usuarios.' });
     }
 
+    // Mismo criterio que al editar: el Super Admin llega a cualquiera; los demás,
+    // sólo a los de su sucursal.
     const existingUser = await prisma.usuario.findFirst({
-      where: sucursalId ? { id, sucursalId } : { id },
+      where: !getRequesterContext(req).isGlobalAdmin && sucursalId ? { id, sucursalId } : { id },
     });
 
     if (!existingUser) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ error: 'Ese usuario no existe o no es de tu sucursal.' });
     }
 
     // Un usuario que lleva vendedores NO se puede borrar sin reasignarlos antes.
