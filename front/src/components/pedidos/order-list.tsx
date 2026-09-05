@@ -22,6 +22,8 @@ import {
   Autocomplete,
   AutocompleteItem,
   Select,
+  CheckboxGroup,
+  Checkbox,
   SelectItem,
   addToast,
   Tooltip,
@@ -238,6 +240,20 @@ const entregaChip: Record<string, { color: "success" | "warning" | "primary" | "
 };
 
 /**
+ * Sin tildes y en minúscula, para buscar.
+ *
+ * «facturacion» tiene que encontrar «Facturación»: quien teclea deprisa en el buscador
+ * de un desplegable no pone las tildes, y si no sale nada da por hecho que ese filtro
+ * no existe.
+ */
+const normalizar = (t: string) =>
+  t
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+
+/**
  * Los otros dos estados por los que se filtra.
  *
  * Se arman desde los mismos diccionarios que pintan los chips, para que la opción del
@@ -293,7 +309,16 @@ const PAGINACION_VACIA = {
 
 interface FiltrosPedidos {
   page: number;
-  estado: string;
+  /**
+   * Los TRES estados de un pedido, cada uno con los valores marcados.
+   *
+   * Listas y no una cadena: la pantalla los agrupa en un desplegable con casillas —como
+   * los filtros de una hoja de cálculo— porque la barra no daba para uno por cada uno, y
+   * con casillas se marcan varios. Vacía es «no filtres por esto».
+   */
+  estados: string[];
+  repartos: string[];
+  facturas: string[];
   search: string;
   fechaDesde: string;
   fechaHasta: string;
@@ -309,7 +334,11 @@ const clavePedidos = (f: FiltrosPedidos, sucursal: string) =>
     "pedidos",
     sucursal,
     f.page,
-    f.estado,
+    // Ordenados: marcar A y luego B tiene que dar la MISMA clave que marcar B y luego
+    // A, o la misma consulta se pide dos veces y se guarda dos veces.
+    [...f.estados].sort().join(","),
+    [...f.repartos].sort().join(","),
+    [...f.facturas].sort().join(","),
     f.search,
     f.fechaDesde,
     f.fechaHasta,
@@ -327,7 +356,9 @@ const traerPedidos =
       limit: String(POR_PAGINA),
     });
 
-    if (f.estado !== "todos") params.append("estado", f.estado);
+    if (f.estados.length > 0) params.append("estado", f.estados.join(","));
+    if (f.repartos.length > 0) params.append("reparto", f.repartos.join(","));
+    if (f.facturas.length > 0) params.append("factura", f.facturas.join(","));
     if (f.search.length > 0) params.append("search", f.search);
     // Solo si estan COMPLETAS: una fecha a medio teclear tumbaba la consulta.
     if (esFechaEnviable(f.fechaDesde)) params.append("fechaDesde", f.fechaDesde);
@@ -395,9 +426,75 @@ function comoSeLeeElInstante(valor?: string | null): string | null {
 
 export const OrdersList = () => {
   const [page, setPage] = useState(1);
-  const [estadoFilter, setEstadoFilter] = useState<string>("todos");
-  const [repartoFilter, setRepartoFilter] = useState<string>("todos");
-  const [facturaFilter, setFacturaFilter] = useState<string>("todos");
+  const [estadosSel, setEstadosSel] = useState<string[]>([]);
+  const [repartosSel, setRepartosSel] = useState<string[]>([]);
+  const [facturasSel, setFacturasSel] = useState<string[]>([]);
+  const marcados = estadosSel.length + repartosSel.length + facturasSel.length;
+  const [buscaFiltro, setBuscaFiltro] = useState("");
+
+  /**
+   * LO MARCADO Y LO APLICADO SON DOS COSAS.
+   *
+   * En el cajón se van marcando casillas —y son varias combinaciones: pedido, reparto y
+   * factura a la vez— pero la lista no se mueve hasta que se le da a Aplicar. Cambiando
+   * en el momento, cada casilla lanzaría una consulta y la lista bailaría debajo
+   * mientras alguien todavía está decidiendo qué quiere ver.
+   *
+   * `estadosSel` y compañía son lo aplicado, lo que va a la consulta. `borr…` es lo que
+   * hay marcado en el cajón ahora mismo.
+   */
+  const {
+    isOpen: filtrosAbiertos,
+    onOpen: abrirFiltros,
+    onClose: cerrarFiltros,
+  } = useDisclosure();
+  const [borrEstados, setBorrEstados] = useState<string[]>([]);
+  const [borrRepartos, setBorrRepartos] = useState<string[]>([]);
+  const [borrFacturas, setBorrFacturas] = useState<string[]>([]);
+  const borrMarcados = borrEstados.length + borrRepartos.length + borrFacturas.length;
+
+  // Al abrir, el borrador parte de lo que ya está puesto: si no, abrir el cajón para
+  // añadir un estado más borraría los que ya estaban.
+  const abrirCajonDeFiltros = () => {
+    setBorrEstados(estadosSel);
+    setBorrRepartos(repartosSel);
+    setBorrFacturas(facturasSel);
+    setBuscaFiltro("");
+    abrirFiltros();
+  };
+
+  const aplicarFiltros = () => {
+    setEstadosSel(borrEstados);
+    setRepartosSel(borrRepartos);
+    setFacturasSel(borrFacturas);
+    setPage(1); // otra búsqueda es otra lista: volver a la primera página
+    cerrarFiltros();
+  };
+
+  /**
+   * Los tres grupos del desplegable de estados, en una lista.
+   *
+   * Escritos uno a uno eran el mismo bloque copiado tres veces: el que añada un cuarto
+   * estado —o el buscador, o un «marcar todos»— tiene que acordarse de tocarlo en los
+   * tres, y siempre se olvida uno.
+   */
+  const gruposDeEstado = [
+    { titulo: "Pedido", opciones: estadoOptions, valor: borrEstados, poner: setBorrEstados },
+    { titulo: "Reparto", opciones: repartoOptions, valor: borrRepartos, poner: setBorrRepartos },
+    { titulo: "Facturación", opciones: facturaOptions, valor: borrFacturas, poner: setBorrFacturas },
+  ].map((g) => ({
+    ...g,
+    // «Todos» es la ausencia de filtro, no una opción que marcar.
+    // Y lo que no case con la búsqueda se cae, salvo que esté MARCADO: esconder algo
+    // que está filtrando la lista es cómo alguien mira una lista corta sin entender
+    // por qué.
+    opciones: g.opciones.filter(
+      (o) =>
+        o.value !== "todos" &&
+        (g.valor.includes(o.value) ||
+          normalizar(o.label).includes(normalizar(buscaFiltro))),
+    ),
+  }));
   const [domicilioFilter, setDomicilioFilter] = useState<string>("todos");
   const [vendedorFilter, setVendedorFilter] = useState<string>("todos");
   const [vendedores, setVendedores] = useState<VendedorOpt[]>([]);
@@ -586,11 +683,9 @@ export const OrdersList = () => {
 
   const filtros: FiltrosPedidos = {
     page,
-    estado: estadoFilter,
-    // "todos" no se manda: es la ausencia de filtro, y mandarlo obligaría a la API a
-    // saber que esa palabra significa "no filtres".
-    ...(repartoFilter !== "todos" ? { reparto: repartoFilter } : {}),
-    ...(facturaFilter !== "todos" ? { factura: facturaFilter } : {}),
+    estados: estadosSel,
+    repartos: repartosSel,
+    facturas: facturasSel,
     search: debouncedSearch,
     fechaDesde,
     fechaHasta,
@@ -606,9 +701,7 @@ export const OrdersList = () => {
   const sinFiltros =
     page === 1 &&
     !debouncedSearch &&
-    estadoFilter === "todos" &&
-    repartoFilter === "todos" &&
-    facturaFilter === "todos" &&
+    marcados === 0 &&
     domicilioFilter === "todos" &&
     vendedorFilter === "todos" &&
     !fechaDesde &&
@@ -956,9 +1049,9 @@ export const OrdersList = () => {
     setPage(1);
   }, [
     debouncedSearch,
-    estadoFilter,
-    repartoFilter,
-    facturaFilter,
+    estadosSel,
+    repartosSel,
+    facturasSel,
     domicilioFilter,
     vendedorFilter,
     fechaDesde,
@@ -1278,45 +1371,37 @@ export const OrdersList = () => {
               onChange={(e) => setSearchValue(e.target.value)}
               onClear={() => setSearchValue("")}
             />
-            <Select
-              className="w-full sm:w-48"
-              label="Estado"
-              selectedKeys={[estadoFilter]}
+            {/*
+              LOS TRES ESTADOS, EN UN SOLO SITIO Y CON CASILLAS.
+
+              Eran tres desplegables seguidos y la barra ya no daba para más: entre
+              buscar, producto, domicilio, vendedor y las dos fechas, tres más dejaban
+              los campos partidos y el de facturación medio tapado.
+
+              Y de uno en uno no se puede preguntar lo que se pregunta de verdad —«qué
+              hay en proceso O expirado», «qué se devolvió O se canceló»—, porque un
+              desplegable sólo deja escoger uno. Con casillas se marcan los que sean, y
+              cada grupo se cruza con los otros: pedido Y reparto Y factura.
+            */}
+            <Button
+              className="w-full justify-between sm:w-56"
               size="lg"
               variant="bordered"
-              onChange={(e) => setEstadoFilter(e.target.value)}
+              onPress={abrirCajonDeFiltros}
             >
-              {estadoOptions.map((option) => (
-                <SelectItem key={option.value}>{option.label}</SelectItem>
-              ))}
-            </Select>
-            {/* Los otros dos estados. Un pedido tiene tres a la vez y ninguno manda
-                sobre los otros; con un solo filtro, «qué hay facturado y distinto» o
-                «qué se devolvió» había que mirarlo pedido a pedido. */}
-            <Select
-              className="w-full sm:w-48"
-              label="Reparto"
-              selectedKeys={[repartoFilter]}
-              size="lg"
-              variant="bordered"
-              onChange={(e) => setRepartoFilter(e.target.value)}
-            >
-              {repartoOptions.map((option) => (
-                <SelectItem key={option.value}>{option.label}</SelectItem>
-              ))}
-            </Select>
-            <Select
-              className="w-full sm:w-48"
-              label="Facturación"
-              selectedKeys={[facturaFilter]}
-              size="lg"
-              variant="bordered"
-              onChange={(e) => setFacturaFilter(e.target.value)}
-            >
-              {facturaOptions.map((option) => (
-                <SelectItem key={option.value}>{option.label}</SelectItem>
-              ))}
-            </Select>
+              <span className="flex items-center gap-2">
+                <Icons.filter className="size-4 text-default-400" />
+                Estados
+              </span>
+              {/* El número de aplicados: con el cajón cerrado, es lo único que dice que
+                  la lista está filtrada. Sin él se mira una lista corta creyendo que
+                  están todos. */}
+              {marcados > 0 && (
+                <Chip color="primary" size="sm" variant="flat">
+                  {marcados}
+                </Chip>
+              )}
+            </Button>
             {/* Filtrar por producto: "enséñame los pedidos que llevan ESTO". Es lo
                 que se necesita cuando falta mercancía y hay que avisar a quien la
                 pidió. La lista sale de las líneas reales de esta sucursal, así que
@@ -2415,6 +2500,91 @@ export const OrdersList = () => {
         Entra desde abajo, que es de donde se espera algo que se consulta y se cierra
         —el pedido ya ocupa la entrada por la derecha— y así los dos gestos no chocan.
       */}
+
+      {/*
+        LOS FILTROS, EN UN CAJÓN.
+
+        Eran tres desplegables seguidos en la barra y ya no cabían: entre buscar,
+        producto, domicilio, vendedor y las dos fechas, los campos salían partidos.
+
+        Y de uno en uno no se puede preguntar lo que se pregunta de verdad —«qué hay en
+        proceso O expirado y además devuelto»—, porque un desplegable deja escoger uno.
+        Aquí se marcan los que sean, de los tres grupos, y se aplican de una vez.
+
+        Con buscador porque son varias decenas de combinaciones y bajar por la lista
+        para encontrar «facturado pero distinto» es más lento que teclear «fact».
+      */}
+      <Drawer isOpen={filtrosAbiertos} placement="right" size="sm" onClose={cerrarFiltros}>
+        <DrawerContent>
+          <DrawerHeader className="flex-col items-start gap-0">
+            <p className="text-lg font-semibold">Filtrar por estado</p>
+            <p className="text-xs font-normal text-default-500">
+              Un pedido tiene tres estados a la vez y los tres se cruzan.
+            </p>
+          </DrawerHeader>
+          <DrawerBody className="gap-4">
+                <Input
+                  isClearable
+                  placeholder="Buscar un estado…"
+                  size="sm"
+                  startContent={<Icons.search className="size-4 text-default-400" />}
+                  value={buscaFiltro}
+                  variant="bordered"
+                  onValueChange={setBuscaFiltro}
+                />
+                {gruposDeEstado.map((g) =>
+                  g.opciones.length === 0 ? null : (
+                    <CheckboxGroup
+                      key={g.titulo}
+                      classNames={{ label: "text-xs font-semibold text-default-500" }}
+                      label={g.titulo}
+                      size="sm"
+                      value={g.valor}
+                      onValueChange={g.poner}
+                    >
+                      {g.opciones.map((o) => (
+                        <Checkbox key={o.value} value={o.value}>
+                          {o.label}
+                        </Checkbox>
+                      ))}
+                    </CheckboxGroup>
+                  ),
+                )}
+                {gruposDeEstado.every((g) => g.opciones.length === 0) && (
+                  <p className="py-2 text-center text-xs text-default-400">
+                    Ningún estado se llama así.
+                  </p>
+                )}
+          </DrawerBody>
+          <DrawerFooter className="flex-col gap-2">
+            <Button
+              className="w-full"
+              color="primary"
+              isDisabled={borrMarcados === 0 && marcados === 0}
+              onPress={aplicarFiltros}
+            >
+              {borrMarcados === 0
+                ? "Quitar los filtros"
+                : `Aplicar ${borrMarcados} filtro${borrMarcados === 1 ? "" : "s"}`}
+            </Button>
+            {borrMarcados > 0 && (
+              <Button
+                className="w-full"
+                variant="light"
+                onPress={() => {
+                  setBorrEstados([]);
+                  setBorrRepartos([]);
+                  setBorrFacturas([]);
+                  setBuscaFiltro("");
+                }}
+              >
+                Desmarcar todo
+              </Button>
+            )}
+          </DrawerFooter>
+        </DrawerContent>
+      </Drawer>
+
       {pantallaChica && (
         <Drawer
           isOpen={isOpen && !!notaAbierta}

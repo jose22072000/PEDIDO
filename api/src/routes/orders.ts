@@ -167,6 +167,50 @@ export async function pedidoParaLista(id: string) {
 // List orders with pagination and filters.
 // Lectura: el Super Admin sin sucursal elegida ve TODAS; si elige una (x-sucursal-id)
 // se enfoca solo en esa. El resto de usuarios, siempre la suya.
+/**
+ * La condición de UN estado del pedido, como un solo objeto.
+ *
+ * Estaba escrito como un `switch` que empujaba dos condiciones sueltas al montón —y el
+ * montón se cruza con AND—, así que servía para filtrar por uno y sólo por uno. Para
+ * poder pedir «en proceso O expirada» hace falta que cada estado quepa en un objeto:
+ * entonces se unen con OR sin que las fechas de uno se mezclen con las del otro.
+ *
+ * `en_proceso` y `expirada` no son columnas: son «no completada» más una comparación
+ * con la fecha comprometida. Por eso no basta con `estado: { in: [...] }`.
+ */
+function condicionDeEstado(valor: string, ahora: Date): any | null {
+  const sinCompletar = { OR: [{ estado: null }, { estado: { not: 'completada' } }] };
+
+  switch (valor) {
+    case 'completada':
+      return { estado: 'completada' };
+    case 'en_proceso':
+      return {
+        AND: [sinCompletar, { OR: [{ fecha_comprometida: null }, { fecha_comprometida: { gte: ahora } }] }],
+      };
+    case 'expirada':
+      return {
+        AND: [sinCompletar, { fecha_comprometida: { not: null, lt: ahora } }],
+      };
+    default:
+      return null;
+  }
+}
+
+/**
+ * Los valores de un filtro que puede traer varios, separados por comas.
+ *
+ * La pantalla agrupa los tres estados en un solo desplegable con casillas —como los
+ * filtros de una hoja de cálculo— porque la barra no daba para un desplegable por cada
+ * uno. Con casillas se marcan varios, y varios llegan aquí como «uno,otro».
+ */
+function valoresDe(v: unknown): string[] {
+  return String(v ?? '')
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
 router.get('/', async (req, res) => {
   try {
     const { sucursalId, error: sucursalError, status: sucursalStatus } = resolveSucursalFilter(req);
@@ -202,8 +246,8 @@ router.get('/', async (req, res) => {
      * salido todavía, o uno que nadie ha comprobado contra Ventra. Son los dos casos
      * que más se buscan y los únicos que no se pueden pedir con una igualdad.
      */
-    const reparto = req.query.reparto as string | undefined;
-    const factura = req.query.factura as string | undefined;
+    const repartos = valoresDe(req.query.reparto);
+    const facturas = valoresDe(req.query.factura);
     const searchTerm = search ? search.toUpperCase() : undefined;
     const skip = (page - 1) * limit;
 
@@ -295,62 +339,35 @@ router.get('/', async (req, res) => {
     }
 
     // Filter by estado
-    if (reparto) {
-      conditions.push(
-        reparto === 'sin_reparto' ? { estadoEntrega: null } : { estadoEntrega: reparto },
+    if (repartos.length > 0) {
+      // `sin_reparto` es NULL: el pedido que todavía no ha salido.
+      const ors = repartos.map((v) =>
+        v === 'sin_reparto' ? { estadoEntrega: null } : { estadoEntrega: v },
       );
+
+      conditions.push(ors.length === 1 ? ors[0] : { OR: ors });
     }
 
-    if (factura) {
+    if (facturas.length > 0) {
       // `sin_cotejar` es NULL —nadie lo ha mirado—, distinto de `sin_factura`, que es
       // «se miró y todavía no la tiene». Confundirlos esconde justo los que hay que
       // revisar.
-      conditions.push(
-        factura === 'sin_cotejar' ? { facturaEstado: null } : { facturaEstado: factura },
+      const ors = facturas.map((v) =>
+        v === 'sin_cotejar' ? { facturaEstado: null } : { facturaEstado: v },
       );
+
+      conditions.push(ors.length === 1 ? ors[0] : { OR: ors });
     }
 
-    if (estado) {
-      const now = new Date();
-      
-      switch (estado) {
-        case 'completada':
-          // Only show orders explicitly marked as completada
-          conditions.push({ 
-            estado: 'completada'
-          });
-          break;
-        case 'en_proceso':
-          // Orders not completed and not expired
-          conditions.push({
-            OR: [
-              { estado: null },
-              { estado: { not: 'completada' } }
-            ]
-          });
-          conditions.push({
-            OR: [
-              { fecha_comprometida: null },
-              { fecha_comprometida: { gte: now } },
-            ],
-          });
-          break;
-        case 'expirada':
-          // Orders not completed but with expired date
-          conditions.push({
-            OR: [
-              { estado: null },
-              { estado: { not: 'completada' } }
-            ]
-          });
-          conditions.push({
-            AND: [
-              { fecha_comprometida: { not: null } },
-              { fecha_comprometida: { lt: now } }
-            ]
-          });
-          break;
-      }
+    // `archivados` no es un estado del pedido sino dónde está guardado, y ya se
+    // resolvió más arriba con `where.archivedAt`.
+    const estados = valoresDe(estado).filter((v) => v !== 'archivados');
+
+    if (estados.length > 0) {
+      const ahora = new Date();
+      const ors = estados.map((v) => condicionDeEstado(v, ahora)).filter(Boolean);
+
+      if (ors.length > 0) conditions.push(ors.length === 1 ? ors[0] : { OR: ors });
     }
 
     // Filtro por rango de fechas (campo 'fecha').
