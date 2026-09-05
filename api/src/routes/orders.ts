@@ -190,6 +190,20 @@ router.get('/', async (req, res) => {
     // filtra por los pedidos de los vendedores que ese usuario gestiona.
     const usuarioId = (req.query.usuarioId || req.query.vendedorId) as string | undefined;
     const incluirArchivados = req.query.incluirArchivados === '1' || req.query.incluirArchivados === 'true';
+    /**
+     * Los OTROS DOS estados del pedido, que no son el suyo.
+     *
+     * Un pedido tiene tres a la vez —el suyo, el del reparto y el de la factura— y
+     * hasta ahora sólo se podía filtrar por el primero. Las preguntas que se hacen de
+     * verdad son de los otros dos: «qué hay facturado y distinto», «qué se devolvió»,
+     * «qué queda sin cotejar». Con un solo filtro había que mirarlo pedido a pedido.
+     *
+     * `sin_reparto` y `sin_factura` piden explícitamente el hueco: un pedido que no ha
+     * salido todavía, o uno que nadie ha comprobado contra Ventra. Son los dos casos
+     * que más se buscan y los únicos que no se pueden pedir con una igualdad.
+     */
+    const reparto = req.query.reparto as string | undefined;
+    const factura = req.query.factura as string | undefined;
     const searchTerm = search ? search.toUpperCase() : undefined;
     const skip = (page - 1) * limit;
 
@@ -281,6 +295,21 @@ router.get('/', async (req, res) => {
     }
 
     // Filter by estado
+    if (reparto) {
+      conditions.push(
+        reparto === 'sin_reparto' ? { estadoEntrega: null } : { estadoEntrega: reparto },
+      );
+    }
+
+    if (factura) {
+      // `sin_cotejar` es NULL —nadie lo ha mirado—, distinto de `sin_factura`, que es
+      // «se miró y todavía no la tiene». Confundirlos esconde justo los que hay que
+      // revisar.
+      conditions.push(
+        factura === 'sin_cotejar' ? { facturaEstado: null } : { facturaEstado: factura },
+      );
+    }
+
     if (estado) {
       const now = new Date();
       
