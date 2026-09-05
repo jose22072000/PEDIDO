@@ -145,6 +145,9 @@ export const UsuariosList = () => {
     onOpen: onEditOpen,
     onClose: onEditClose,
   } = useDisclosure();
+
+  // El de editar, igual: dentro hay desplegables de rol y de sucursal.
+  useCerrarAlPulsarFuera(isEditOpen, onEditClose);
   const [editForm, setEditForm] = useState({
     id: "",
     username: "",
@@ -721,7 +724,13 @@ export const UsuariosList = () => {
       </Modal>
 
       {/* Modal ELIMINAR usuario */}
+      {/* `isDismissable={false}` y el cierre a mano, igual que el de editar: dentro hay
+          un desplegable para elegir a quién se le pasan los vendedores, y su lista se
+          dibuja FUERA del modal. Con el de la librería, elegir un usuario contaba como
+          pulsar fuera y cerraba el modal antes de poder reasignar nada.
+          `useCerrarAlPulsarFuera` sí distingue: descarta lo que caiga en un listbox. */}
       <Modal
+        isDismissable={false}
         isOpen={isOpen}
         placement="center"
         scrollBehavior="outside"

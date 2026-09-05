@@ -28,6 +28,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { cards } from "../primitives";
 
 import { getApiBaseUrl } from "@/config";
+import { useCerrarAlPulsarFuera } from "@/hooks/cerrar-al-pulsar-fuera";
 
 /**
  * Panel de Clientes (Parranda) — solo Super Admin.
@@ -118,6 +119,9 @@ export const ClientesParrandaPanel = () => {
     onOpen: onDetalleOpen,
     onClose: onDetalleClose,
   } = useDisclosure();
+
+  // Pulsar fuera cierra; elegir en un desplegable NO.
+  useCerrarAlPulsarFuera(detalleAbierto, onDetalleClose);
   const [sucursalId, setSucursalId] = useState("");
   const [municipio, setMunicipio] = useState("");
   const [municipios, setMunicipios] = useState<string[]>([]);
@@ -406,7 +410,11 @@ export const ClientesParrandaPanel = () => {
 
       {/* Qué trajo esa sincronización. En modal y no desplegado en la lista: son
           hasta 200 líneas y dentro de una caja de cuatro filas no se lee nada. */}
+      {/* `isDismissable={false}` y el cierre a mano: dentro hay desplegables cuya lista
+          se dibuja FUERA del modal, y con el de la librería elegir una opción contaba
+          como pulsar fuera y lo cerraba. `useCerrarAlPulsarFuera` sí lo distingue. */}
       <Modal
+        isDismissable={false}
         isOpen={detalleAbierto}
         scrollBehavior="inside"
         size="3xl"

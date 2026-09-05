@@ -11,7 +11,7 @@ export interface VendedorACargo {
   nombre: string;
   codigo: string | null;
   activo: boolean;
-  /** Lo que trae Prisma con `_count`. La regla no lo usa; se enseña al contestar. */
+  /** Cuántos pedidos lleva. Es lo que decide si hay histórico que proteger. */
   _count?: { pedidos: number };
 }
 
@@ -29,12 +29,19 @@ export interface DecisionBorrado {
 /**
  * # La regla
  *
- * **Bloquea sólo si alguno sigue ACTIVO.** Un vendedor activo sin gestor es el fallo de
- * Holguín: la ingesta le pone la sucursal de su gestor, y sin gestor se la deja en
- * nulo. Queda «sin asignar» y todo lo que suba a partir de ahí desaparece de la vista.
+ * **Bloquea sólo si alguno está ACTIVO Y TIENE PEDIDOS.** Ése es el caso que hay que
+ * proteger: un vendedor activo sin gestor es el fallo de Holguín —la ingesta le pone la
+ * sucursal de su gestor, y sin gestor se la deja en nulo— así que queda «sin asignar» y
+ * todo lo que suba a partir de ahí desaparece de la vista. Con pedidos detrás, eso es
+ * esconder histórico.
  *
  * **Uno de baja no tiene ese problema**: su CSV ya no llega —la ingesta lo rechaza— así
  * que nadie le va a tocar la sucursal. Puede quedarse sin usuario tranquilamente.
+ *
+ * **Y uno activo SIN NINGÚN PEDIDO tampoco bloquea.** No hay histórico que esconder:
+ * son los creados a mano por equivocación —un nombre mal escrito, uno duplicado, uno de
+ * prueba— y hoy son 27 de 101. Obligar a reasignarlos antes de borrar a su usuario es
+ * pedir un trámite para mover una ficha vacía.
  *
  * Los de baja **no se borran ni se vacían**: pierden el gestor y **conservan su
  * sucursal**, con todo su histórico. Borrar al usuario no puede llevarse por delante lo
@@ -42,7 +49,7 @@ export interface DecisionBorrado {
  * trabaje.
  */
 export function decidirBorrado(vendedores: VendedorACargo[]): DecisionBorrado {
-  const activos = vendedores.filter((v) => v.activo);
+  const activos = vendedores.filter((v) => v.activo && (v._count?.pedidos ?? 0) > 0);
 
   return activos.length
     ? { permitido: false, activos, aLiberar: [] }

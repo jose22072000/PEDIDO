@@ -215,6 +215,41 @@ export const VendedoresList = () => {
     [fetchVendedores],
   );
 
+  /**
+   * Borrar de verdad, y sólo si NO tiene pedidos.
+   *
+   * Lo bloquea el servidor —aquí sólo se esconde el botón— porque con un pedido detrás
+   * borrarlo se llevaría ese histórico. Para ésos está «Dar de baja».
+   *
+   * Sirve para los creados a mano por equivocación: un nombre mal escrito, uno
+   * duplicado, uno de prueba. Y no se pierde nada aunque haga falta después: si el
+   * vendedor vuelve a aparecer en un CSV, la ingesta lo crea otra vez.
+   */
+  const handleEliminar = useCallback(
+    async (vendedor: Vendedor) => {
+      setSavingId(vendedor.id);
+      try {
+        const res = await fetch(`${getApiBaseUrl()}/vendedores/${vendedor.id}`, {
+          method: "DELETE",
+        });
+        const json = await res.json().catch(() => ({}));
+
+        if (!res.ok) throw new Error(json.error || "No se pudo eliminar");
+
+        addToast({ title: `${vendedor.nombre} eliminado`, color: "success" });
+        void fetchVendedores();
+      } catch (err) {
+        addToast({
+          title: err instanceof Error ? err.message : "No se pudo eliminar",
+          color: "danger",
+        });
+      } finally {
+        setSavingId(null);
+      }
+    },
+    [fetchVendedores],
+  );
+
   // Baja/alta. La baja NO borra pedidos: solo deja de aceptarse su CSV.
   const handleSetActivo = useCallback(
     async (vendedor: Vendedor, activo: boolean) => {
@@ -658,6 +693,22 @@ export const VendedoresList = () => {
                             >
                               {vendedor.activo ? "Dar de baja" : "Reactivar"}
                             </Button>
+                            {/* Eliminar SÓLO si no tiene ni un pedido. Con histórico
+                                detrás, lo que corresponde es darlo de baja: enseñar un
+                                botón que el servidor va a rechazar es hacer que alguien
+                                lo pulse para descubrir que no. */}
+                            {(vendedor._count?.pedidos ?? 0) === 0 && (
+                              <Button
+                                className="flex-1 md:flex-none"
+                                color="danger"
+                                isLoading={savingId === vendedor.id}
+                                startContent={<Icons.trash className="size-5" />}
+                                variant="flat"
+                                onPress={() => handleEliminar(vendedor)}
+                              >
+                                Eliminar
+                              </Button>
+                            )}
                           </>
                         )}
                       </div>

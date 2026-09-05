@@ -358,6 +358,71 @@ router.post('/', async (req, res) => {
 // PATCH /vendedores/:id/activo   body: { activo: boolean }
 // Baja/alta del vendedor. Al darlo de baja deja de aceptarse su CSV y desaparece de
 // las listas, pero se CONSERVA su histórico de pedidos (no se borra nada).
+/**
+ * DELETE /vendedores/:id — borra un vendedor que NO tiene pedidos.
+ *
+ * # Por qué no existía
+ *
+ * Un vendedor lleva su histórico detrás: borrarlo se llevaría por delante sus pedidos,
+ * sus ventas y las comisiones de meses ya cerrados. Para ésos está **dar de baja**, que
+ * lo saca de en medio y conserva todo.
+ *
+ * # Y por qué hace falta ahora
+ *
+ * Los creados A MANO por equivocación no tienen nada que conservar: un nombre mal
+ * escrito, uno duplicado, uno de prueba. Hoy son 27 de 101, todos con cero pedidos, y
+ * la única salida era darlos de baja — quedan ahí para siempre ensuciando las listas.
+ *
+ * La regla es la que lo hace seguro: **si tiene un solo pedido, no se borra.** Entonces
+ * ya no es una equivocación, es histórico.
+ */
+router.delete('/:id', async (req, res) => {
+  try {
+    if (!getRequesterContext(req).puedeGestionarVendedores) {
+      return res.status(403).json({ error: 'No tienes permiso para modificar vendedores.' });
+    }
+
+    const { id } = req.params;
+    const vendedor = await prisma.vendedor.findUnique({
+      where: { id },
+      include: { _count: { select: { pedidos: true } } },
+    });
+
+    if (!vendedor) return res.status(404).json({ error: 'Vendedor no encontrado' });
+
+    const requester = getRequesterContext(req);
+
+    if (
+      !requester.isGlobalAdmin &&
+      vendedor.sucursalId &&
+      vendedor.sucursalId !== requester.sucursalId
+    ) {
+      return res.status(403).json({ error: 'Ese vendedor es de otra sucursal.' });
+    }
+
+    if (vendedor._count.pedidos > 0) {
+      return res.status(409).json({
+        error:
+          `No se puede eliminar: ${vendedor.nombre} tiene ${vendedor._count.pedidos} pedido(s). ` +
+          'Borrarlo se llevaría ese histórico. Dale de baja: se queda con sus pedidos y deja de aparecer.',
+        codigo: 'VENDEDOR_CON_PEDIDOS',
+        pedidos: vendedor._count.pedidos,
+      });
+    }
+
+    // El evento se manda A MANO y no por `emitirVendedor`: ésa relee el vendedor de la
+    // base para armar el aviso, y borrado ya no está — el aviso no saldría nunca y la
+    // lista se quedaría enseñando a alguien que ya no existe hasta recargar.
+    await prisma.vendedor.delete({ where: { id } });
+    emitEvent('vendedor', { sucursalId: vendedor.sucursalId ?? null, id, accion: 'delete' });
+
+    return res.json({ message: 'Vendedor eliminado', nombre: vendedor.nombre });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'No se pudo eliminar el vendedor' });
+  }
+});
+
 router.patch('/:id/activo', async (req, res) => {
   try {
     // El Operador solo LEE esta vista (factura y copia el codigo al
