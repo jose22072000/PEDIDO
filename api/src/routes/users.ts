@@ -362,13 +362,16 @@ router.patch('/:id', async (req, res) => {
      *
      * Aquí no se inventa una regla: se aplica la misma, ya.
      *
-     * # Los clientes compartidos NO se mueven
+     * # Los CLIENTES SUYOS se van con él; los PEDIDOS se quedan
      *
-     * Un cliente puede comprarle a varios vendedores —hoy 1.160 lo hacen— y arrastrarlo
-     * detrás de uno se lo quita a los demás, que siguen en la sucursal de antes. Sólo se
-     * mueven los que compran EXCLUSIVAMENTE a los vendedores de este usuario. Los otros
-     * se cuentan y se devuelven, para que quien lo hace sepa qué quedó fuera en vez de
-     * enterarse por un informe descuadrado.
+     * El cliente le corresponde al vendedor, así que se lo lleva. Los pedidos no: lo que
+     * ya se vendió se queda contado donde se vendió, y por eso aquí no se toca ni uno.
+     *
+     * Suyos quiere decir **en exclusiva**. Un cliente puede comprarle a varios
+     * vendedores —hoy 1.160 lo hacen— y ése no es de nadie: arrastrarlo detrás de éste
+     * se lo quita a los otros, que siguen atendiéndolo desde la sucursal de antes. Los
+     * compartidos se quedan y se cuentan aparte, para que quien traspasa sepa qué no se
+     * movió en vez de enterarse por un informe descuadrado.
      */
     const cambiaDeSucursal =
       updateData.sucursalId !== undefined && updateData.sucursalId !== existingUser.sucursalId;
@@ -390,7 +393,7 @@ router.patch('/:id', async (req, res) => {
         });
         const clientes = compradores.map((p) => p.clienteId!).filter(Boolean);
 
-        // De esos, los que también le compran a alguien de fuera se quedan donde están.
+        // Los que le compran además a otro vendedor NO son suyos: se quedan.
         const compartidos = clientes.length
           ? (
               await prisma.pedido.findMany({
