@@ -75,22 +75,53 @@ export function yaCerroElDia(fecha: Date | string | null | undefined, ahora = ne
 /**
  * Cómo se llama lo que le pasa a un pedido con la factura, ya con el corte aplicado.
  *
- *  - `facturado`   la factura salió y dice lo mismo que el pedido.
- *  - `cambiado`    salió y dice otra cosa. **También está facturado**: no es una alarma.
- *  - `buscando`    todavía no hay, pero el día no ha cerrado. Normal.
- *  - `no_aparecio` el día cerró y no hay factura. **Esto es lo que hay que mirar.**
- *  - `sin_cotejar` el cotejo no ha pasado por él (fuera de su ventana, o recién creado).
+ *  - `facturado`     la factura salió y dice lo mismo que el pedido.
+ *  - `cambiado`      salió y dice otra cosa. **También está facturado**: no es una alarma.
+ *  - `buscando`      todavía no hay, pero el día no ha cerrado. Normal.
+ *  - `no_aparecio`   el día cerró y no hay factura. **Esto es lo que hay que mirar.**
+ *  - `sin_completar` el pedido no está completado, así que no toca esperarle factura.
+ *  - `sin_cotejar`   el cotejo no ha pasado por él (fuera de su ventana, o recién creado).
  */
-export type EstadoFactura = 'facturado' | 'cambiado' | 'buscando' | 'no_aparecio' | 'sin_cotejar';
+export type EstadoFactura =
+  | 'facturado'
+  | 'cambiado'
+  | 'buscando'
+  | 'no_aparecio'
+  | 'sin_completar'
+  | 'sin_cotejar';
+
+/**
+ * `completada` es el único estado del que se espera factura.
+ *
+ * Un pedido en proceso o expirado todavía no se ha despachado, así que no tener factura no
+ * es una falta: es lo normal. Decir «buscando factura» ahí llenaba la lista de pedidos
+ * expirados marcados como si les faltara algo, y con ese ruido los que de verdad faltan
+ * —los completados sin factura— dejaban de verse.
+ *
+ * Ojo: esto es lo que se ENSEÑA, no lo que se comprueba. El cotejo sigue mirando todos los
+ * pedidos, porque facturar no completa: la factura sale a menudo estando el pedido todavía
+ * en proceso, y si se dejara de mirarlos no se encontraría nunca.
+ */
+const SE_LE_ESPERA_FACTURA = (estadoPedido: string | null | undefined) =>
+  String(estadoPedido || '').toLowerCase() === 'completada';
 
 export function estadoDeFactura(
   facturaEstado: string | null | undefined,
   fecha: Date | string | null | undefined,
   ahora = new Date(),
+  estadoPedido?: string | null,
 ): EstadoFactura {
+  // Si HAY factura se dice, esté el pedido como esté: es un hecho, no una expectativa.
   if (facturaEstado === 'igual') return 'facturado';
   if (facturaEstado === 'cambiado') return 'cambiado';
-  if (facturaEstado === 'sin_factura') return yaCerroElDia(fecha, ahora) ? 'no_aparecio' : 'buscando';
+
+  if (facturaEstado === 'sin_factura') {
+    // `undefined` es «no me han dicho el estado»: se sigue como antes, para no romper a
+    // quien llame sin ese dato.
+    if (estadoPedido !== undefined && !SE_LE_ESPERA_FACTURA(estadoPedido)) return 'sin_completar';
+
+    return yaCerroElDia(fecha, ahora) ? 'no_aparecio' : 'buscando';
+  }
 
   return 'sin_cotejar';
 }

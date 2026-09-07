@@ -158,7 +158,12 @@ const yaCerroElDia = (fecha?: string | null): boolean => {
  * que tomó, y lo único que puede pensar es que alguien se las cambió a escondidas.
  */
 const chipDeFactura = (
-  order: { facturaEstado?: string | null; facturaCorregidoAt?: string | null; fecha?: string | null },
+  order: {
+    facturaEstado?: string | null;
+    facturaCorregidoAt?: string | null;
+    fecha?: string | null;
+    estado?: string | null;
+  },
 ): { color: "success" | "warning" | "default"; texto: string } | null => {
   if (order.facturaCorregidoAt) {
     return { color: "success", texto: "Facturado · corregido" };
@@ -177,6 +182,21 @@ const chipDeFactura = (
    * contradigan.
    */
   if (order.facturaEstado === "sin_factura") {
+    /**
+     * Y SÓLO SE LE ESPERA FACTURA A LO QUE ESTÁ COMPLETADO.
+     *
+     * Un pedido en proceso o expirado no se ha despachado todavía: que no tenga factura no
+     * es una falta, es lo normal. Salían marcados «Buscando factura» y con ese ruido los
+     * que de verdad faltan —completados y sin factura— dejaban de verse.
+     *
+     * No se pinta nada: es la ausencia de noticia, no una noticia.
+     *
+     * El cotejo SÍ los sigue mirando, que es otra cosa. Facturar no completa, así que la
+     * factura sale a menudo con el pedido todavía en proceso; si dejara de mirarlos, no la
+     * encontraría nunca.
+     */
+    if (String(order.estado || "").toLowerCase() !== "completada") return null;
+
     return yaCerroElDia(order.fecha)
       ? { color: "warning", texto: "No apareció" }
       : { color: "default", texto: "Buscando factura" };

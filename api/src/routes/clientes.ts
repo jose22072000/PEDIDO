@@ -69,11 +69,39 @@ router.get('/resumen-parranda', async (req, res) => {
         error: estado === 'error' ? j.failedReason : undefined,
         cuando: j.finishedOn || j.processedOn || j.timestamp || null,
       });
-      syncs = [
+      const todas = [
         ...activos.map((j) => map(j, 'pendiente')),
         ...completos.map((j) => map(j, 'completado')),
         ...fallidos.map((j) => map(j, 'error')),
-      ].sort((a, b) => Number(b.jobId) - Number(a.jobId)).slice(0, 20);
+      ].sort((a, b) => Number(b.jobId) - Number(a.jobId));
+
+      /**
+       * SÓLO LAS DE HOY.
+       *
+       * Se devolvían las veinte últimas y la pantalla las pintaba todas, así que la lista
+       * crecía sola y para ver si la de hoy había ido bien había que buscarla entre las de
+       * la semana pasada. Lo que se viene a mirar aquí es una cosa: si lo de hoy corrió.
+       *
+       * El día es el de Cuba, no el del servidor: con el VPS en UTC, «hoy» empieza a las
+       * ocho de la noche de allí y la sincronización de las seis saldría como de ayer.
+       *
+       * Si hoy no ha corrido ninguna —a media mañana es lo normal, corre a las seis—, se
+       * devuelve la última que haya. Una lista vacía no distingue «todavía no toca» de
+       * «lleva una semana sin correr», y son cosas muy distintas.
+       */
+      const hoyCuba = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Havana', year: 'numeric', month: '2-digit', day: '2-digit',
+      }).format(new Date());
+      const diaDe = (c: number | null) =>
+        c
+          ? new Intl.DateTimeFormat('en-CA', {
+              timeZone: 'America/Havana', year: 'numeric', month: '2-digit', day: '2-digit',
+            }).format(new Date(c))
+          : null;
+
+      const deHoy = todas.filter((s) => diaDe(s.cuando) === hoyCuba);
+
+      syncs = deHoy.length ? deHoy : todas.slice(0, 1);
 
       // Cuándo toca la próxima, en su propio campo: es la forma de comprobar de un
       // vistazo que lo automático sigue programado, que era justo lo que no se podía
@@ -87,6 +115,9 @@ router.get('/resumen-parranda', async (req, res) => {
         granTotal: porSucursal.reduce((a, s) => a + s.total, 0),
         granConGeo: porSucursal.reduce((a, s) => a + s.conGeo, 0),
         syncs,
+        // Para que la pantalla pueda decir «hoy» o «la última que hubo» y no dejar a nadie
+        // creyendo que una corrida de hace tres días es la de esta mañana.
+        syncsSonDeHoy: deHoy.length > 0,
         proximaSync: siguiente ?? null,
       });
       return;

@@ -3,7 +3,7 @@ import { Router } from 'express';
 import prisma from '../prismaClient';
 import { estadoDeFactura, HORA_CORTE, type EstadoFactura } from '../lib/corteFacturacion';
 import { leerUltimaPasada } from '../lib/cotejoEstado';
-import { parsearFechaConsulta } from '../lib/fechaConsulta';
+import { extremosDelDia, hoyEnCuba } from '../lib/diaCubano';
 import { getRequesterContext, resolveSucursalFilter } from '../lib/sucursalContext';
 
 /**
@@ -11,27 +11,32 @@ import { getRequesterContext, resolveSucursalFilter } from '../lib/sucursalConte
  *
  * # Por qué hace falta una pantalla para esto
  *
- * «Completado» y «facturado» son cosas distintas y hasta ahora no había forma de ver la
- * diferencia. El 07/09/2026, de los 148 pedidos del día anterior, sólo 10 tenían factura
- * en Ventra. Los otros 138 podían estar en tres situaciones que desde la lista de pedidos
- * se ven exactamente igual:
+ * «Completado» y «facturado» son cosas distintas y en la lista de pedidos se veían igual.
+ * El 07/09/2026, de los 148 pedidos del día anterior sólo 10 tenían factura en Ventra. Los
+ * otros 138 podían estar en tres situaciones que desde fuera no se distinguen:
  *
  *   1. Todavía no se ha facturado. El día 6 fue domingo: La Habana facturó cero líneas ese
  *      día y treinta y ocho el viernes. Se factura al día siguiente, y eso es normal.
  *   2. Se facturó y NO se pegó el folio en la nota. El folio lo copia y lo pega una
  *      persona al facturar en Ventra, así que aquí es donde se pierde de verdad.
- *   3. Se pegó mal —un dígito de menos, el sufijo comido—.
+ *   3. Se pegó mal.
  *
- * Sin separarlas, el que mira ve trescientos «sin facturar» y deja de mirarlos. Con el
- * corte de las 18:30, los de hoy salen como «buscando» y sólo los de días cerrados como
- * «no apareció», que son los que de verdad hay que perseguir.
+ * # UN DÍA CADA VEZ, Y PAGINADO
  *
- * # Y por qué NO le pregunta nada a Ventra
+ * La primera versión enseñaba siete días de golpe y todos los pedidos sin factura de esos
+ * siete días en una tabla sin fin. Era ilegible: se abría, salían cientos de filas de
+ * todos los días mezcladas, y no se distinguía lo de hoy —lo que está pasando ahora— de lo
+ * de la semana pasada.
  *
- * Todo lo que enseña sale de nuestra base y de Redis. El cotejo ya corre en el worker cada
- * diez minutos y deja ahí el resultado de su última pasada; la pantalla lo lee. Si la
- * vista sondeara Ventra, abrirla ocho veces serían ochenta consultas por la VPN, y el
- * trabajo de fondo pasaría a depender de que alguien tenga una pestaña abierta.
+ * Ahora se pide UN día, y por defecto el de hoy. La lista va aparte y paginada, con
+ * buscador y filtros. Lo de otros días sigue estando: se cambia la fecha.
+ *
+ * # Y NO le pregunta nada a Ventra
+ *
+ * Todo sale de nuestra base y de Redis. El cotejo ya corre en el worker cada diez minutos y
+ * deja ahí el resultado de su última pasada; la pantalla lo lee. Si sondeara, abrirla ocho
+ * veces serían ochenta consultas por la VPN, y el trabajo de fondo pasaría a depender de
+ * que alguien tenga una pestaña abierta.
  */
 const router = Router();
 
@@ -48,54 +53,148 @@ router.use((req, res, next) => {
   return next();
 });
 
-interface FilaDia {
-  sucursalId: string | null;
-  sucursal: string;
-  dia: string;
-  total: number;
-  facturado: number;
-  cambiado: number;
-  buscando: number;
-  noAparecio: number;
-  sinCotejar: number;
-}
-
-/** El día en Cuba de una fecha, que es como se agrupa: el día del pedido, no el UTC. */
-const diaEnCuba = (d: Date) =>
-  new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Havana',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(d);
+const ESTADOS: EstadoFactura[] = [
+  'facturado', 'cambiado', 'buscando', 'no_aparecio', 'sin_completar', 'sin_cotejar',
+];
 
 /**
- * El resumen: por sucursal y día, cuántos pedidos hay en cada situación.
+ * El RESUMEN de un día: los totales y el desglose por sucursal. Nada de listas.
  *
- * Por defecto, los últimos siete días. Se acota siempre por arriba y por abajo: sin tope,
- * la consulta se traería el histórico entero para pintar una tabla de una semana.
+ * Va aparte de los pedidos a propósito. Es lo primero que se pinta —y lo único que hace
+ * falta para saber si el día va bien— así que tiene que llegar sin esperar a una tabla de
+ * cientos de filas.
  */
 router.get('/resumen', async (req, res) => {
   const { sucursalId, error, status } = resolveSucursalFilter(req);
 
   if (error) return res.status(status ?? 400).json({ error });
 
-  const hastaP = parsearFechaConsulta(req.query.hasta, 'hasta', true);
+  const dia = typeof req.query.dia === 'string' && req.query.dia ? req.query.dia : hoyEnCuba();
+  const rango = extremosDelDia(dia);
 
-  if (hastaP.error) return res.status(400).json({ error: hastaP.error });
-
-  const hasta = hastaP.fecha ?? new Date();
-  const desdeP = parsearFechaConsulta(req.query.desde, 'desde');
-
-  if (desdeP.error) return res.status(400).json({ error: desdeP.error });
-
-  const desde = desdeP.fecha ?? new Date(hasta.getTime() - 7 * 86400000);
+  if (!rango) return res.status(400).json({ error: 'La fecha tiene que ser AAAA-MM-DD.' });
 
   const pedidos = await prisma.pedido.findMany({
     where: {
-      fecha: { gte: desde, lte: hasta },
+      fecha: { gte: rango.desde, lte: rango.hasta },
       ...(sucursalId ? { sucursalId } : {}),
     },
+    select: {
+      fecha: true,
+      estado: true,
+      facturaEstado: true,
+      sucursalId: true,
+      sucursal: { select: { nombre: true } },
+    },
+  });
+
+  const ahora = new Date();
+  const vacio = () => ({
+    total: 0, facturado: 0, cambiado: 0, buscando: 0,
+    no_aparecio: 0, sin_completar: 0, sin_cotejar: 0,
+  });
+  const totales = vacio();
+  const porSucursal = new Map<string, ReturnType<typeof vacio> & { sucursalId: string | null; sucursal: string }>();
+
+  for (const p of pedidos) {
+    const est = estadoDeFactura(p.facturaEstado, p.fecha, ahora, p.estado);
+    const clave = p.sucursalId ?? '-';
+    const fila =
+      porSucursal.get(clave) ??
+      { ...vacio(), sucursalId: p.sucursalId, sucursal: p.sucursal?.nombre ?? 'sin sucursal' };
+
+    fila.total++;
+    fila[est]++;
+    porSucursal.set(clave, fila);
+
+    totales.total++;
+    totales[est]++;
+  }
+
+  return res.json({
+    dia,
+    hoy: hoyEnCuba(),
+    horaCorte: HORA_CORTE,
+    totales,
+    sucursales: [...porSucursal.values()].sort((a, b) => b.total - a.total),
+    ultimaPasada: await leerUltimaPasada(),
+  });
+});
+
+/**
+ * Los PEDIDOS de un día, paginados, con buscador y filtros.
+ *
+ * Paginado en el servidor y no en la pantalla: un día flojo son veinte pedidos y uno bueno
+ * son cuatrocientos. Mandarlos todos para enseñar veinte es gastar el cable y la memoria
+ * del navegador en algo que nadie va a mirar.
+ */
+router.get('/pedidos', async (req, res) => {
+  const { sucursalId, error, status } = resolveSucursalFilter(req);
+
+  if (error) return res.status(status ?? 400).json({ error });
+
+  const dia = typeof req.query.dia === 'string' && req.query.dia ? req.query.dia : hoyEnCuba();
+  const rango = extremosDelDia(dia);
+
+  if (!rango) return res.status(400).json({ error: 'La fecha tiene que ser AAAA-MM-DD.' });
+
+  const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+  const filtroSucursal = typeof req.query.sucursalId === 'string' ? req.query.sucursalId : '';
+  const pedidos = typeof req.query.estado === 'string' && req.query.estado
+    ? req.query.estado.split(',').filter((e): e is EstadoFactura => ESTADOS.includes(e as EstadoFactura))
+    : [];
+
+  const pagina = Math.max(1, Number(req.query.pagina) || 1);
+  const porPagina = Math.min(100, Math.max(5, Number(req.query.porPagina) || 25));
+
+  /**
+   * El filtro por estado NO se puede pasar a la consulta tal cual.
+   *
+   * `buscando` y `no_aparecio` son el MISMO `facturaEstado` en la base —`sin_factura`— y lo
+   * que los separa es la hora de corte, que se calcula aquí. Así que a la base se le pide
+   * el conjunto de estados guardados que puedan dar los pedidos, y el reparto fino se hace
+   * después. Es la única parte que no puede vivir en SQL.
+   */
+  const guardados = new Set<string | null>();
+
+  for (const e of pedidos) {
+    if (e === 'facturado') guardados.add('igual');
+    else if (e === 'cambiado') guardados.add('cambiado');
+    else if (e === 'buscando' || e === 'no_aparecio' || e === 'sin_completar') guardados.add('sin_factura');
+    else guardados.add(null);
+  }
+
+  const where = {
+    fecha: { gte: rango.desde, lte: rango.hasta },
+    ...(sucursalId ? { sucursalId } : filtroSucursal ? { sucursalId: filtroSucursal } : {}),
+    ...(guardados.size
+      ? {
+          OR: [
+            ...(guardados.has(null) ? [{ facturaEstado: null }] : []),
+            ...([...guardados].filter((g): g is string => g != null).length
+              ? [{ facturaEstado: { in: [...guardados].filter((g): g is string => g != null) } }]
+              : []),
+          ],
+        }
+      : {}),
+    ...(q
+      ? {
+          AND: [
+            {
+              OR: [
+                { folio: { contains: q, mode: 'insensitive' as const } },
+                { facturaNumero: { contains: q, mode: 'insensitive' as const } },
+                { cliente: { nombre: { contains: q, mode: 'insensitive' as const } } },
+                { vendedor: { nombre: { contains: q, mode: 'insensitive' as const } } },
+              ],
+            },
+          ],
+        }
+      : {}),
+  };
+
+  const filas = await prisma.pedido.findMany({
+    where,
     select: {
       id: true,
       folio: true,
@@ -103,7 +202,6 @@ router.get('/resumen', async (req, res) => {
       estado: true,
       facturaEstado: true,
       facturaNumero: true,
-      sucursalId: true,
       sucursal: { select: { nombre: true } },
       vendedor: { select: { nombre: true } },
       cliente: { select: { nombre: true } },
@@ -111,77 +209,37 @@ router.get('/resumen', async (req, res) => {
     orderBy: [{ fecha: 'desc' }, { folio: 'asc' }],
   });
 
-  const ahora = new Date();
-  const porDia = new Map<string, FilaDia>();
   /**
-   * Los que hay que perseguir, con el folio a la vista.
+   * El corte se aplica DESPUÉS de la consulta, así que la página se recorta aquí.
    *
-   * Sólo los `no_aparecio`: los que están «buscando» no son un problema todavía y meterlos
-   * aquí llenaría la lista de ruido justo el día que más se mira.
+   * Traer el día entero y cortar en memoria es correcto para esto: un día son como mucho
+   * unos cientos de pedidos de una sucursal. Paginar en SQL daría páginas descuadradas,
+   * porque `buscando` y `no_aparecio` no se distinguen hasta después de mirar la hora.
    */
-  const aPerseguir: Array<{
-    id: string;
-    folio: string;
-    fecha: Date;
-    sucursal: string;
-    vendedor: string | null;
-    cliente: string | null;
-    estado: string | null;
-  }> = [];
-
-  for (const p of pedidos) {
-    const dia = diaEnCuba(p.fecha);
-    const clave = `${p.sucursalId ?? '-'}|${dia}`;
-    const fila = porDia.get(clave) ?? {
-      sucursalId: p.sucursalId,
+  const ahora = new Date();
+  const conEstado = filas
+    .map((p) => ({
+      id: p.id,
+      folio: p.folio,
+      fecha: p.fecha,
+      estado: p.estado,
+      facturaNumero: p.facturaNumero,
       sucursal: p.sucursal?.nombre ?? 'sin sucursal',
-      dia,
-      total: 0,
-      facturado: 0,
-      cambiado: 0,
-      buscando: 0,
-      noAparecio: 0,
-      sinCotejar: 0,
-    };
+      vendedor: p.vendedor?.nombre ?? null,
+      cliente: p.cliente?.nombre ?? null,
+      factura: estadoDeFactura(p.facturaEstado, p.fecha, ahora, p.estado),
+    }))
+    .filter((p) => (pedidos.length ? pedidos.includes(p.factura) : true));
 
-    const est: EstadoFactura = estadoDeFactura(p.facturaEstado, p.fecha, ahora);
-
-    fila.total++;
-    if (est === 'facturado') fila.facturado++;
-    else if (est === 'cambiado') fila.cambiado++;
-    else if (est === 'buscando') fila.buscando++;
-    else if (est === 'no_aparecio') fila.noAparecio++;
-    else fila.sinCotejar++;
-
-    porDia.set(clave, fila);
-
-    if (est === 'no_aparecio') {
-      aPerseguir.push({
-        id: p.id,
-        folio: p.folio,
-        fecha: p.fecha,
-        sucursal: p.sucursal?.nombre ?? 'sin sucursal',
-        vendedor: p.vendedor?.nombre ?? null,
-        cliente: p.cliente?.nombre ?? null,
-        estado: p.estado,
-      });
-    }
-  }
-
-  const dias = [...porDia.values()].sort(
-    (a, b) => b.dia.localeCompare(a.dia) || a.sucursal.localeCompare(b.sucursal),
-  );
+  const desde = (pagina - 1) * porPagina;
 
   return res.json({
-    desde,
-    hasta,
-    horaCorte: HORA_CORTE,
-    dias,
-    // Con tope: si un día entero se quedó sin facturar son cientos, y mandarlos todos por
-    // el cable para pintar una tabla que nadie va a leer entera no ayuda a nadie.
-    aPerseguir: aPerseguir.slice(0, 300),
-    aPerseguirTotal: aPerseguir.length,
-    ultimaPasada: await leerUltimaPasada(),
+    dia,
+    total: conEstado.length,
+    pagina,
+    porPagina,
+    paginas: Math.max(1, Math.ceil(conEstado.length / porPagina)),
+    pedidos: conEstado.slice(desde, desde + porPagina),
   });
 });
 
