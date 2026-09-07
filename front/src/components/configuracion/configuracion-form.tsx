@@ -2,6 +2,7 @@ import {
   Card,
   CardBody,
   Button,
+  Link,
   Spinner,
   Table,
   TableHeader,
@@ -423,6 +424,40 @@ export const ConfiguracionForm = () => {
                 </TableBody>
               </Table>
             )}
+          </div>
+        </CardBody>
+      </Card>
+
+      {/* Los clientes de Parranda: la ENTRADA se queda aquí, el panel vive en su propia
+          ventana.
+
+          Estaba entero metido en esta página —resumen por sucursal, historial de las
+          sincronizaciones, tabla paginada con filtros y el botón de sincronizar— entre
+          los parámetros del sistema y el botón de borrar la base. Son quinientas líneas
+          de pantalla de COMPROBAR dentro de una pantalla de AJUSTAR, y para mirar si la
+          sincronización de anoche fue bien había que entrar donde también está la zona
+          de peligro.
+
+          Ahora es un enlace: quien viene a Configuración lo sigue encontrando donde
+          siempre, y lo que se abre es una vista con su sitio y su ruta. */}
+      <Card className={cards()}>
+        <CardBody>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+            <div className="flex-1">
+              <h3 className="text-lg font-semibold">Clientes de Parranda</h3>
+              <p className="text-sm text-default-500">
+                Cuántos clientes hay por sucursal, cuándo se sincronizó por última vez y
+                cómo fue. Se sincroniza solo todos los días a las 6 de la tarde.
+              </p>
+            </div>
+            <Button
+              as={Link}
+              color="primary"
+              href="/panel/sincronizacion/clientes"
+              variant="flat"
+            >
+              Abrir sincronización
+            </Button>
           </div>
         </CardBody>
       </Card>
