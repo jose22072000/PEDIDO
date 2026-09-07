@@ -397,13 +397,14 @@ router.get('/', async (req, res) => {
     const faltantes = { telefono: sinTelefono, geo: sinGeo, direccion: sinDireccion, municipio: sinMunicipio };
 
     /**
-     * PENDIENTE DE DECISIÓN — a quién pertenece un cliente
+     * A QUIÉN PERTENECE UN CLIENTE: al que LE VENDE AHORA.
      *
-     * Hoy: al vendedor de su pedido MÁS ANTIGUO. O sea «quien lo trajo».
+     * Decidido por Jose el 07/09/2026. Antes era «quien lo trajo» —el vendedor de su
+     * pedido más antiguo— y eso se quedaba anclado al dueño anterior para siempre, porque
+     * Parranda reparte clientes entre vendedores: los que tienen muchos le pasan a los que
+     * tienen pocos.
      *
-     * El problema es que Parranda reparte clientes entre vendedores —los que tienen muchos
-     * le pasan a los que tienen pocos—, y esta regla se queda anclada al dueño anterior para
-     * siempre. Medido el 27 de agosto de 2026 sobre los datos de producción:
+     * Lo que costaba, medido el 27/08/2026 sobre producción:
      *
      *     Santiago    3.147 clientes ->  377 atribuidos a quien ya no les vende
      *     Las Tunas     967          ->  249
@@ -411,29 +412,24 @@ router.get('/', async (req, res) => {
      *     Habana        782          ->   30
      *     TOTAL       9.155          ->  849   (casi 1 de cada 10)
      *
-     * Ejemplos reales de La Habana: raydel.mesa figura con 8 clientes que atiende
-     * fidel.palma; xenia.cordiez con 7 que atiende diana.acosta; leisy.besada con 6 que
-     * atiende javier.franganillo.
+     * El caso que lo destapó: KIOSKO HENRY ODAEL FROMETA CANEY (SC06TCP0502, Santiago).
+     * Lo trajo frank.emilio con 6 pedidos entre enero y febrero; desde marzo le vende
+     * gari.duran, 26 pedidos y el último el 27/08. A Entrega le llegaba como cliente de
+     * Frank, así que en la cartera de Gari —el que de verdad lo atiende— no aparecía.
      *
-     * Esto NO es un fallo que se pueda arreglar sin decidir antes, porque «de quién es un
-     * cliente» significa dos cosas distintas según para qué se pregunte:
+     * Esto se calcula en DOS sitios: aquí y en `integration.ts`, que es lo que se le manda
+     * a Entrega como `usuario_vendedor`. **Los dos tienen que decir lo mismo**: si uno mira
+     * el pedido más reciente y el otro el más antiguo, el panel y la APK dicen cosas
+     * distintas del mismo cliente y no hay forma de saber cuál creer.
      *
-     *   - Para repartir rutas, contar carteras y para lo que se le manda a Entrega,
-     *     lo que importa es QUIÉN LE VENDE AHORA -> el pedido más RECIENTE.
-     *   - Para comisiones puede seguir importando quién lo trajo -> el más ANTIGUO.
-     *
-     * Si la decisión llega y es «quien le vende ahora», el cambio es invertir el orden de
-     * los pedidos aquí (`fecha: 'desc'`) y en integration.ts, donde se calcula lo mismo para
-     * el payload de Entrega. Los dos sitios tienen que cambiar a la vez o el panel y la
-     * APK dirán cosas distintas del mismo cliente.
-     *
-     * Mientras tanto se queda como está, a propósito y no por olvido.
+     * Lo que NO cambia: para comisiones puede seguir importando quién lo trajo. Ese cálculo
+     * no vive aquí; el día que haga falta, se saca aparte y no invirtiendo esto otra vez.
      */
-    // Quién trajo a cada cliente: el vendedor de su pedido MÁS ANTIGUO. No hay
+    // Quién le vende a cada cliente: el vendedor de su pedido MÁS RECIENTE. No hay
     // relación directa cliente->vendedor, la unión son los pedidos. Con los datos
     // actuales el 91% de los clientes tiene un solo vendedor (6918 de 7579), así
-    // que para casi todos "el primero" es "el suyo"; para el resto se indica
-    // cuántos más han trabajado con él.
+    // que para casi todos da igual cuál se mire; el criterio decide justo para el 9%
+    // restante, que es donde estaba el problema.
     //
     // Se resuelve en UNA consulta para toda la página, no una por cliente: con
     // ~600 ms de latencia por petición, un N+1 aquí sería letal.
@@ -448,14 +444,15 @@ router.get('/', async (req, res) => {
           fecha: true,
           vendedor: { select: { nombre: true, codigo: true } },
         },
-        orderBy: { fecha: 'asc' },
+        // DESC: el primero que salga de cada cliente es su pedido más reciente.
+        orderBy: { fecha: 'desc' },
       });
 
       const vistos = new Map<string, Set<string>>();
 
       for (const p of pedidos) {
         if (!p.clienteId) continue;
-        // El primero que aparece es el más antiguo: los pedidos vienen ordenados.
+        // El primero que aparece es el más RECIENTE: los pedidos vienen ordenados.
         if (!porCliente.has(p.clienteId)) {
           porCliente.set(p.clienteId, {
             vendedor: p.vendedor?.nombre ?? null,

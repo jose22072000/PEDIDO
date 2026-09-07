@@ -513,9 +513,9 @@ router.get('/clients', async (req, res) => {
   // criterio hay que cambiarlo aquí en la misma tanda: si no, el panel y la APK dirán
   // cosas distintas del mismo cliente y nadie sabrá cuál creer.
   //
-  // `vendedor` es quien lo TRAJO —el de su pedido más antiguo—, que es el criterio
-  // que ya usa la lista de clientes del panel. `vendedores` son todos los que le han
-  // vendido: un cliente puede comprarle a dos, y quedarse solo con uno sería decidir
+  // `vendedor` es QUIEN LE VENDE AHORA —el de su pedido más reciente—, que es el mismo
+  // criterio que usa la lista de clientes del panel. `vendedores` son todos los que le
+  // han vendido: un cliente puede comprarle a dos, y quedarse sólo con uno sería decidir
   // desde aquí a quién le toca la entrega.
   const idsClientes = clientes.map((c) => c.id);
 
@@ -525,15 +525,15 @@ router.get('/clients', async (req, res) => {
   // traerse los pedidos de 500 clientes de Camagüey son decenas de miles de filas
   // para acabar quedándose con una o dos por cliente —la primera versión tardaba
   // veinte segundos y no llegaba a contestar—. Esto devuelve ya sólo el par, con la
-  // fecha de su pedido más antiguo: unas 600 filas.
+  // fecha de su pedido más RECIENTE con ese vendedor: unas 600 filas.
   const pares = idsClientes.length
-    ? await prisma.$queryRaw<Array<{ clienteId: string; vendedorId: string; desde: Date }>>`
+    ? await prisma.$queryRaw<Array<{ clienteId: string; vendedorId: string; hasta: Date }>>`
         SELECT DISTINCT ON ("clientId", "sellerId")
-               "clientId" AS "clienteId", "sellerId" AS "vendedorId", fecha AS desde
+               "clientId" AS "clienteId", "sellerId" AS "vendedorId", fecha AS hasta
           FROM "Order"
          WHERE "clientId" = ANY(${idsClientes}::text[])
            AND "sellerId" IS NOT NULL
-         ORDER BY "clientId", "sellerId", fecha ASC`
+         ORDER BY "clientId", "sellerId", fecha DESC`
     : [];
 
   // Los vendedores que salgan, una vez cada uno: son unas decenas aunque los clientes
@@ -579,19 +579,25 @@ router.get('/clients', async (req, res) => {
 
   const porId = new Map(vendedores.map((v) => [v.id, comoSale(v)]));
 
-  // OJO: ver la nota "PENDIENTE DE DECISIÓN" en routes/clientes.ts.
-  //
-  // `vendedor` es quien lo TRAJO —el del pedido más antiguo—, que es el criterio que
-  // ya usa la lista de clientes del panel. `vendedores` son todos los que le han
-  // vendido: un cliente puede comprarle a dos, y quedarnos con uno sería decidir desde
-  // aquí a quién le toca la entrega.
-  const loTrajo = new Map<string, { desde: Date; vend: ReturnType<typeof comoSale> }>();
+  /**
+   * QUIÉN LE VENDE AHORA: el vendedor de su pedido más reciente.
+   *
+   * Esto es lo que Entrega guarda como `usuario_vendedor`, o sea de quién es el cliente en
+   * la APK. Tiene que decir LO MISMO que la lista de clientes del panel —ver la nota
+   * larga en `routes/clientes.ts`—: si uno mira el más reciente y el otro el más antiguo,
+   * el panel y la APK dicen cosas distintas del mismo cliente.
+   *
+   * Antes era quien lo TRAJO, y con eso 849 clientes de 9.155 salían atribuidos a un
+   * vendedor que ya no les vende. En la práctica: no aparecían en la cartera del que sí
+   * los atiende, así que en Entrega no existían para él.
+   */
+  const leVendeAhora = new Map<string, { hasta: Date; vend: ReturnType<typeof comoSale> }>();
   const todosSus = new Map<string, Array<ReturnType<typeof comoSale>>>();
   for (const r of pares) {
     const v = porId.get(r.vendedorId);
     if (!v) continue;
-    const antes = loTrajo.get(r.clienteId);
-    if (!antes || r.desde < antes.desde) loTrajo.set(r.clienteId, { desde: r.desde, vend: v });
+    const previo = leVendeAhora.get(r.clienteId);
+    if (!previo || r.hasta > previo.hasta) leVendeAhora.set(r.clienteId, { hasta: r.hasta, vend: v });
     if (!todosSus.has(r.clienteId)) todosSus.set(r.clienteId, []);
     todosSus.get(r.clienteId)!.push(v);
   }
@@ -618,8 +624,8 @@ router.get('/clients', async (req, res) => {
     sucursalId: c.sucursalId,
     sucursalCodigo: c.sucursal?.codigo || null,
     sucursalNombre: c.sucursal?.nombre || null,
-    // Quién lo trajo, con su sucursal y su gestor.
-    vendedor: loTrajo.get(c.id)?.vend ?? null,
+    // Quién le vende ahora, con su sucursal y su gestor.
+    vendedor: leVendeAhora.get(c.id)?.vend ?? null,
     // Y todos los que le han vendido, por si le compra a más de uno.
     vendedores: todosSus.get(c.id) ?? [],
     // Para que la tablet sepa por dónde seguir en la próxima sync.
