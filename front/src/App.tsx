@@ -38,6 +38,12 @@ const ConfiguracionPage = lazy(
   () => import("./pages/configuracion/configuracion"),
 );
 const ReportesPage = lazy(() => import("./pages/reportes/reportes"));
+const SincronizacionFacturacionPage = lazy(
+  () => import("./pages/sincronizacion/facturacion"),
+);
+const SincronizacionClientesPage = lazy(
+  () => import("./pages/sincronizacion/clientes"),
+);
 const ReportePedidosFechaPage = lazy(
   () => import("./pages/reportes/pedidos-fecha"),
 );
@@ -178,6 +184,15 @@ function App() {
                 element={<ReporteCopiasPage />}
                 path="/panel/reportes/copias"
               />
+
+              {/* La de FACTURACIÓN va con los mismos roles que los informes: es una
+                pantalla de comprobar, no de capturar, y el Operador no entra —el
+                servidor la rechaza igual para su rol—.
+                La de CLIENTES no está aquí: es solo Super Admin, más abajo. */}
+              <Route
+                element={<SincronizacionFacturacionPage />}
+                path="/panel/sincronizacion/facturacion"
+              />
             </Route>
           </Route>
 
@@ -225,9 +240,16 @@ function App() {
           </Route>
 
           {/* Configuración (sucursales, parámetros, borrar base): SOLO Super Admin.
-            Un Administrador es de una única sucursal y no debe entrar aquí. */}
+            Un Administrador es de una única sucursal y no debe entrar aquí.
+            Aquí dentro va también el sincronizador de CLIENTES: salió de la página de
+            Configuración a su propia vista, pero sus cuatro endpoints siguen siendo de
+            Super Admin. Con otro rol la pantalla cargaría vacía y llena de 403. */}
           <Route element={<ProtectedRoute />}>
             <Route element={<AdminRoute allowedRoles={["Super Admin"]} />}>
+              <Route
+                element={<SincronizacionClientesPage />}
+                path="/panel/sincronizacion/clientes"
+              />
               <Route
                 element={<ConfiguracionPage />}
                 path="/panel/configuracion"

@@ -60,6 +60,7 @@ import {
 import { facturasPorFolio, prefijoDeFolio } from './emparejarFactura';
 import { catalogoDeSucursal, type CatalogoSucursal } from './catalogoSucursal';
 import { emitEvent } from './events';
+import { guardarUltimaPasada } from './cotejoEstado';
 import { avisarPedidoCambiado } from './webhook';
 
 /** Cuántos días atrás se repasa. La facturación vieja ya no se mueve. */
@@ -616,8 +617,33 @@ export function arrancarCotejoFacturacion(): void {
   }
 
   const correr = () => {
+    const arrancoEn = Date.now();
+
     cotejarUnaVez({})
       .then((rs) => {
+        /**
+         * El parte de la pasada, a Redis, para la pantalla del sincronizador.
+         *
+         * Lo escribe el worker y lo lee la API: son dos procesos y Redis ya está entre los
+         * dos. Así abrir la pantalla no dispara ningún trabajo ni pregunta nada a Ventra —
+         * enseña lo último que este bucle dejó dicho. Caduca a las dos horas, de modo que
+         * si el worker se para la pantalla dice «no hay dato» en vez de enseñar el parte
+         * de anteayer como si fuera de ahora.
+         */
+        void guardarUltimaPasada({
+          cuando: new Date().toISOString(),
+          segundos: Math.round((Date.now() - arrancoEn) / 1000),
+          sucursales: rs.map((r) => ({
+            sucursal: r.sucursal,
+            database: r.database,
+            cotejados: r.cotejados,
+            igual: r.igual,
+            cambiado: r.cambiado,
+            sinFactura: r.sinFactura,
+            ...(r.error ? { error: r.error } : {}),
+          })),
+        });
+
         const ok = rs.filter((r) => !r.error);
         const mal = rs.filter((r) => r.error);
         const suma = (f: (r: ResultadoCotejo) => number) => ok.reduce((a, r) => a + f(r), 0);
