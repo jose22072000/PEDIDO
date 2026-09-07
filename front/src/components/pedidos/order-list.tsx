@@ -100,6 +100,56 @@ const facturaChip: Record<string, { color: "success" | "warning" | "default"; te
 };
 
 /**
+ * La hora a la que se da por cerrado el día: 18:30 en Cuba.
+ *
+ * Es la misma a la que corre el repaso del mes en el worker (`REPASO_FACTURAS_CRON`). Las
+ * dos tienen que decir lo mismo: si la pantalla concluye antes que el repaso, enseña «no
+ * apareció» de un pedido que el repaso todavía va a encontrar.
+ */
+const HORA_CORTE = 18.5;
+
+/** El día y la hora en Cuba, que es donde están las sucursales — no donde esté el servidor. */
+const enCuba = (d: Date) => {
+  const partes = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Havana",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(d);
+  const v = (tipo: string) => partes.find((x) => x.type === tipo)?.value ?? "0";
+
+  return {
+    dia: `${v("year")}-${v("month")}-${v("day")}`,
+    hora: Number(v("hour")) + Number(v("minute")) / 60,
+  };
+};
+
+/**
+ * ¿Ya cerró el día de ESE pedido?
+ *
+ * Mientras la sucursal está abierta, un pedido sin factura **no está mal**: está esperando
+ * a que lo facturen. Sólo cuando el día cerró se puede decir que la factura no apareció.
+ */
+const yaCerroElDia = (fecha?: string | null): boolean => {
+  if (!fecha) return false;
+
+  const d = new Date(fecha);
+
+  if (Number.isNaN(d.getTime())) return false;
+
+  const pedido = enCuba(d);
+  const ahora = enCuba(new Date());
+
+  if (pedido.dia < ahora.dia) return true;   // de un día anterior: cerrado seguro
+  if (pedido.dia > ahora.dia) return false;  // del futuro: no ha empezado
+
+  return ahora.hora >= HORA_CORTE;
+};
+
+/**
  * Un pedido que CUADRA porque se corrigió no es lo mismo que uno que vino bien.
  *
  * Los dos quedan en `igual` —cuadran con la factura, y por eso se pueden repartir— pero
@@ -108,11 +158,30 @@ const facturaChip: Record<string, { color: "success" | "warning" | "default"; te
  * que tomó, y lo único que puede pensar es que alguien se las cambió a escondidas.
  */
 const chipDeFactura = (
-  order: { facturaEstado?: string | null; facturaCorregidoAt?: string | null },
+  order: { facturaEstado?: string | null; facturaCorregidoAt?: string | null; fecha?: string | null },
 ): { color: "success" | "warning" | "default"; texto: string } | null => {
   if (order.facturaCorregidoAt) {
     return { color: "success", texto: "Facturado · corregido" };
   }
+
+  /**
+   * «SIN FACTURAR» SON DOS COSAS DISTINTAS Y ANTES SE DECÍAN IGUAL.
+   *
+   * Un pedido tomado a las once de la mañana que todavía no tiene factura está esperando a
+   * que lo facturen: es lo normal, y decirle «sin facturar» en gris hace que nadie lo mire.
+   * El mismo pedido a las ocho de la noche es otra cosa: el día cerró, se buscó su folio en
+   * Ventra y no apareció. Eso sí hay que mirarlo — o no se facturó, o se facturó con el
+   * folio mal escrito y ese pedido no va a entrar en ninguna ruta.
+   *
+   * El corte es el mismo que el del repaso del mes, para que las dos cosas no se
+   * contradigan.
+   */
+  if (order.facturaEstado === "sin_factura") {
+    return yaCerroElDia(order.fecha)
+      ? { color: "warning", texto: "No apareció" }
+      : { color: "default", texto: "Buscando factura" };
+  }
+
   return order.facturaEstado ? facturaChip[order.facturaEstado] ?? null : null;
 };
 
@@ -1886,19 +1955,22 @@ export const OrdersList = () => {
                   </Chip>
                   {/* Y con qué factura cuadró: es lo que hay que teclear para ir a
                       buscarla en Ventra cuando el pedido y la factura no coinciden. */}
-                  {selectedOrder?.facturaEstado &&
-                    facturaChip[selectedOrder.facturaEstado] && (
-                      <Chip
-                        color={facturaChip[selectedOrder.facturaEstado].color}
-                        size="sm"
-                        variant="flat"
-                      >
-                        {facturaChip[selectedOrder.facturaEstado].texto}
-                        {selectedOrder.facturaNumero
-                          ? ` · ${selectedOrder.facturaNumero}`
-                          : ""}
-                      </Chip>
-                    )}
+                  {/* Por `chipDeFactura` y no por la tabla a pelo: es quien sabe distinguir
+                      «corregido» de «vino bien», y «buscando» de «no apareció». Leyendo la
+                      tabla directamente, el modal decía «Sin facturar» de un pedido que la
+                      lista de al lado ya estaba pintando como buscando. */}
+                  {chipDeFactura(selectedOrder ?? {}) && (
+                    <Chip
+                      color={chipDeFactura(selectedOrder ?? {})!.color}
+                      size="sm"
+                      variant="flat"
+                    >
+                      {chipDeFactura(selectedOrder ?? {})!.texto}
+                      {selectedOrder?.facturaNumero
+                        ? ` · ${selectedOrder.facturaNumero}`
+                        : ""}
+                    </Chip>
+                  )}
                   </div>
                   {/* La ✕ del modal, escrita a mano y dentro de la tarjeta del pedido.
                       Cierra TODO. La de la factura, en la esquina de SU tarjeta, cierra

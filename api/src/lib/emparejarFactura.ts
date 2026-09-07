@@ -95,3 +95,21 @@ export function facturasPorFolio(lineas: LineaConNota[]): Map<string, Set<string
 
   return salida;
 }
+
+/**
+ * De `P-PDG26-260907-2988` saca `P-PDG26-260907`: la sucursal y el día, sin el número.
+ *
+ * Es lo que comparten todos los pedidos de una sucursal en un día, y por eso sirve para
+ * pedirle a Ventra los de todos ellos de una vez. Devuelve `null` si el folio no tiene esa
+ * forma —los hay viejos y los hay escritos a mano—, y quien llama entonces pregunta por
+ * fechas como siempre: quedarse sin cotejar por un folio raro sería mucho peor.
+ */
+export function prefijoDeFolio(folio: string): string | null {
+  const partes = (folio || '').trim().toUpperCase().split('-');
+
+  // P - nomenclador - fecha - número. Menos de cuatro trozos no es un folio nuestro.
+  if (partes.length < 4 || partes[0] !== 'P') return null;
+  if (!/^\d{6}$/.test(partes[2])) return null;
+
+  return partes.slice(0, 3).join('-');
+}

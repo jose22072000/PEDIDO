@@ -175,6 +175,55 @@ export interface LineaVentaVentra {
 }
 
 /**
+ * Lo facturado de UNOS FOLIOS concretos, sin mirar fechas.
+ *
+ * # Por qué existe
+ *
+ * El carril rápido corre cada treinta segundos para enterarse de que una factura acaba de
+ * salir. Hasta ahora, para encontrar los tres pedidos que cambiaron se descargaba **el día
+ * entero** de esa sucursal: miles de líneas, casi todas ventas de mostrador que no tienen
+ * pedido detrás y que se van a tirar. Por la VPN, cada media hora de reloj.
+ *
+ * Ventra añadió `?notaContiene=` (07/09/2026), que filtra por el texto de la nota — y la
+ * nota es justo donde va nuestro folio. Así que ahora se le pide sólo lo que se busca.
+ *
+ * # Por qué por PREFIJO y no folio a folio
+ *
+ * Un folio es `P-PDG26-260907-2988`: nomenclador de la sucursal, fecha, número. Los
+ * pedidos de una sucursal y un día comparten los catorce primeros caracteres, así que
+ * **una sola** consulta por prefijo trae los de todos ellos. Pidiendo folio a folio serían
+ * doscientas vueltas por la VPN para el mismo dato.
+ *
+ * # El tope sigue cortando en silencio
+ *
+ * Comprobado el 07/09: `notaContiene=P-` con `limit=10000` devuelve 10.000 exactas y se
+ * come todo lo anterior al 18/08 sin decirlo. El filtro por nota **no** quita el problema,
+ * sólo lo hace mucho más difícil de alcanzar. Por eso el aviso de truncado se queda.
+ */
+export async function ventasPorPrefijoDeFolio(
+  database: string,
+  prefijos: string[],
+  tope = 5000,
+): Promise<LineaVentaVentra[]> {
+  const vistas = new Map<string, LineaVentaVentra>();
+
+  for (const pref of prefijos) {
+    const filas = await leerVentas(
+      `/axis/sales?database=${encodeURIComponent(database)}` +
+        `&notaContiene=${encodeURIComponent(pref)}&limit=${tope}`,
+      `${database} nota~${pref}`,
+      tope,
+    );
+
+    // Dos prefijos pueden solaparse (uno más corto que otro). La identidad de una línea es
+    // su `id`, así que el mapa las une sin duplicar.
+    for (const l of filas) vistas.set(l.id, l);
+  }
+
+  return [...vistas.values()];
+}
+
+/**
  * Lo facturado en UNA sucursal, entre dos fechas.
  *
  * `database` es obligatorio: sin él Ventra devuelve el consolidado de todas y no hay
@@ -187,9 +236,26 @@ export async function ventasDeSucursal(
   hasta: string,
   tope = 5000,
 ): Promise<LineaVentaVentra[]> {
-  const d = await leer<unknown>(
+  return leerVentas(
     `/axis/sales?database=${encodeURIComponent(database)}&from=${desde}&to=${hasta}&limit=${tope}`,
+    `${database} ${desde}..${hasta}`,
+    tope,
   );
+}
+
+/**
+ * Pedir una consulta de ventas y devolverla ya mapeada, con el aviso de truncado puesto.
+ *
+ * Está aparte porque hay dos formas de preguntar —por fechas y por nota— y las dos tienen
+ * que avisar igual cuando Ventra corta. Teniéndolo duplicado, el día que se añadió el
+ * filtro por nota se habría añadido sin la comprobación, que es justo el fallo que no se
+ * ve: responde 200, con datos que parecen bien, y faltan facturas.
+ *
+ * `etiqueta` es sólo para el aviso: describe qué se pidió, para que el registro diga cuál
+ * de las dos consultas se quedó corta.
+ */
+async function leerVentas(ruta: string, etiqueta: string, tope: number): Promise<LineaVentaVentra[]> {
+  const d = await leer<unknown>(ruta);
   const cuerpo = d as Record<string, unknown>;
   const filas = (Array.isArray(d)
     ? d
@@ -208,8 +274,8 @@ export async function ventasDeSucursal(
    */
   if (filas.length >= tope) {
     console.warn(
-      `[ventra] TRUNCADO: ${database} ${desde}..${hasta} devolvió ${filas.length} líneas, ` +
-        'que es el tope. FALTAN facturas. Hay que pedir el rango en tramos más cortos.',
+      `[ventra] TRUNCADO: ${etiqueta} devolvió ${filas.length} líneas, que es el tope. ` +
+        'FALTAN facturas. Hay que pedir el rango en tramos más cortos.',
     );
   }
 

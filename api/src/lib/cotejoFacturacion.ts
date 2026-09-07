@@ -49,7 +49,7 @@
  * trabaja sin conexión. El cotejo tiene que ocurrir del lado que siempre está en línea.
  */
 import prisma from '../prismaClient';
-import { databases, ventasDeSucursal, type LineaVentaVentra } from './ventra';
+import { databases, ventasDeSucursal, ventasPorPrefijoDeFolio, type LineaVentaVentra } from './ventra';
 import {
   cotejar,
   unidadesPorFormato,
@@ -57,7 +57,7 @@ import {
   type LineaFactura,
   type LineaPedido,
 } from './cotejarFactura';
-import { facturasPorFolio } from './emparejarFactura';
+import { facturasPorFolio, prefijoDeFolio } from './emparejarFactura';
 import { catalogoDeSucursal, type CatalogoSucursal } from './catalogoSucursal';
 import { emitEvent } from './events';
 import { avisarPedidoCambiado } from './webhook';
@@ -158,22 +158,46 @@ export async function cotejarUnaVez(
        * Se cuentan los que TODAVÍA no tienen factura. En cuanto a uno le sale, la pasada
        * completa —la de cada diez minutos— se ocupa de lo demás.
        */
+      let ventas: LineaVentaVentra[];
+
       if (rapido) {
-        const esperando = await prisma.pedido.count({
+        const esperando = await prisma.pedido.findMany({
           where: {
             sucursalId: suc.id,
             fecha: { gte: desde },
             OR: [{ facturaEstado: null }, { facturaEstado: 'sin_factura' }],
           },
+          select: { folio: true },
         });
 
-        if (esperando === 0) {
+        if (esperando.length === 0) {
           salida.push(r);
           continue;
         }
-      }
 
-      const ventas = await ventasDeSucursal(base.database, soloFecha(desde), soloFecha(hasta));
+        /**
+         * Y SE LE PIDE A VENTRA SÓLO ESOS FOLIOS, no el día entero.
+         *
+         * Antes esta línea se descargaba toda la facturación del día de la sucursal —miles
+         * de líneas, la mayoría ventas de mostrador sin pedido detrás— para encontrar los
+         * tres pedidos que estaban esperando. Cada treinta segundos, por la VPN.
+         *
+         * Desde el 07/09/2026 Ventra acepta `?notaContiene=`, y la nota es donde va el
+         * folio. Se pide por PREFIJO —`P-PDG26-260907`, o sea sucursal y día— porque todos
+         * los pedidos de ese día lo comparten: una consulta trae los de todos, en vez de
+         * una por folio.
+         *
+         * Si la sucursal no tiene todavía ningún folio con forma reconocible, se cae al
+         * camino de siempre. Preferible una consulta gorda que ninguna.
+         */
+        const prefijos = [...new Set(esperando.map((p) => prefijoDeFolio(p.folio)).filter(Boolean))] as string[];
+
+        ventas = prefijos.length
+          ? await ventasPorPrefijoDeFolio(base.database, prefijos)
+          : await ventasDeSucursal(base.database, soloFecha(desde), soloFecha(hasta));
+      } else {
+        ventas = await ventasDeSucursal(base.database, soloFecha(desde), soloFecha(hasta));
+      }
 
       r.lineas = ventas.length;
 

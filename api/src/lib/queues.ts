@@ -47,6 +47,20 @@ export function parrandaQueue(): Queue.Queue | null {
 }
 
 /**
+ * Cola del REPASO de facturación, el que corre después de cerrar.
+ *
+ * Es una cola y no un `setInterval` por dos razones. La primera es que Bull guarda el
+ * repetible en Redis, así que la hora la conoce el clúster y no el proceso: si el worker
+ * se reinicia a las 18:29 no se pierde el repaso de ese día. La segunda es que el
+ * repetible está **deduplicado por Redis**, de modo que el día que haya dos réplicas del
+ * worker no se repasará el mes dos veces a la vez.
+ */
+export const QUEUE_REPASO_FACTURAS = `${PREFIX}:repaso-facturas`;
+export function repasoFacturasQueue(): Queue.Queue | null {
+  return makeQueue(QUEUE_REPASO_FACTURAS);
+}
+
+/**
  * Cola de webhooks salientes. null si Redis está deshabilitado.
  *
  * Existe por una razón concreta: la importación de un CSV crea cientos de pedidos de

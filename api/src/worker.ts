@@ -5,13 +5,13 @@
 // él no hay colas que consumir (la API entonces importa inline y este worker sobra).
 import 'dotenv/config';
 import { redisEnabled, publishJSON, anotarLatencia, CH_IMPORT_DONE, CH_IMPORT_FAILED } from './lib/redis';
-import { importQueue, parrandaQueue, webhooksQueue, QUEUE_IMPORT, QUEUE_PARRANDA, QUEUE_WEBHOOKS } from './lib/queues';
+import { importQueue, parrandaQueue, webhooksQueue, repasoFacturasQueue, QUEUE_IMPORT, QUEUE_PARRANDA, QUEUE_WEBHOOKS } from './lib/queues';
 import { entregarWebhook } from './lib/webhook';
 import { emitEvent } from './lib/events';
 import { processBulkImport } from './routes/orders';
 import { processParrandaSync } from './lib/parranda';
 import { arrancarSondeoVentra } from './lib/sondeoVentra';
-import { arrancarCotejoFacturacion } from './lib/cotejoFacturacion';
+import { arrancarCotejoFacturacion, cotejarUnaVez } from './lib/cotejoFacturacion';
 import { arrancarTelefonos } from './lib/telefonoCliente';
 import { arrancarTasaCambio } from './lib/tasaCambio';
 
@@ -114,6 +114,82 @@ async function main() {
   arrancarTelefonos();
 
   arrancarWebhooks();
+
+  // Y el repaso del mes, después de cerrar. Ver `programarRepasoFacturas`.
+  const rq = repasoFacturasQueue();
+
+  if (rq) {
+    rq.process(1, procesarRepaso);
+    await programarRepasoFacturas(rq);
+  } else {
+    console.log('[worker] sin Redis: no hay repaso de facturación programado');
+  }
+}
+
+/**
+ * Repasar TODO lo que lleva el mes y arreglar lo que quedara mal.
+ *
+ * # Por qué hace falta, si ya hay dos carriles
+ *
+ * El rápido y la pasada de diez minutos sólo miran los últimos días. Un pedido cuya
+ * factura entró tarde —o que se facturó con el folio mal escrito y se corrigió después—
+ * se queda fuera de esa ventana para siempre, marcado «sin factura», y nadie vuelve a
+ * mirarlo. Este repaso vuelve a pasar por el mes entero: lo que estuviera mal, se arregla.
+ *
+ * # Por qué DESPUÉS de las seis
+ *
+ * Porque durante el día la facturación está a medias. Un pedido tomado a las once que
+ * todavía no se ha facturado no está mal: está **en proceso**. Concluir a mediodía que
+ * «no apareció» sería mentir la mitad de las veces. A las seis las sucursales cierran, y
+ * lo que a esa hora no tiene factura es que de verdad no la tiene.
+ */
+async function procesarRepaso() {
+  const hasta = new Date();
+  const desde = new Date(hasta.getFullYear(), hasta.getMonth(), 1);
+
+  console.log(`[repaso] mes desde ${desde.toISOString().slice(0, 10)}`);
+
+  const rs = await cotejarUnaVez({ desde });
+  const ok = rs.filter((r) => !r.error);
+  const suma = (f: (r: (typeof ok)[number]) => number) => ok.reduce((a, r) => a + f(r), 0);
+  const mal = rs.filter((r) => r.error);
+
+  console.log(
+    `[repaso] ${suma((r) => r.cotejados)} pedidos del mes · ` +
+      `${suma((r) => r.igual)} igual, ${suma((r) => r.cambiado)} cambiados, ` +
+      `${suma((r) => r.sinFactura)} sin factura · ${suma((r) => r.corregidos)} corregidos` +
+      (mal.length ? ` · fallaron ${mal.map((r) => r.sucursal).join(', ')}` : ''),
+  );
+}
+
+/**
+ * Programa el repaso para todos los días después de cerrar.
+ *
+ * A las 18:30 y no a las 18:00 a propósito: a las seis en punto ya corre el sync de
+ * clientes de Parranda, y las dos cosas juntas son diez consultas por la VPN peleándose.
+ * Media hora después, el sync ya terminó y las sucursales llevan un rato cerradas.
+ *
+ * La hora es de Cuba. Con el servidor en UTC, «las seis» serían las dos de la tarde, con
+ * las sucursales facturando todavía — que es justo lo que este repaso no puede hacer.
+ *
+ * Se limpian los repetibles antes de programar: Bull los guarda con una clave que incluye
+ * el cron, así que cambiar la hora sin limpiar deja los DOS y se repasaría dos veces.
+ */
+async function programarRepasoFacturas(rq: NonNullable<ReturnType<typeof repasoFacturasQueue>>) {
+  const cron = process.env.REPASO_FACTURAS_CRON || '30 18 * * *';
+  const tz = process.env.REPASO_FACTURAS_TZ || 'America/Havana';
+
+  try {
+    for (const r of await rq.getRepeatableJobs()) {
+      await rq.removeRepeatableByKey(r.key);
+    }
+
+    await rq.add({}, { repeat: { cron, tz }, removeOnComplete: 20, removeOnFail: 50 });
+    console.log(`[worker] repaso de facturación programado (${cron}, ${tz})`);
+  } catch (e) {
+    // Que no se programe no puede tumbar al worker: los otros dos carriles siguen.
+    console.error('[worker] no se pudo programar el repaso:', (e as Error).message);
+  }
 }
 
 /**
