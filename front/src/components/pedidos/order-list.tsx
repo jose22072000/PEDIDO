@@ -1562,18 +1562,6 @@ export const OrdersList = () => {
             />
           </div>
 
-          <Switch
-            isSelected={incluirArchivados}
-            size="sm"
-            onValueChange={(v) => {
-              setIncluirArchivados(v);
-              setPage(1);
-            }}
-          >
-            <span className="text-sm text-default-600">
-              Incluir archivados en la búsqueda
-            </span>
-          </Switch>
           <div className="flex flex-col gap-4 sm:flex-row">
             <Input
               isClearable
@@ -1598,6 +1586,22 @@ export const OrdersList = () => {
               onClear={() => setFechaHasta("")}
             />
           </div>
+
+          {/* Al final, debajo de las fechas: esto no es un filtro más —no acota lo que se
+              busca, sino DÓNDE se busca—, y puesto entre la rejilla y las fechas partía el
+              bloque por la mitad. */}
+          <Switch
+            isSelected={incluirArchivados}
+            size="sm"
+            onValueChange={(v) => {
+              setIncluirArchivados(v);
+              setPage(1);
+            }}
+          >
+            <span className="text-sm text-default-600">
+              Incluir archivados en la búsqueda
+            </span>
+          </Switch>
         </CardBody>
       </Card>
 

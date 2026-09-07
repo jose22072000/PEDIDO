@@ -22,7 +22,9 @@ export default function SincronizacionClientesPage() {
   return (
     <section className="w-full max-w-7xl mx-auto px-4 py-8">
       <NavigationHeading
-        cta={{ href: "/panel", label: "Volver al panel" }}
+        // A Configuración, que es de donde se entra. Al panel es un salto de más:
+        // hay que volver a bajar hasta el bloque de sincronizadores para seguir.
+        cta={{ href: "/panel/configuracion", label: "Volver a Configuración" }}
         icon="client"
         paragraph="Los clientes que vienen de Parranda: cuántos hay por sucursal, cuándo se sincronizó por última vez y cómo fue. Se sincroniza solo a las 6 de la tarde."
         title="Sincronización · Clientes"

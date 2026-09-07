@@ -428,36 +428,53 @@ export const ConfiguracionForm = () => {
         </CardBody>
       </Card>
 
-      {/* Los clientes de Parranda: la ENTRADA se queda aquí, el panel vive en su propia
-          ventana.
+      {/* LOS DOS SINCRONIZADORES, JUNTOS Y COMO ENLACES.
 
-          Estaba entero metido en esta página —resumen por sucursal, historial de las
-          sincronizaciones, tabla paginada con filtros y el botón de sincronizar— entre
-          los parámetros del sistema y el botón de borrar la base. Son quinientas líneas
-          de pantalla de COMPROBAR dentro de una pantalla de AJUSTAR, y para mirar si la
-          sincronización de anoche fue bien había que entrar donde también está la zona
-          de peligro.
+          El de clientes estaba entero metido en esta página —quinientas líneas de
+          resumen, historial y tabla paginada— entre los parámetros del sistema y el
+          botón de borrar la base. Y el de facturación no tenía entrada por ningún lado:
+          se añadió a `panel-links.tsx`, que resultó ser código muerto —nadie lo
+          importa; el panel escribe sus tarjetas a mano en `panel.tsx`— así que el enlace
+          no se veía en ninguna parte.
 
-          Ahora es un enlace: quien viene a Configuración lo sigue encontrando donde
-          siempre, y lo que se abre es una vista con su sitio y su ruta. */}
+          Van los dos aquí, en un bloque, porque son lo mismo: pantallas de COMPROBAR que
+          algo corre solo. Y como enlaces, no incrustados: cada una tiene su ruta. */}
       <Card className={cards()}>
         <CardBody>
-          <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-            <div className="flex-1">
-              <h3 className="text-lg font-semibold">Clientes de Parranda</h3>
-              <p className="text-sm text-default-500">
-                Cuántos clientes hay por sucursal, cuándo se sincronizó por última vez y
-                cómo fue. Se sincroniza solo todos los días a las 6 de la tarde.
-              </p>
-            </div>
-            <Button
-              as={Link}
-              color="primary"
-              href="/panel/sincronizacion/clientes"
-              variant="flat"
-            >
-              Abrir sincronización
-            </Button>
+          <div className="flex flex-col gap-1 mb-4">
+            <h3 className="text-lg font-semibold">Sincronizadores</h3>
+            <p className="text-sm text-default-500">
+              Comprobar que lo que corre solo está corriendo.
+            </p>
+          </div>
+          <div className="flex flex-col gap-3">
+            {[
+              {
+                titulo: "Facturación",
+                texto:
+                  "Qué pedidos tienen factura en Ventra y cuáles no, por sucursal y día. Y qué falló en la última comprobación.",
+                href: "/panel/sincronizacion/facturacion",
+              },
+              {
+                titulo: "Clientes de Parranda",
+                texto:
+                  "Cuántos clientes hay por sucursal, cuándo se sincronizó por última vez y cómo fue. Se sincroniza solo todos los días a las 6 de la tarde.",
+                href: "/panel/sincronizacion/clientes",
+              },
+            ].map((s) => (
+              <div
+                key={s.href}
+                className="flex flex-col gap-3 rounded-medium border-medium border-default-200 p-4 sm:flex-row sm:items-center"
+              >
+                <div className="flex-1">
+                  <p className="font-medium">{s.titulo}</p>
+                  <p className="text-sm text-default-500">{s.texto}</p>
+                </div>
+                <Button as={Link} color="primary" href={s.href} variant="flat">
+                  Abrir
+                </Button>
+              </div>
+            ))}
           </div>
         </CardBody>
       </Card>

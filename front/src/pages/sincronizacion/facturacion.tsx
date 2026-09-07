@@ -18,6 +18,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { NavigationHeading } from "@/components/navigation-heading";
 import { getApiBaseUrl } from "@/config";
+import { useAuthStore } from "@/stores/authStore";
 
 /**
  * El sincronizador de FACTURACIÓN: qué se cotejó contra Ventra y qué no cuadró.
@@ -119,6 +120,8 @@ const fechaCorta = (iso: string) =>
   new Date(iso).toLocaleDateString("es-ES", { day: "2-digit", month: "short" });
 
 export default function SincronizacionFacturacionPage() {
+  const { user } = useAuthStore();
+  const esSuperAdmin = String(user?.role || "").toLowerCase() === "super admin";
   const [desde, setDesde] = useState(haceDias(7));
   const [hasta, setHasta] = useState(hoy());
   const [datos, setDatos] = useState<Resumen | null>(null);
@@ -176,7 +179,19 @@ export default function SincronizacionFacturacionPage() {
   return (
     <section className="w-full max-w-7xl mx-auto px-4 py-8">
       <NavigationHeading
-        cta={{ href: "/panel", label: "Volver al panel" }}
+        /**
+         * A Configuración si se puede entrar, y si no al panel.
+         *
+         * De aquí se entra por el bloque de sincronizadores de Configuración, así que
+         * devolver al panel obliga a volver a bajar hasta él. Pero esta pantalla también
+         * la abren el Supervisor y el Gestor, y Configuración es sólo del Super Admin:
+         * mandarlos ahí sería sacarlos a una pantalla que no pueden ver.
+         */
+        cta={
+          esSuperAdmin
+            ? { href: "/panel/configuracion", label: "Volver a Configuración" }
+            : { href: "/panel", label: "Volver al panel" }
+        }
         icon="reports"
         paragraph="Qué pedidos tienen factura en Ventra y cuáles no. Un pedido sin factura pasadas las 6:30 de la tarde no va a entrar en ninguna ruta."
         title="Sincronización · Facturación"
