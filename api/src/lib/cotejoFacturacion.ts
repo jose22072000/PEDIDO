@@ -57,7 +57,7 @@ import {
   type LineaFactura,
   type LineaPedido,
 } from './cotejarFactura';
-import { facturasPorFolio, facturasHuerfanasSinSufijo, prefijoDeFolio } from './emparejarFactura';
+import { facturasPorFolio, prefijoDeFolio } from './emparejarFactura';
 import { catalogoDeSucursal, type CatalogoSucursal } from './catalogoSucursal';
 import { emitEvent } from './events';
 import { avisarPedidoCambiado } from './webhook';
@@ -261,19 +261,6 @@ export async function cotejarUnaVez(
       const porFolio = facturasPorFolio(ventas);
 
       /**
-       * Y un respaldo para las facturas que Ventra numeró dentro del pedido.
-       *
-       * La nota `P-PDG26-260906-2992-2` es la segunda factura del pedido
-       * `PDG26-260906-2992`, que en nuestra base no lleva ese `-2`. Sin este respaldo, el
-       * folio no cuadraba con nadie y el pedido se quedaba en «sin factura» para siempre.
-       *
-       * Sólo entran las huérfanas —las que no son de ningún pedido por su folio exacto—
-       * para no repetir lo de julio, cuando una factura acabó pegada a dos pedidos.
-       */
-      const nuestrosFolios = new Set(pedidos.map((p) => p.folio.toUpperCase()));
-      const huerfanas = facturasHuerfanasSinSufijo(porFolio, nuestrosFolios);
-
-      /**
        * El catálogo de la sucursal, UNA vez para todos sus pedidos.
        *
        * De aquí sale el peso de cada línea facturada. Pedirlo por pedido serían
@@ -289,9 +276,7 @@ export async function cotejarUnaVez(
       }
 
       for (const p of pedidos) {
-        const clave = p.folio.toUpperCase();
-        // Primero el folio exacto; sólo si no hay, el respaldo sin sufijo.
-        const suyas = porFolio.get(clave) ?? huerfanas.get(clave);
+        const suyas = porFolio.get(p.folio.toUpperCase());
         const cambios = await cotejarUnPedido(p, suyas ? ventas.filter((v) => suyas.has(v.operNumber)) : [], catalogo);
 
         if (cambios.estado === 'igual') r.igual++;

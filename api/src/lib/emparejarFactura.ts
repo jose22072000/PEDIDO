@@ -42,8 +42,9 @@ export interface FacturaAtada {
  * son 167 de 256 líneas las que sí lo traen.
  *
  * El sufijo `-1` que añade la importación cuando dos clientes comparten folio se conserva:
- * forma parte del folio tal como está guardado. Pero OJO, porque Ventra añade uno con la
- * misma forma que significa otra cosa — ver `folioSinSufijo`.
+ * forma parte del folio tal como está guardado: `PAA26-260907-1828` y
+ * `PAA26-260907-1828-1` son DOS pedidos, de dos clientes distintos, y cada uno tiene su
+ * factura. El sufijo NUNCA se quita al cruzar.
  */
 const CUERPO = String.raw`[A-Z]{2,5}\d{2}-\d{6}-\d{1,6}(?:-\d{1,2})?`;
 const CON_ETIQUETA = new RegExp(String.raw`\bP-(${CUERPO})\b`, 'i');
@@ -113,70 +114,4 @@ export function prefijoDeFolio(folio: string): string | null {
   if (!/^\d{6}$/.test(partes[2])) return null;
 
   return partes.slice(0, 3).join('-');
-}
-
-
-/**
- * Quitarle al folio el sufijo de línea: `PDG26-260906-2992-2` → `PDG26-260906-2992`.
- *
- * # El sufijo significa DOS cosas distintas y tienen la misma forma
- *
- * Nuestra importación añade `-1`, `-2`… cuando dos clientes comparten folio en el CSV, y
- * ese sufijo **es parte del folio**: hay 2.560 pedidos así desde agosto.
- *
- * Ventra escribe otro sufijo, con la misma pinta, que es el número de documento dentro del
- * pedido: la nota `P-PDG26-260906-2992-2` es la segunda factura del pedido
- * `PDG26-260906-2992`, que en nuestra base NO lleva sufijo.
- *
- * Como se leían igual, el cotejo buscaba `PDG26-260906-2992-2` entre nuestros folios, no
- * lo encontraba, y dejaba el pedido en «sin factura» **para siempre**. Comprobado el
- * 07/09/2026 con los pedidos del día 6: tres de los cinco que tenían factura de verdad
- * estaban marcados sin ella, y los tres eran exactamente éstos.
- */
-export function folioSinSufijo(folio: string): string {
-  const limpio = String(folio || '').trim().toUpperCase();
-  const m = /^([A-Z]{2,5}\d{2}-\d{6}-\d{1,6})-\d{1,2}$/.exec(limpio);
-
-  return m ? m[1] : limpio;
-}
-
-/**
- * Un mapa de RESPALDO para cuando el folio de la nota no es de ningún pedido nuestro.
- *
- * # Por qué de respaldo y no a secas
- *
- * Quitarle el sufijo a todos los folios y cruzar por ahí sería volver al error de julio:
- * la factura del pedido `X-1337-1` acabaría también pegada al pedido `X-1337`, que es otro
- * pedido de otro cliente. Cuarenta de doscientas siete facturas acabaron así.
- *
- * Por eso aquí sólo entran las facturas **huérfanas**: aquellas cuyo folio exacto no es de
- * ningún pedido de los que se están cotejando. Si el folio exacto sí es de alguien, esa
- * factura ya tiene dueño y no se toca. Quien busca, mira primero el mapa exacto y sólo
- * después éste.
- *
- * Queda una ambigüedad que esto NO resuelve, y es la de antes: si existe nuestro pedido
- * `X-1337-1` y Ventra escribe `P-X-1337-1` queriendo decir «primera factura de X-1337», se
- * la lleva `X-1337-1`. No hay forma de distinguirlas mirando el texto — habría que
- * cambiar el sufijo de la importación por uno que no se confunda.
- */
-export function facturasHuerfanasSinSufijo(
-  porFolio: Map<string, Set<string>>,
-  nuestrosFolios: Set<string>,
-): Map<string, Set<string>> {
-  const salida = new Map<string, Set<string>>();
-
-  for (const [folio, facturas] of porFolio) {
-    if (nuestrosFolios.has(folio)) continue;
-
-    const base = folioSinSufijo(folio);
-
-    if (base === folio) continue;
-
-    const suyas = salida.get(base) ?? new Set<string>();
-
-    for (const f of facturas) suyas.add(f);
-    salida.set(base, suyas);
-  }
-
-  return salida;
 }
