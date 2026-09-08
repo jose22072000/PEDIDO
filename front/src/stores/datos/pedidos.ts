@@ -75,6 +75,15 @@ export interface Order {
    * Lo escribe delivery, que es quien le pregunta a Ventra. Vacío = sin comprobar.
    */
   facturaEstado?: string | null;
+  /**
+   * Quién marcó el pedido como completado, y cuándo.
+   *
+   * Completar es decir «esto ya se facturó». Cuando aparece uno completado y sin factura,
+   * esto es a quién hay que preguntarle. El nombre viene copiado del momento en que se
+   * completó: si esa persona se borra después, el nombre sigue estando.
+   */
+  completadoPor?: string | null;
+  completedAt?: string | null;
   facturaNumero?: string | null;
   /** Cuándo se reescribió el pedido con lo que decía la factura. Null = vino bien. */
   facturaCorregidoAt?: string | null;

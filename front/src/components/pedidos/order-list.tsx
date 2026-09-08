@@ -2188,6 +2188,20 @@ export const OrdersList = () => {
                         {estadoLabels[selectedOrder?.estado || "en_proceso"]}
                       </Chip>
 
+                      {/* QUIÉN lo completó.
+                          Completar es decir «esto ya se facturó», así que cuando aparece
+                          uno completado y sin factura, esto es a quién preguntarle. Antes
+                          sólo se guardaba el cuándo.
+                          En los pedidos completados antes de que esto existiera sale «no
+                          se guardó», que no es lo mismo que «nadie». */}
+                      {selectedOrder?.estado === "completada" && (
+                        <Chip color="default" size="sm" variant="flat">
+                          {selectedOrder.completadoPor
+                            ? `Completó ${selectedOrder.completadoPor}`
+                            : "Completó: no se guardó"}
+                        </Chip>
+                      )}
+
                       {selectedOrder?.pedido_cobrado != null && (
                         <Chip
                           color={

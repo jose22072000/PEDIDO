@@ -664,9 +664,22 @@ router.patch('/:id/completar', async (req, res) => {
 
     // Al completar se marca la fecha de completado; NO se archiva de inmediato. El
     // archivado (soft-delete) ocurre una semana DESPUÉS, en el job de archivado.
+    //
+    // Y QUIÉN lo completó, que antes no se guardaba. Completar es decir «esto ya se
+    // facturó»; cuando aparece un pedido completado sin factura hay que poder preguntarle
+    // a alguien, y sólo estaba el cuándo.
+    //
+    // El nombre se copia, no se referencia: los usuarios se borran, y con una relación el
+    // nombre se perdería justo en los pedidos viejos, que son los que se revisan.
+    const quien = getRequesterContext(req);
     const order = await prisma.pedido.update({
       where: { id },
-      data: { estado: 'completada', completedAt: new Date() },
+      data: {
+        estado: 'completada',
+        completedAt: new Date(),
+        completadoPorId: quien.userId ?? null,
+        completadoPor: quien.username ?? null,
+      },
       include: { items: true, cliente: true, vendedor: true, sucursal: { select: { codigo: true } } },
     });
 

@@ -88,6 +88,7 @@ interface PedidoFila {
   vendedor: string | null;
   cliente: string | null;
   facturaNumero: string | null;
+  completadoPor: string | null;
   factura: EstadoFactura;
 }
 
@@ -469,6 +470,9 @@ export default function SincronizacionFacturacionPage() {
                   <TableColumn>Sucursal</TableColumn>
                   <TableColumn>Vendedor</TableColumn>
                   <TableColumn>Cliente</TableColumn>
+                  {/* A quién preguntarle: quien lo dio por completado dijo que estaba
+                      facturado, así que si no hay factura, empieza por él. */}
+                  <TableColumn>Completó</TableColumn>
                   <TableColumn> </TableColumn>
                 </TableHeader>
                 <TableBody
@@ -490,6 +494,16 @@ export default function SincronizacionFacturacionPage() {
                       <TableCell className="text-sm">{p.sucursal}</TableCell>
                       <TableCell className="text-sm">{p.vendedor ?? "—"}</TableCell>
                       <TableCell className="text-sm">{p.cliente ?? "—"}</TableCell>
+                      <TableCell className="text-sm">
+                        {p.completadoPor ?? (
+                          // Distinto de «nadie»: los pedidos completados antes de que esto
+                          // se guardara no tienen a quién señalar, y decir «—» a secas
+                          // haría pensar que no se completó.
+                          <span className="text-default-400" title="Se completó antes de que se guardara quién">
+                            no se guardó
+                          </span>
+                        )}
+                      </TableCell>
                       <TableCell>
                         <Button size="sm" variant="flat" onPress={() => void copiar(p.folio)}>
                           Copiar

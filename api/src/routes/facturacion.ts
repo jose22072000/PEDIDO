@@ -202,6 +202,9 @@ router.get('/pedidos', async (req, res) => {
       estado: true,
       facturaEstado: true,
       facturaNumero: true,
+      // Quién dijo «esto ya se facturó». Es a quien hay que preguntarle cuando el pedido
+      // sale completado y sin factura, que es justo lo que esta pantalla persigue.
+      completadoPor: true,
       sucursal: { select: { nombre: true } },
       vendedor: { select: { nombre: true } },
       cliente: { select: { nombre: true } },
@@ -227,6 +230,7 @@ router.get('/pedidos', async (req, res) => {
       sucursal: p.sucursal?.nombre ?? 'sin sucursal',
       vendedor: p.vendedor?.nombre ?? null,
       cliente: p.cliente?.nombre ?? null,
+      completadoPor: p.completadoPor ?? null,
       factura: estadoDeFactura(p.facturaEstado, p.fecha, ahora, p.estado),
     }))
     .filter((p) => (pedidos.length ? pedidos.includes(p.factura) : true));

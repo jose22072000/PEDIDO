@@ -237,6 +237,19 @@ model Pedido {
     // se conservan para reportes. null = activo (en proceso).
     archivedAt         DateTime?
     completedAt        DateTime?    // cuándo se completó (para archivar unos días después)
+    /**
+     * QUIÉN lo completó. Se guardan el id y el NOMBRE, y el nombre a propósito.
+     *
+     * Completar es decir «esto ya se facturó», y cuando aparece un pedido completado sin
+     * factura hay que poder preguntarle a alguien. Sólo estaba el cuándo.
+     *
+     * El nombre va copiado y no por relación: los usuarios se borran —hoy mismo se
+     * arregló para que se pueda—, y con una relación el nombre desaparecería justo de los
+     * pedidos viejos, que son los que se van a revisar. Un id huérfano no le dice nada a
+     * nadie. Mismo motivo por el que `itemsOriginal` guarda una copia y no un puntero.
+     */
+    completadoPorId    String?
+    completadoPor      String?
     items              PedidoItem[]
     copias             CopiaPortapapeles[]
 
