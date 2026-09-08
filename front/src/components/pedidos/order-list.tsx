@@ -2136,6 +2136,29 @@ export const OrdersList = () => {
                           {comoSeLeeElInstante(selectedOrder?.createdAt) ?? "—"}
                         </p>
                       </div>
+                      {/* COMPLETADO: quién y cuándo, juntos.
+                          Estuvo un rato como un chip entre los estados y ahí no pega:
+                          «Completado» ya es el estado, y al lado un segundo chip diciendo
+                          quién lo hizo se lee como si fuera otro estado más. Es un dato de
+                          registro —igual que «subido al sistema»— y va con las fechas.
+                          Sólo aparece si el pedido está completado. */}
+                      {selectedOrder?.estado === "completada" && (
+                        <div>
+                          <p className="mb-1 text-xs text-default-500">Completado por</p>
+                          <p className="text-sm font-medium">
+                            {selectedOrder.completadoPor ?? (
+                              <span className="text-default-400">
+                                sin registrar
+                              </span>
+                            )}
+                          </p>
+                          {selectedOrder.completedAt && (
+                            <p className="text-xs text-default-400">
+                              {comoSeLeeElInstante(selectedOrder.completedAt)}
+                            </p>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -2187,20 +2210,6 @@ export const OrdersList = () => {
                       >
                         {estadoLabels[selectedOrder?.estado || "en_proceso"]}
                       </Chip>
-
-                      {/* QUIÉN lo completó.
-                          Completar es decir «esto ya se facturó», así que cuando aparece
-                          uno completado y sin factura, esto es a quién preguntarle. Antes
-                          sólo se guardaba el cuándo.
-                          En los pedidos completados antes de que esto existiera sale «no
-                          se guardó», que no es lo mismo que «nadie». */}
-                      {selectedOrder?.estado === "completada" && (
-                        <Chip color="default" size="sm" variant="flat">
-                          {selectedOrder.completadoPor
-                            ? `Completó ${selectedOrder.completadoPor}`
-                            : "Completó: no se guardó"}
-                        </Chip>
-                      )}
 
                       {selectedOrder?.pedido_cobrado != null && (
                         <Chip
