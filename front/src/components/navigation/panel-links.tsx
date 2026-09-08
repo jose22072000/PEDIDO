@@ -1,5 +1,6 @@
 import ActionCard from "../action-card";
 import { useAuthStore } from "@/stores/authStore";
+import { esRolGlobal } from "@/lib/rol-global";
 
 // `soloGestion: true` = tarjeta de GESTIÓN (trabajadores, usuarios, sucursales, config):
 // el rol Gestor NO la ve (solo ve lo suyo: pedidos, clientes, ventas, reportes).
@@ -37,7 +38,7 @@ export const PanelLinks = () => {
   const { user } = useAuthStore();
   const rol = String(user?.role || "").toLowerCase();
   const isGestor = rol === "gestor";
-  const isSuperAdmin = rol === "super admin";
+  const isSuperAdmin = esRolGlobal(user?.role);
   const visibles = CARDS.filter(
     (c) => !(isGestor && c.soloGestion) && !(c.soloSuperAdmin && !isSuperAdmin),
   );

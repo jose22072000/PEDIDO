@@ -4,6 +4,7 @@ import { useDashboard } from "@/providers/DashboardProvider";
 import { KPICard } from "@/components/dashboard/KPICard";
 import { LineChartCard } from "@/components/dashboard/LineChartCard";
 import { useAuthStore } from "@/stores/authStore";
+import { esRolGlobal } from "@/lib/rol-global";
 import { useLiveEvents } from "@/hooks/use-live-events";
 
 export default function PanelPage() {
@@ -26,13 +27,10 @@ export default function PanelPage() {
   // Lo que NO puede hacer —dar de alta o de baja, reasignar el gestor, ver el
   // detalle— se lo quita la propia vista, y el servidor rechaza esas rutas para
   // su rol. Entrar a leer y copiar es justo para lo que está.
-  const canVerVendedores = [
-    "administrador",
-    "supervisor",
-    "super admin",
-    "operador",
-  ].includes(role);
-  const canManageUsers = ["administrador", "super admin"].includes(role);
+  const canVerVendedores =
+    esRolGlobal(user?.role) ||
+    ["administrador", "supervisor", "operador"].includes(role);
+  const canManageUsers = esRolGlobal(user?.role) || role === "administrador";
   // La OPERADORA factura: ve todos los pedidos de SU sucursal, sus vendedores y
   // sus clientes, y copia los codigos al sistema contable. Lo que no hace es
   // meter datos ni sacar informes — subir el CSV de Parranda y los reportes no

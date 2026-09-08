@@ -114,6 +114,21 @@ function parseBearerToken(req: Request): TokenPayload | null {
   }
 }
 
+/**
+ * Los roles que mandan en TODA la empresa, no en una sucursal.
+ *
+ * `DESARROLLADOR` está por encima de Super Admin —es quien mantiene la plataforma por
+ * dentro— y en el login único está declarado así: «puede todo lo del Super Admin y además
+ * el módulo de Avisos». Aquí no se conocía, y un rol desconocido no da error: **da cero**.
+ * Quien entraba con él veía la aplicación vacía, con 200 y sin una sola traza, que desde
+ * dentro es indistinguible de «no hay datos todavía».
+ *
+ * Va como lista y no como una comparación suelta para que el día que se añada otro rol de
+ * plataforma se toque UN sitio. Estaba escrito en tres condiciones distintas de este mismo
+ * fichero, y así es como se olvida una.
+ */
+const ROLES_GLOBALES = new Set(['SUPER ADMIN', 'DESARROLLADOR']);
+
 export function getRequesterContext(req: Request): RequesterContext {
   // API key (x-api-key) validada por el middleware apiKeyAuth (solo en GET/HEAD):
   // identidad GLOBAL de lectura → ve TODAS las sucursales (sucursalId=all funciona),
@@ -141,11 +156,9 @@ export function getRequesterContext(req: Request): RequesterContext {
   const role = payload?.role ? String(payload.role).toUpperCase() : undefined;
   const username = payload?.username;
 
-  // "Super Admin" es el ÚNICO rol global: ve todas las sucursales y es el único que
-  // puede crear otros Super Admin. Se conserva el usuario semilla `admin` como Super
-  // Admin para no quedarse sin acceso al desplegar este cambio.
+  // Se conserva el usuario semilla `admin` como global para no quedarse sin acceso.
   const isSuperAdmin =
-    role === 'SUPER ADMIN' || String(username || '').toLowerCase() === 'admin';
+    (!!role && ROLES_GLOBALES.has(role)) || String(username || '').toLowerCase() === 'admin';
 
   // OJO: antes "ver todas las sucursales" y "gestionar usuarios" eran LO MISMO
   // (isGlobalAdmin incluía a ADMINISTRADOR). Ahora se separan: el Administrador queda

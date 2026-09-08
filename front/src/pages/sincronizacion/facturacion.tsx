@@ -22,6 +22,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { NavigationHeading } from "@/components/navigation-heading";
 import { getApiBaseUrl } from "@/config";
 import { useAuthStore } from "@/stores/authStore";
+import { esRolGlobal } from "@/lib/rol-global";
 
 /**
  * El sincronizador de FACTURACIÓN: qué se cotejó contra Ventra y qué no cuadró.
@@ -134,7 +135,7 @@ const haceCuanto = (iso: string) => {
 
 export default function SincronizacionFacturacionPage() {
   const { user } = useAuthStore();
-  const esSuperAdmin = String(user?.role || "").toLowerCase() === "super admin";
+  const esSuperAdmin = esRolGlobal(user?.role);
 
   // Al abrir, HOY. Es lo que se viene a mirar el 99 % de las veces.
   const [dia, setDia] = useState(() => new Date().toISOString().slice(0, 10));
