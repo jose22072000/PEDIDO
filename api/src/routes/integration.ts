@@ -71,6 +71,23 @@ router.get('/orders', async (req, res) => {
    */
   const conCosto = req.query.conCosto === '1' || req.query.conCosto === 'true';
   /**
+   * SÓLO LO QUE PUEDE SUBIR A UN CAMIÓN.
+   *
+   * Es el mismo listón que el armador de rutas de delivery exige y no negocia:
+   * `facturaEstado: 'igual'`. Lo que se reparte es lo facturado y que cuadra — un pedido
+   * que se facturó distinto lleva otra cosa de la que se cobró, y uno sin cotejar no se
+   * sabe qué lleva.
+   *
+   * Se añade porque el espejo de delivery se traía el catálogo entero —54.077 pedidos, de
+   * los que 49.590 archivados— y de ésos sólo 1.277 podían repartirse. Quien abría la
+   * pantalla veía el 100 % para trabajar con el 2 %, y se perdía.
+   *
+   * Va como parámetro y no por defecto: este endpoint lo consumen también las tabletas de
+   * Entrega, que necesitan los pedidos ANTES de facturarse para cotizar el domicilio.
+   * Quien quiera sólo lo repartible lo pide.
+   */
+  const soloRepartibles = req.query.soloRepartibles === '1' || req.query.soloRepartibles === 'true';
+  /**
    * SIEMPRE hay tope, se pida o no.
    *
    * Sin `limit` esto devolvía todo lo que cuadrara con el filtro, y un cliente pidiendo
@@ -132,6 +149,7 @@ router.get('/orders', async (req, res) => {
     // tienen costo. Un pedido sin domicilio NO lleva costo: no se encola ni se cotiza.
     ...(onlyPending ? { requiere_domicilio: true, costoDomicilio: null } : {}),
     ...(soloDomicilio && !onlyPending ? { requiere_domicilio: true } : {}),
+    ...(soloRepartibles ? { facturaEstado: 'igual' } : {}),
     ...(conCosto && !onlyPending ? { costoDomicilio: { not: null } } : {}),
     ...(archivado === '1' || archivado === 'true' ? { archivedAt: { not: null } } : {}),
     ...(archivado === '0' || archivado === 'false' ? { archivedAt: null } : {}),
