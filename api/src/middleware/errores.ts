@@ -1,3 +1,4 @@
+import { statSync } from 'fs';
 import { NextFunction, Request, Response } from 'express';
 
 /**
@@ -87,10 +88,41 @@ export function manejarErrores(
   res.status(500).json({ error: 'Error interno del servidor' });
 }
 
+/**
+ * Que version esta desplegada AHORA MISMO en este contenedor.
+ *
+ * Sale de BUILD_ID si el Dockerfile lo pasa (el commit, idealmente) y, si no, de la
+ * fecha del fichero compilado — que es la hora del build y cambia en cada despliegue.
+ * El respaldo importa: sin el, esto seria `null` hasta que alguien se acuerde de
+ * configurar un argumento de build en Dokploy, y un campo que casi siempre vale null no
+ * lo mira nadie.
+ *
+ * Sirve para responder desde fuera, sin navegador, a la pregunta que mas veces se hace
+ * mal: «¿esto que estoy viendo ya tiene el arreglo?». Antes la unica respuesta era
+ * mirar el panel de Dokploy y creerselo.
+ *
+ * OJO: esta es la version de la API. La del front es otra cosa —otro contenedor, otro
+ * despliegue— y el aviso de «hay una version nueva» del navegador NO se mide con esto,
+ * sino con los ficheros que nombra el index.html que sirve nginx (ver
+ * front/src/lib/version-nueva.ts).
+ */
+const VERSION = process.env.BUILD_ID || fechaDelBuild();
+
+function fechaDelBuild(): string | null {
+  try {
+    return statSync(__filename).mtime.toISOString();
+  } catch {
+    // Empaquetado de una forma que no deja ver el fichero: se queda sin version, que
+    // es peor pero no rompe /salud.
+    return null;
+  }
+}
+
 /** Datos para GET /salud. */
 export function estadoSalud() {
   return {
     ok: true,
+    version: VERSION,
     arrancadoHace: Math.round((Date.now() - arrancado) / 1000),
     errores5xx: total5xx,
     ultimos: recientes,

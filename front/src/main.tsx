@@ -7,8 +7,9 @@ import { Provider } from "./provider.tsx";
 import "@/styles/globals.css";
 import "@/styles/components/typo.css";
 
-// El Service Worker lo registra vite-plugin-pwa con `registerType: "autoUpdate"`
-// (inyecta /registerSW.js). AQUI NO SE REGISTRA NADA, a proposito.
+// El Service Worker lo registra vite-plugin-pwa (inyecta /registerSW.js), hoy con
+// `selfDestroying: true` y `registerType: "prompt"`. AQUI NO SE REGISTRA NADA, a
+// proposito.
 //
 // Antes habia ademas un registro a mano con esto:
 //
@@ -48,6 +49,10 @@ import "@/styles/components/typo.css";
 // su boton. Recargar solo se probo dos veces —04/08/2026 y 08/08/2026— y las dos
 // acabaron en bucle de recargas con la aplicacion inutilizable; un boton que hay que
 // pulsar es peor experiencia y mejor idea.
+// Esto es la red de seguridad, no la solucion: para cuando salta, la pestaña YA se
+// rompio. Lo que evita llegar hasta aqui es el vigilante de @/lib/version-nueva, que
+// compara cada pocos minutos la version que corre esta pestaña con la que sirve nginx
+// y avisa ANTES de que falle nada.
 window.addEventListener("vite:preloadError", () => {
   // eslint-disable-next-line no-console
   console.warn(
