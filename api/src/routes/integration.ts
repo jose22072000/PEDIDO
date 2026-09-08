@@ -47,6 +47,66 @@ router.use(serviceAuth);
  *
  * Se pueden combinar. `since` es el que hace que una sync sea instantánea.
  */
+/**
+ * Las líneas de la FACTURA de un pedido, en la misma forma que las del pedido.
+ *
+ * `lineasFactura` se guarda como texto —lo escribe el cotejo— y trae las líneas ya
+ * enriquecidas: producto, código, cantidad en unidades de venta, unidades y peso.
+ *
+ * # Lo que se descarta
+ *
+ * Las marcadas `falta` NO van. Son productos que se pidieron y **no se facturaron**: están
+ * ahí para pintarlas en la pantalla del pedido, porque que algo desaparezca es justo lo
+ * que la gente abre a mirar. Pero no hay nada que subir al camión, y mandarlas haría que
+ * el repartidor cargara un hueco.
+ *
+ * # Devuelve null, no una lista vacía
+ *
+ * `null` significa «este pedido no tiene factura, usa las del pedido». Una lista vacía
+ * significaría «la factura no llevaba nada», que es otra cosa y no se debe confundir: un
+ * pedido facturado a cero no se reparte, y uno sin cotejar todavía sí, con lo que se pidió.
+ */
+function lineasDeFactura(p: { lineasFactura?: string | null }): Array<{
+  producto: string;
+  codigo: string | null;
+  unidades: number | null;
+  packs: number | null;
+  descripcion: string | null;
+}> | null {
+  if (!p.lineasFactura) return null;
+
+  try {
+    const crudas = JSON.parse(p.lineasFactura) as Array<{
+      producto?: string;
+      codigo?: string | null;
+      cantidad?: number;
+      unidades?: number | null;
+      marca?: string;
+    }>;
+
+    if (!Array.isArray(crudas)) return null;
+
+    const lineas = crudas
+      .filter((l) => l && l.marca !== 'falta' && typeof l.producto === 'string')
+      .map((l) => ({
+        producto: String(l.producto),
+        codigo: l.codigo ?? null,
+        // En la factura, `cantidad` son unidades de VENTA —cajas, blísteres—, que es lo
+        // que el pedido llama `packs`. Llamarlas igual evita que del otro lado alguien
+        // multiplique dos veces.
+        packs: typeof l.cantidad === 'number' ? l.cantidad : null,
+        unidades: typeof l.unidades === 'number' ? l.unidades : null,
+        descripcion: null as string | null,
+      }));
+
+    return lineas.length ? lineas : null;
+  } catch {
+    // Un JSON ilegible no puede dejar el pedido sin líneas: se cae a las del pedido, que
+    // es lo que había antes de que existiera el cotejo.
+    return null;
+  }
+}
+
 router.get('/orders', async (req, res) => {
   const onlyPending = req.query.onlyPending === '1' || req.query.onlyPending === 'true';
   /**
@@ -73,10 +133,13 @@ router.get('/orders', async (req, res) => {
   /**
    * SÓLO LO QUE PUEDE SUBIR A UN CAMIÓN.
    *
-   * Es el mismo listón que el armador de rutas de delivery exige y no negocia:
-   * `facturaEstado: 'igual'`. Lo que se reparte es lo facturado y que cuadra — un pedido
-   * que se facturó distinto lleva otra cosa de la que se cobró, y uno sin cotejar no se
-   * sabe qué lleva.
+   * Repartible es **tener factura**, cuadre o no: `igual` o `cambiado`. Lo que NO entra es
+   * lo que no se ha facturado (`sin_factura`) ni lo que no se ha cotejado (`null`), porque
+   * de eso no se sabe qué lleva.
+   *
+   * Que la factura diga otra cosa que el pedido no lo hace irrepartible: lo que se lleva es
+   * lo facturado, y por eso las líneas que van en la respuesta son **las de la factura**
+   * cuando existen. Ver `itemsOrigen` más abajo.
    *
    * Se añade porque el espejo de delivery se traía el catálogo entero —54.077 pedidos, de
    * los que 49.590 archivados— y de ésos sólo 1.277 podían repartirse. Quien abría la
@@ -149,7 +212,7 @@ router.get('/orders', async (req, res) => {
     // tienen costo. Un pedido sin domicilio NO lleva costo: no se encola ni se cotiza.
     ...(onlyPending ? { requiere_domicilio: true, costoDomicilio: null } : {}),
     ...(soloDomicilio && !onlyPending ? { requiere_domicilio: true } : {}),
-    ...(soloRepartibles ? { facturaEstado: 'igual' } : {}),
+    ...(soloRepartibles ? { facturaEstado: { in: ['igual', 'cambiado'] } } : {}),
     ...(conCosto && !onlyPending ? { costoDomicilio: { not: null } } : {}),
     ...(archivado === '1' || archivado === 'true' ? { archivedAt: { not: null } } : {}),
     ...(archivado === '0' || archivado === 'false' ? { archivedAt: null } : {}),
@@ -343,7 +406,20 @@ router.get('/orders', async (req, res) => {
           geolocalizacion: p.cliente.geolocalizacion,
         }
       : null,
-    items: p.items.map((i) => {
+    /**
+     * DE DÓNDE SALEN LAS LÍNEAS: de la factura si la hay, del pedido si no.
+     *
+     * Lo que sube al camión es lo que se facturó, no lo que se pidió. El cliente pide
+     * veinte cajas y se lleva quince: repartir por el pedido es cargar cinco de más y
+     * descuadrar la caja.
+     *
+     * PEDIDO guarda lo facturado aparte, en `lineasFactura`, y sólo reescribe el pedido si
+     * `CORREGIR_DESDE_FACTURA` está encendido — y está apagado a propósito. Así que aquí se
+     * traduce al vuelo: el pedido en PEDIDO se queda como lo tomó el vendedor, y quien
+     * reparte recibe lo que de verdad salió.
+     */
+    itemsOrigen: lineasDeFactura(p) ? 'factura' : 'pedido',
+    items: (lineasDeFactura(p) ?? p.items).map((i) => {
       const fila = filaDe(p.sucursalId, i.producto);
       /**
        * DOS pesos, y con nombres que dicen cuál es cuál.
