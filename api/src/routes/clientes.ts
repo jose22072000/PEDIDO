@@ -141,7 +141,8 @@ router.get('/parranda-lista', async (req, res) => {
   if (!ctx.isSuperAdmin) return res.status(403).json({ error: 'Solo el Super Admin.' });
   try {
     const page = Math.max(1, parseInt(String(req.query.page)) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit)) || 25));
+    const limitPedido = parseInt(String(req.query.limit)) || 25;
+    const limit = Math.min(100, Math.max(1, limitPedido));
     const sucursalId = (req.query.sucursalId as string) || undefined;
     const municipio = (req.query.municipio as string)?.trim() || undefined;
     const tipo = (req.query.tipo as string)?.trim() || undefined;
@@ -169,7 +170,13 @@ router.get('/parranda-lista', async (req, res) => {
         },
       }),
     ]);
-    res.json({ data, total, page, limit, pages: Math.max(1, Math.ceil(total / limit)) });
+    // El tope se anuncia: pedir 5.000 y recibir 100 sin decir nada se lee como «sólo hay
+    // 100», y quien lo lee se lo cree.
+    res.json({
+      data, total, page, limit,
+      pages: Math.max(1, Math.ceil(total / limit)),
+      ...(limitPedido > limit ? { limitPedido, limitRecortado: true } : {}),
+    });
   } catch (err) {
     console.error('parranda-lista error:', err);
     res.status(500).json({ error: 'No se pudo listar los clientes.' });
@@ -292,8 +299,21 @@ router.get('/', async (req, res) => {
       return res.status(sucursalStatus ?? 400).json({ error: sucursalError });
     }
 
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 10;
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    /**
+     * SIEMPRE HAY TOPE, SE PIDA O NO.
+     *
+     * Esto era `parseInt(...) || 10` sin `Math.min`: quien pidiera `limit=100000` se
+     * llevaba los 56.000 clientes con su vendedor resuelto en una sola respuesta. El
+     * servidor tiene que construir ese JSON entero en memoria antes de mandarlo, y es
+     * exactamente así como se cayó el endpoint de integración en su día.
+     *
+     * 200 es de sobra para pintar una página y no llega a doler. Quien necesite más,
+     * pagina.
+     */
+    const TOPE = 200;
+    const limitPedido = parseInt(req.query.limit as string) || 10;
+    const limit = Math.min(TOPE, Math.max(1, limitPedido));
     const search = req.query.search as string | undefined;
 
     const skip = (page - 1) * limit;
@@ -495,7 +515,18 @@ router.get('/', async (req, res) => {
 
     res.json({
       data: clientesConVendedor,
-      pagination: { page, limit, total, totalPages },
+      /**
+       * Si se recortó el `limit`, SE DICE.
+       *
+       * Un tope que no se anuncia es la peor clase de tope: quien pide 5.000 y recibe 200
+       * sin más no ve un error, ve una lista corta — y da por hecho que ésos son todos los
+       * que hay. `limitPedido` sólo aparece cuando difiere del aplicado, así que quien no
+       * choque con el tope no ve un campo de más.
+       */
+      pagination: {
+        page, limit, total, totalPages,
+        ...(limitPedido > limit ? { limitPedido, limitRecortado: true } : {}),
+      },
       municipios: municipiosRaw.map((m) => m.municipio).filter(Boolean),
       faltantes,
     });
