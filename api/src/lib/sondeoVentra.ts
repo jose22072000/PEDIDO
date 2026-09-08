@@ -14,6 +14,7 @@
  * está rancio" sin haber perdido el dato.
  */
 import prisma from '../prismaClient';
+import { baseDeSucursal } from './baseDeVentra';
 import { catalogoDeSucursal, databases } from './ventra';
 
 /** Cada cuánto se pregunta. El catálogo cambia poco; 30 min es de sobra. */
@@ -42,36 +43,16 @@ export interface ResultadoSondeo {
   error?: string;
 }
 
-/**
- * La base de Ventra que le toca a cada sucursal.
- *
- * Se le PREGUNTA a Ventra en cada pasada en vez de deducirlo: sus slugs no se parecen
- * a lo que uno supondría —`granma` es BAYAMO, `sspiritus` es Sancti Spíritus, `tunas`
- * es Las Tunas— y adivinar falla en cuatro de diez. Fallar aquí deja una sucursal
- * entera sin precios sin que salte nada.
- *
- * Se cruza por el nombre normalizado contra las DOS cosas que da Ventra: el slug y su
- * nombre de sucursal. Así "Granma" encuentra la base `granma` aunque allí se llame
- * BAYAMO, y "Camagüey" encuentra `camaguey` pese al acento.
- */
-function normalizar(s: string): string {
-  return s
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, '');
-}
-
 export async function sondearUnaVez(): Promise<ResultadoSondeo[]> {
   const sucursales = await prisma.sucursal.findMany({ select: { id: true, nombre: true, codigo: true } });
   const bases = await databases();
   const salida: ResultadoSondeo[] = [];
 
   for (const suc of sucursales) {
-    const clave = normalizar(suc.nombre);
-    const base = bases.find(
-      (b) => normalizar(b.database) === clave || normalizar(b.branchName) === clave,
-    );
+    // El cruce vive en `baseDeVentra`, compartido con el cotejo. Aquí estaba duplicado y
+    // sin el alias, así que Sancti Spíritus nunca entró en este bucle: cero productos,
+    // cero precios, cero pesos, y sin un solo error que lo dijera.
+    const base = baseDeSucursal(suc.nombre, bases);
 
     const r: ResultadoSondeo = {
       sucursal: suc.nombre, database: base?.database || '', leidos: 0, escritos: 0, sinCambio: 0,

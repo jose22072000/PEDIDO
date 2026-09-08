@@ -50,6 +50,7 @@
  */
 import prisma from '../prismaClient';
 import { databases, ventasDeSucursal, ventasPorPrefijoDeFolio, type LineaVentaVentra } from './ventra';
+import { baseDeSucursal } from './baseDeVentra';
 import {
   cotejar,
   unidadesPorFormato,
@@ -91,24 +92,6 @@ function normalizar(s: string): string {
   return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
 
-/**
- * Las sucursales cuyo nombre no se parece al de Ventra por ningún lado.
- *
- * Casi todas cuadran solas: o coincide el slug (`camaguey`, `habana`) o coincide el nombre
- * de la sucursal en Ventra (`HOLGUIN`, `LAS TUNAS`). Sancti Spíritus no cuadra por ninguno
- * de los dos: nosotros la tenemos escrita **sin la C** —`SANTISPIRITUS`—, Ventra la llama
- * `SANCTI SPIRITUS` y su slug es `sspiritus`.
- *
- * Resultado: la sucursal entera no se cotejaba NUNCA. Salía en el registro como «fallaron
- * SANTISPIRITUS» cada diez minutos y ninguno de sus pedidos supo jamás si tenía factura.
- *
- * Se arregla aquí y no renombrando la sucursal a propósito: el nombre sale en pantallas,
- * en informes y en el CSV de Parranda, y cambiarlo para arreglar un cruce interno es mover
- * lo que se ve para tapar lo que no se ve.
- */
-const ALIAS_VENTRA: Record<string, string> = {
-  SANTISPIRITUS: 'SSPIRITUS',
-};
 
 export interface ResultadoCotejo {
   sucursal: string;
@@ -153,14 +136,7 @@ export async function cotejarUnaVez(
   const salida: ResultadoCotejo[] = [];
 
   for (const suc of sucursales) {
-    const clave = normalizar(suc.nombre);
-    const alias = ALIAS_VENTRA[clave];
-    const base = bases.find(
-      (b) =>
-        normalizar(b.database) === clave ||
-        normalizar(b.branchName) === clave ||
-        (alias != null && normalizar(b.database) === alias),
-    );
+    const base = baseDeSucursal(suc.nombre, bases);
     const r: ResultadoCotejo = {
       sucursal: suc.nombre, database: base?.database || '', lineas: 0, cotejados: 0,
       igual: 0, cambiado: 0, sinFactura: 0, corregidos: 0,
