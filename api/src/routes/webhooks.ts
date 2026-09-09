@@ -48,6 +48,19 @@ async function verificar(req: any): Promise<{ status: number; error: string } | 
       `[webhook:domicilio] RECHAZADO ${fallo.status} — ${fallo.error} · ip=${req.ip || '?'} ` +
         `· key=${req.headers['x-webhook-key'] ? 'sí' : 'no'} ` +
         `· firma=${req.headers['x-webhook-signature'] ? 'sí' : 'no'} ` +
+        /**
+         * La FORMA de la firma, que no es la firma.
+         *
+         * Con «firma inválida» a secas no se distingue el fallo más común —mandar el hex
+         * pelado, sin el prefijo `sha256=`, que aquí no cuadra jamás porque se comparan
+         * las cadenas enteras— de firmar un cuerpo distinto del que se manda. El largo y
+         * el prefijo lo dicen: 71 con prefijo es la forma correcta y el fallo está en el
+         * cuerpo o en el secreto; 64 sin prefijo es que falta el prefijo.
+         *
+         * Ni el largo ni el prefijo permiten rehacer la firma, así que no se filtra nada.
+         */
+        `· formaFirma=${String(req.headers['x-webhook-signature'] || '').startsWith('sha256=') ? 'sha256=' : 'sin prefijo'}` +
+        `/${String(req.headers['x-webhook-signature'] || '').length} ` +
         `· bytes=${req.rawBody ? req.rawBody.length : 0}`,
     );
   }
