@@ -191,6 +191,33 @@ router.post('/domicilio', async (req, res) => {
   }
 
   console.log(`[webhook:domicilio] entrada: ${aplicadas.length} aplicadas, ${rechazadas.length} rechazadas`);
+
+  /**
+   * Y POR QUE se rechazaron.
+   *
+   * El recuento solo decia "0 aplicadas, 6 rechazadas", que desde fuera se ve igual que
+   * un exito —la llamada devuelve 200 con el detalle en el cuerpo— y desde dentro no
+   * dice nada: seis rechazos por folio inexistente y seis por costo invalido se leen
+   * igual y se arreglan distinto. Paso el 09/09/2026: la firma ya entraba, no se aplicaba
+   * nada, y hubo que mirar el codigo para saber que preguntar.
+   *
+   * Va el folio y el motivo, agrupado. El folio no es un secreto —es el numero que las
+   * dos partes usan para hablar del mismo pedido— y sin el no se puede comprobar ni uno.
+   */
+  if (rechazadas.length) {
+    const porMotivo = new Map<string, string[]>();
+
+    for (const r of rechazadas) {
+      const ref = r.folio || r.pedidoId || '(sin identificar)';
+      porMotivo.set(r.motivo, [...(porMotivo.get(r.motivo) || []), ref]);
+    }
+    for (const [motivo, refs] of porMotivo) {
+      console.warn(
+        `[webhook:domicilio] rechazadas ${refs.length} por "${motivo}" — ${refs.slice(0, 8).join(', ')}` +
+          (refs.length > 8 ? ` y ${refs.length - 8} mas` : ''),
+      );
+    }
+  }
   res.json({
     ok: rechazadas.length === 0,
     recibidas: entregas.length,
