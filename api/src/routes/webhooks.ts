@@ -28,6 +28,34 @@ const router = Router();
 // Devuelve null si todo bien, o el fallo a contestar. (Un union discriminado se
 // leería mejor, pero este proyecto compila sin strictNullChecks y ahí no estrecha.)
 async function verificar(req: any): Promise<{ status: number; error: string } | null> {
+  const fallo = await comprobar(req);
+
+  /**
+   * UN RECHAZO TIENE QUE DEJAR RASTRO.
+   *
+   * Esta puerta contestaba 401 y no escribía nada en ningún sitio: el API solo registra
+   * los 5xx. Desde fuera, quien integra ve «mando y no pasa nada»; desde dentro, no hay
+   * forma de saber si es que no llaman o es que llaman y se les rechaza. El 09/09/2026 se
+   * perdió media mañana en esa pregunta, con 813 domicilios sin costo y la clave de
+   * lectura de la APK usada 418 veces: se sabía que leían y no se podía saber si escribían.
+   *
+   * Se apunta QUÉ falló y desde dónde. Nunca la firma ni el cuerpo: la firma es un secreto
+   * a medias —con ella y el cuerpo se rehace el HMAC— y el cuerpo lleva datos de clientes.
+   */
+  if (fallo) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[webhook:domicilio] RECHAZADO ${fallo.status} — ${fallo.error} · ip=${req.ip || '?'} ` +
+        `· key=${req.headers['x-webhook-key'] ? 'sí' : 'no'} ` +
+        `· firma=${req.headers['x-webhook-signature'] ? 'sí' : 'no'} ` +
+        `· bytes=${req.rawBody ? req.rawBody.length : 0}`,
+    );
+  }
+
+  return fallo;
+}
+
+async function comprobar(req: any): Promise<{ status: number; error: string } | null> {
   const { secret, key, activo } = await getConfig('domicilio');
 
   if (!secret) {
