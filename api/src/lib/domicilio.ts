@@ -65,6 +65,36 @@ function redondear(v: number | null | undefined): number | null {
   return v == null || !Number.isFinite(v) ? null : Math.round(v * 1e6) / 1e6;
 }
 
+/**
+ * ¿Este pedido NO va a domicilio? Devuelve el motivo, o null si se puede cobrar.
+ *
+ * Un costo de domicilio sobre un pedido que no lleva domicilio es dinero cobrado por un
+ * reparto que nadie pidió. Entraban por la APK de Entrega: alguien registra la entrega de
+ * un pedido que en PEDIDO está marcado como «sin domicilio» y aquí se escribía sin
+ * mirar. El 10/09/2026 había ONCE así —de 966 con costo, un 1%—, y el más reciente con un
+ * minuto de diferencia entre crearse el pedido y ponerle el precio.
+ *
+ * Se rechaza SOLO cuando la bandera está en `false`, o sea cuando alguien dijo
+ * explícitamente que ese pedido no va a domicilio. Con `null` se deja pasar: hay 14.647
+ * pedidos sin la bandera puesta —«no se sabe»— y bloquearlos sería romper repartos
+ * buenos por un dato que nunca se rellenó.
+ *
+ * Y se devuelve el MOTIVO, no un silencio: la APK recibe el rechazo por entrega, con su
+ * folio, y puede corregirlo. Un rechazo mudo se repite cada minuto para siempre.
+ */
+async function sinDomicilio(pedidoId: string): Promise<string | null> {
+  const p = await prisma.pedido.findUnique({
+    where: { id: pedidoId },
+    select: { requiere_domicilio: true },
+  });
+
+  if (p && p.requiere_domicilio === false) {
+    return 'ese pedido no va a domicilio (requiere_domicilio = false): no se le pone costo';
+  }
+
+  return null;
+}
+
 export async function aplicarCostoDomicilio(u: {
   pedidoId?: string | null;
   folio?: string | null;
@@ -215,6 +245,10 @@ export async function aplicarCostoDomicilio(u: {
   };
 
   if (u.pedidoId) {
+    const noVa = await sinDomicilio(String(u.pedidoId));
+
+    if (noVa) return { ok: false, pedidoId: String(u.pedidoId), motivo: noVa };
+
     const r = await prisma.pedido.updateMany({
       where: { id: String(u.pedidoId), ...alcance },
       data: { costoDomicilio: costo, tasaDomicilio: tasaValida },
@@ -250,6 +284,10 @@ export async function aplicarCostoDomicilio(u: {
         motivo: 'folio repetido en esta sucursal: manda pedidoId o vendedorCodigo',
       };
     }
+    const noVa = await sinDomicilio(candidatos[0].id);
+
+    if (noVa) return { ok: false, folio: String(u.folio), pedidoId: candidatos[0].id, motivo: noVa };
+
     await prisma.pedido.update({
       where: { id: candidatos[0].id },
       data: { costoDomicilio: costo, tasaDomicilio: tasaValida },
