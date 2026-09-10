@@ -218,7 +218,25 @@ router.post('/domicilio', async (req, res) => {
       );
     }
   }
-  res.json({
+  /**
+   * SI NO ENTRÓ NINGUNA, NO ES UN 200.
+   *
+   * Se contestaba 200 siempre, con el detalle en el cuerpo. Quien no lee el cuerpo —que
+   * es lo normal cuando el código dice que fue bien— ve un envío correcto y se queda
+   * tan tranquilo. Los TRES problemas de esta semana con la APK de Entrega (la firma
+   * inválida, el folio con la fecha inventada y los costos en pedidos sin domicilio)
+   * habrían saltado el primer día con un código de error.
+   *
+   * 422 y no 400: la petición está bien formada y la firma es válida; lo que no se puede
+   * procesar es su CONTENIDO. Y no 500, que invitaría a reintentar creyendo que el fallo
+   * es nuestro.
+   *
+   * Si entró aunque sea una, sigue siendo 200: un folio malo entre veinte no convierte la
+   * llamada en un fracaso, y el cuerpo dice cuál falló.
+   */
+  const ninguna = aplicadas.length === 0 && rechazadas.length > 0;
+
+  res.status(ninguna ? 422 : 200).json({
     ok: rechazadas.length === 0,
     recibidas: entregas.length,
     // El detalle de cada una, no sólo el número: es lo que deja ver que la ubicación
