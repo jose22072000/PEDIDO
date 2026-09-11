@@ -9,6 +9,7 @@ import { tasaActual } from './tasaCambio';
 import { normalizarProducto, variantesProducto, porContenido } from './nombreProducto';
 import { readConfiguredSucursalId } from './sucursalLocal';
 import { encolarWebhook } from './queues';
+import { claveDeCliente } from '../dto/orderRecord.dto';
 
 /**
  * PEDIDO ya no le manda pedidos a Entrega. Esto está borrado entero.
@@ -99,6 +100,25 @@ export async function aplicarCostoDomicilio(u: {
   pedidoId?: string | null;
   folio?: string | null;
   vendedorCodigo?: string | null;
+  /**
+   * Quién es el cliente de ese folio. Es lo que desambigua el sufijo.
+   *
+   * El folio lo pone Parranda y NO es único: un mismo folio llega con hasta 23 clientes
+   * distintos debajo (`POR26-260904-3389`, Santiago, 04/09/2026). Al importarlos hay que
+   * darles `-1`, `-2`… o el segundo pisaría al primero, así que el folio que guardamos
+   * deja de ser el que tiene quien lo manda.
+   *
+   * Ese sufijo es NUESTRO y no hay forma de que lo deduzcan de fuera. Pero con el folio
+   * tal como viene de Parranda MÁS el cliente, el pedido queda señalado sin ambigüedad:
+   * comprobado sobre los 18.818 pedidos desde agosto, la pareja (folio base, sucursal,
+   * código de cliente) no se repite ni una sola vez.
+   *
+   * El código es lo bueno, pero falta en el 17,9% de los pedidos —Granma y Moa no tienen
+   * ninguno, Santiago el 29,8%—, así que el nombre vale de reserva: por nombre chocan 11
+   * de 18.818, y esos once se rechazan con su motivo en vez de adivinar.
+   */
+  clienteCodigo?: string | null;
+  clienteNombre?: string | null;
   costo: number;
   distanciaKm?: number | null;
   /** Desde dónde se midió la distancia. Ej: "almacen:HAB". */
@@ -267,37 +287,96 @@ export async function aplicarCostoDomicilio(u: {
   }
 
   if (u.folio) {
-    const candidatos = await prisma.pedido.findMany({
-      where: {
-        folio: String(u.folio),
-        ...alcance,
-        ...(u.vendedorCodigo ? { vendedor: { codigo: String(u.vendedorCodigo) } } : {}),
-      },
-      select: { id: true },
-      take: 2,
-    });
-    if (candidatos.length === 0) return { ok: false, folio: String(u.folio), motivo: 'folio no encontrado' };
-    if (candidatos.length > 1) {
+    const folio = String(u.folio).trim();
+
+    /**
+     * El folio que mandan, MÁS los que salieron de él al importarlo.
+     *
+     * No se le quita nada a lo que viene: se ensancha. Buscamos el folio tal cual y
+     * además `folio-1`, `folio-2`… que es lo único que este sistema le añade encima.
+     * Así el folio de Parranda vale como identificador aunque nosotros hayamos tenido
+     * que desdoblarlo, y quien lo manda no tiene que saber nada de nuestros sufijos.
+     *
+     * `startsWith` mete también cosas como `folio-1130` —un folio que de verdad lleva
+     * otro número detrás—, así que después se filtra a que lo añadido sean una o dos
+     * cifras, que es lo que `asignarSufijos` pone.
+     */
+    const candidatos = (
+      await prisma.pedido.findMany({
+        where: {
+          OR: [{ folio }, { folio: { startsWith: `${folio}-` } }],
+          ...alcance,
+          ...(u.vendedorCodigo ? { vendedor: { codigo: String(u.vendedorCodigo) } } : {}),
+        },
+        select: { id: true, folio: true, cliente: { select: { codigo: true, nombre: true } } },
+        take: 40,
+      })
+    ).filter((p) => p.folio === folio || /^-\d{1,2}$/.test(p.folio.slice(folio.length)));
+
+    if (candidatos.length === 0) return { ok: false, folio, motivo: 'folio no encontrado' };
+
+    /**
+     * Con varios candidatos, el cliente decide. Primero por código de Parranda; si no
+     * viene o ese cliente no lo tiene puesto, por nombre.
+     *
+     * Comparar nombres es peor que comparar códigos y por eso va segundo, pero sin esta
+     * reserva se quedarían fuera Granma y Moa enteras, que no tienen ni un código.
+     */
+    let elegidos = candidatos;
+
+    if (elegidos.length > 1 && u.clienteCodigo) {
+      const cod = String(u.clienteCodigo).trim();
+      const porCodigo = elegidos.filter((p) => (p.cliente?.codigo ?? '').trim() === cod);
+
+      if (porCodigo.length > 0) elegidos = porCodigo;
+    }
+
+    if (elegidos.length > 1 && u.clienteNombre) {
+      // La MISMA función que decide el sufijo al importar: si para aquello dos nombres
+      // son el mismo cliente, aquí también, y no se abre una segunda definición que se
+      // separe de la primera con el tiempo.
+      const nom = claveDeCliente(u.clienteNombre);
+      const porNombre = elegidos.filter((p) => claveDeCliente(p.cliente?.nombre ?? '') === nom);
+
+      if (porNombre.length > 0) elegidos = porNombre;
+    }
+
+    if (elegidos.length > 1) {
+      /**
+       * Se rechaza diciendo QUÉ falta y con quiénes se confundió. Un «folio repetido» a
+       * secas obliga a abrir la base para saber qué mandar; con los nombres delante, la
+       * corrección se hace desde el otro lado.
+       */
+      const quienes = elegidos
+        .slice(0, 6)
+        .map((p) => `${p.cliente?.nombre ?? 'sin nombre'}${p.cliente?.codigo ? ` (${p.cliente.codigo})` : ''}`)
+        .join(', ');
+
       return {
         ok: false,
-        folio: String(u.folio),
-        motivo: 'folio repetido en esta sucursal: manda pedidoId o vendedorCodigo',
+        folio,
+        motivo:
+          `ese folio es de ${elegidos.length} clientes distintos: manda clienteCodigo ` +
+          `(o clienteNombre) para señalar cuál. Son: ${quienes}`,
       };
     }
-    const noVa = await sinDomicilio(candidatos[0].id);
 
-    if (noVa) return { ok: false, folio: String(u.folio), pedidoId: candidatos[0].id, motivo: noVa };
+    const noVa = await sinDomicilio(elegidos[0].id);
+
+    if (noVa) return { ok: false, folio, pedidoId: elegidos[0].id, motivo: noVa };
 
     await prisma.pedido.update({
-      where: { id: candidatos[0].id },
+      where: { id: elegidos[0].id },
       data: { costoDomicilio: costo, tasaDomicilio: tasaValida },
     });
-    await guardarUbicacion(candidatos[0].id);
-    await guardarDistancia(candidatos[0].id);
+    await guardarUbicacion(elegidos[0].id);
+    await guardarDistancia(elegidos[0].id);
     cambios.costo = true;
     cambios.tasa = tasaValida != null;
 
-    return { ok: true, pedidoId: candidatos[0].id, folio: String(u.folio), cambios };
+    // Se devuelve el folio NUESTRO, con su sufijo si lo lleva: es el que hay que usar
+    // para hablar de ese pedido, y quien lo mandó se entera de cuál le tocó.
+    return { ok: true, pedidoId: elegidos[0].id, folio: elegidos[0].folio, cambios };
   }
 
   return { ok: false, motivo: 'falta pedidoId o folio' };

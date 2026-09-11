@@ -108,7 +108,8 @@ router.post('/ping', async (req, res) => {
 
 /**
  * POST /webhooks/domicilio
- * Body: { entregas: [{ pedidoId? , folio?, vendedorCodigo?, costo, distanciaKm?, distanciaDesde? }] }
+ * Body: { entregas: [{ pedidoId?, folio?, clienteCodigo?, clienteNombre?, vendedorCodigo?,
+ *                       costo, distanciaKm?, distanciaDesde? }] }
  *
  * En LOTE e idempotente: mandar dos veces lo mismo deja lo mismo, así que ante la duda
  * se reintenta y ya. Cada entrega se responde por separado —lo que se aplicó y lo que
@@ -154,6 +155,12 @@ router.post('/domicilio', async (req, res) => {
         pedidoId: e.pedidoId ?? e.id ?? null,
         folio: e.folio ?? null,
         vendedorCodigo: e.vendedorCodigo ?? e.vendedor ?? null,
+        // Quién es el cliente de ese folio: es lo que deja usar el folio TAL COMO lo da
+        // Parranda, sin que del otro lado tengan que conocer los sufijos que les ponemos
+        // aquí cuando un mismo folio trae varios clientes. Ver `aplicarCostoDomicilio`.
+        clienteCodigo: e.clienteCodigo ?? e.codigoCliente ?? e.cliente_codigo ?? e.parrandaId ?? null,
+        clienteNombre: e.clienteNombre ?? e.nombreCliente ?? e.cliente_nombre ??
+          (typeof e.cliente === 'string' ? e.cliente : e.cliente?.nombre) ?? null,
         costo: e.costo ?? e.costoDomicilio ?? e.precio,
         distanciaKm: e.distanciaKm ?? e.distancia_km ?? null,
         // Desde qué punto se midió. Si no lo mandan, se apunta la sucursal, que es lo
