@@ -203,8 +203,16 @@ export function BarraEntrando({ conectado }: { conectado: boolean }) {
 
           <span className="text-default-400">el último {hace(entrando[0].ultimoAt, ahora)}</span>
 
-          <button className="underline text-default-500" type="button" onClick={() => setAbierto(!abierto)}>
-            {abierto ? "menos" : "detalle"}
+        </>
+      )}
+
+      {/* El detalle es de TODO —archivos y sucursales—, así que el botón va fuera del
+          bloque de «varias sucursales»: con una sola, o sin ninguna pero con archivos
+          entrando, también hay algo que enseñar. */}
+      {(entrando.length > 0 || archivos.length > 0) && (
+        <>
+          <button className="underline text-default-500" type="button" onClick={() => setAbierto(true)}>
+            ver detalle
           </button>
 
           <Envase
@@ -216,10 +224,38 @@ export function BarraEntrando({ conectado }: { conectado: boolean }) {
               <EnvaseCabecera className="flex flex-col gap-0.5">
                 <span>Qué está entrando</span>
                 <span className="text-sm font-normal text-default-500">
-                  Pedidos de la última hora, por sucursal
+                  Los archivos que han entrado y los pedidos, en la última hora
                 </span>
               </EnvaseCabecera>
               <EnvaseCuerpo className="pb-6">
+                {archivos.length > 0 && (
+                  <div className="mb-4 flex flex-col gap-2">
+                    <p className="text-sm font-medium text-default-700">
+                      Archivos de la última hora
+                    </p>
+                    {archivos.map((a, i) => (
+                      <div
+                        key={`${a.at}-${i}`}
+                        className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 rounded-medium border-medium border-default-200 p-3"
+                      >
+                        <span className="min-w-0 break-all text-sm">
+                          {a.archivo ?? (a.origen === "n8n" ? "de la ingesta, sin nombre" : "subido a mano")}
+                        </span>
+                        <span className="text-xs text-default-500">
+                          {a.sucursal !== "Sin sucursal" && <>{a.sucursal} · </>}
+                          <span className="tabular-nums">{(a.creados + a.actualizados).toLocaleString("es")}</span>{" "}
+                          pedidos
+                          {a.fallidos > 0 && (
+                            <span className="text-warning-600"> · {a.fallidos} con problema</span>
+                          )}
+                          {a.ms != null && <> · {tardo(a.ms)}</>} · {hace(a.at, ahora)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <p className="mb-2 text-sm font-medium text-default-700">Por sucursal</p>
                 <div className="flex flex-col gap-3">
                   {entrando.map((e) => (
                     <div
@@ -259,22 +295,24 @@ export function BarraEntrando({ conectado }: { conectado: boolean }) {
         </span>
       )}
 
-      {/* ARCHIVOS QUE ACABAN DE ENTRAR.
-          Las tandas son pequeñas y se importan en menos de un segundo, así que la barra de
-          progreso casi nunca llega a verse. Esto es lo que de verdad enseña que los
-          archivos están entrando: el último que entró, cuándo, y qué trajo. */}
+      {/* ARCHIVOS QUE ACABAN DE ENTRAR, en corto.
+          La frase entera —«15 archivos entraron en la última hora · el último Copia de
+          andy.almanza.pedidos.2026-09-11.csv (CAM) con 13 pedidos, hace 5 min»— no cabe
+          en la línea y se llevaba una entera para ella sola. Aquí va lo justo, el nombre
+          recortado, y la lista completa con cuántos pedidos y cuánto tardó cada uno está
+          en el detalle. */}
       {archivos.length > 0 && (
-        <span className="text-default-600">
-          <strong>{archivos.length}</strong> {archivos.length === 1 ? "archivo entró" : "archivos entraron"} en
-          la última hora · el último{" "}
-          {archivos[0].archivo ?? (archivos[0].origen === "n8n" ? "de la ingesta" : "subido a mano")} (
-          {archivos[0].sucursal}) con{" "}
-          <span className="tabular-nums">{(archivos[0].creados + archivos[0].actualizados).toLocaleString("es")}</span>{" "}
-          pedidos{archivos[0].fallidos > 0 && <span className="text-warning-600">, {archivos[0].fallidos} con problema</span>}
-          {/* Cuánto tardó: es lo que deja ver si algo se está poniendo lento, y no se
-              sabía por ningún lado. */}
-          {archivos[0].ms != null && <> en {tardo(archivos[0].ms)}</>},{" "}
-          <span className="text-default-400">{hace(archivos[0].at, ahora)}</span>
+        <span className="flex min-w-0 items-baseline gap-1 text-default-600">
+          <strong className="tabular-nums">{archivos.length}</strong>
+          <span>{archivos.length === 1 ? "archivo" : "archivos"}</span>
+          <span className="text-default-300">·</span>
+          <span className="max-w-[16rem] truncate" title={archivos[0].archivo ?? ""}>
+            {archivos[0].archivo ?? "sin nombre"}
+          </span>
+          <span className="shrink-0 text-default-400">
+            {archivos[0].sucursal !== "Sin sucursal" && `(${archivos[0].sucursal}) `}
+            {hace(archivos[0].at, ahora)}
+          </span>
         </span>
       )}
 
