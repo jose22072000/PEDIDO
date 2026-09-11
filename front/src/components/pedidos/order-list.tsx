@@ -41,6 +41,7 @@ import { VendedorSelect } from "../vendedor-select";
 import { cn, copyTextToClipboard } from "@/lib/utils";
 import { registrarCopia } from "@/lib/registrar-copia";
 import { esFechaEnviable } from "@/lib/fecha-enviable";
+import { BarraEntrando } from "@/components/pedidos/barra-entrando";
 import { getApiBaseUrl } from "@/config";
 import {
   importe,
@@ -1640,24 +1641,11 @@ export const OrdersList = () => {
         </CardBody>
       </Card>
 
-      {/* Barra de tiempo real (SSE) */}
-      <div className="flex items-center justify-between">
-        <span
-          className={cn(
-            "inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-xs",
-            live
-              ? "bg-success-100 text-success-700"
-              : "bg-default-100 text-default-500",
-          )}
-        >
-          <span
-            className={cn(
-              "w-2 h-2 rounded-full",
-              live ? "bg-success-500 animate-pulse" : "bg-default-400",
-            )}
-          />
-          {live ? "En vivo" : "Conectando…"}
-        </span>
+      {/* LO QUE ESTÁ ENTRANDO, donde antes sólo ponía "En vivo".
+          "En vivo" decía que la conexión estaba abierta, no que estuvieran entrando datos
+          — y la pregunta que llega cada cinco segundos es la segunda, no la primera. */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <BarraEntrando conectado={live} />
         {nuevosPend > 0 && (
           <Button
             color="primary"

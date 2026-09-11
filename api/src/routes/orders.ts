@@ -1279,10 +1279,31 @@ router.get('/cola', async (req, res) => {
     }
   }
 
+  /**
+   * El ÚLTIMO pedido que entró, sin ventana ninguna.
+   *
+   * La ventana de una hora deja la barra en blanco cuando lleva rato sin entrar nada, y
+   * una barra que a veces no está es peor que no tenerla: quien la mira no sabe si es que
+   * no entra nada o es que la barra no funciona. Con esto siempre hay algo que decir,
+   * aunque sea «el último entró hace dos horas».
+   */
+  const ultimo = await prisma.pedido.findFirst({
+    where: isGlobalAdmin && !sucursalId ? {} : { sucursalId },
+    select: { folio: true, createdAt: true, sucursalId: true },
+    orderBy: { createdAt: 'desc' },
+  });
+
   res.json({
     activa: true,
     ahora: Date.now(),
     ventanaMin: VENTANA_MIN,
+    ultimo: ultimo
+      ? {
+          folio: ultimo.folio,
+          at: ultimo.createdAt.getTime(),
+          sucursal: (ultimo.sucursalId && nombre.get(ultimo.sucursalId)) || 'Sin sucursal',
+        }
+      : null,
     // Lo que contesta la pregunta de verdad: ¿siguen entrando datos?
     trabajando: lista.some((s) => s.activos.length > 0),
     entrando: [...entrando.values()].sort((a, b) => b.ultimoAt - a.ultimoAt),
