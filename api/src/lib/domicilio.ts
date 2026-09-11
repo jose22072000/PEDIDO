@@ -47,37 +47,8 @@ export type ResultadoCosto = {
   pedidoId?: string;
   folio?: string;
   motivo?: string;
-  /**
-   * Se aplicó, pero hay algo que decir. Hoy sólo una cosa: que el folio se encontró
-   * ignorando la fecha porque la que venía no era la nuestra.
-   *
-   * Va aparte del motivo a propósito. Si se tragara el fallo en silencio, el día que se
-   * arregle el origen nadie se enteraría de que estaba roto; y si se rechazara, se
-   * quedarían sin cobrar repartos buenos por un dato que no pone el repartidor.
-   */
-  aviso?: string;
   cambios?: CambiosDomicilio;
 };
-
-/** ¿Este pedido es del cliente que dicen? Por id, por código o por nombre, en ese orden. */
-function esDe(
-  cliente: { id: string; codigo: string | null; nombre: string } | null,
-  u: { clienteId?: string | null; clienteCodigo?: string | null; clienteNombre?: string | null },
-): boolean {
-  if (!cliente) return false;
-  if (u.clienteId && cliente.id === String(u.clienteId).trim()) return true;
-  if (u.clienteCodigo && (cliente.codigo ?? '').trim() === String(u.clienteCodigo).trim()) return true;
-  if (u.clienteNombre && claveDeCliente(cliente.nombre) === claveDeCliente(u.clienteNombre)) return true;
-
-  return false;
-}
-
-/** Parte un folio `PREFIJO-AAMMDD-NUMERO` en sus tres trozos. Null si no tiene esa forma. */
-function partesDelFolio(folio: string): { prefijo: string; fecha: string; numero: string } | null {
-  const m = /^([A-Z0-9]+)-(\d{6})-(\d+)$/.exec(folio);
-
-  return m ? { prefijo: m[1], fecha: m[2], numero: m[3] } : null;
-}
 
 /**
  * Escribe el costo que nos devuelve la APK.
@@ -352,77 +323,7 @@ export async function aplicarCostoDomicilio(u: {
       })
     ).filter((p) => p.folio === folio || /^-\d{1,2}$/.test(p.folio.slice(folio.length)));
 
-    /**
-     * Último recurso: el MISMO folio pero con otra fecha.
-     *
-     * Los repartidores copian el folio de lo que les enseña Parranda, y lo que llega trae
-     * la fecha corrida un día respecto a la que viene en el CSV. Sin cerrar quién de los
-     * dos la tiene bien, el reparto está hecho y hay que cobrarlo.
-     *
-     * Se busca el mismo prefijo y el mismo número —que es lo que identifica el pedido de
-     * verdad— del MISMO cliente, y da igual la fecha. Sin el cliente no se hace: el número
-     * solo lo repiten varios vendedores bajo el mismo prefijo. Con el cliente delante,
-     * la terna (prefijo, número, cliente) deja 45 casos ambiguos de 18.484, y esos 45 se
-     * rechazan en vez de adivinar.
-     *
-     * Y se aplica CON AVISO. Tragárselo en silencio dejaría el fallo de origen invisible
-     * para siempre.
-     */
-    if (candidatos.length === 0) {
-      const partes = partesDelFolio(folio);
-      const hayCliente = !!(u.clienteId || u.clienteCodigo || u.clienteNombre);
-
-      if (!partes || !hayCliente) return { ok: false, folio, motivo: 'folio no encontrado' };
-
-      const otraFecha = (
-        await prisma.pedido.findMany({
-          where: {
-            folio: { startsWith: `${partes.prefijo}-`, contains: `-${partes.numero}` },
-            ...alcance,
-          },
-          select: { id: true, folio: true, cliente: { select: { id: true, codigo: true, nombre: true } } },
-          take: 60,
-        })
-      ).filter((p) => {
-        const q = partesDelFolio(p.folio.replace(/-\d{1,2}$/, ''));
-
-        return q?.prefijo === partes.prefijo && q?.numero === partes.numero && esDe(p.cliente, u);
-      });
-
-      if (otraFecha.length !== 1) {
-        return {
-          ok: false,
-          folio,
-          motivo:
-            otraFecha.length === 0
-              ? 'folio no encontrado'
-              : `hay ${otraFecha.length} pedidos con ese número y ese cliente en fechas distintas: manda pedidoId`,
-        };
-      }
-
-      const elegido = otraFecha[0];
-      const noVaOtro = await sinDomicilio(elegido.id);
-
-      if (noVaOtro) return { ok: false, folio: elegido.folio, pedidoId: elegido.id, motivo: noVaOtro };
-
-      await prisma.pedido.update({
-        where: { id: elegido.id },
-        data: { costoDomicilio: costo, tasaDomicilio: tasaValida },
-      });
-      await guardarUbicacion(elegido.id);
-      await guardarDistancia(elegido.id);
-      cambios.costo = true;
-      cambios.tasa = tasaValida != null;
-
-      return {
-        ok: true,
-        pedidoId: elegido.id,
-        folio: elegido.folio,
-        aviso: `el folio que mandaste (${folio}) no existe; se aplicó a ${elegido.folio}, ` +
-               `que es el mismo número y el mismo cliente con otra fecha`,
-        cambios,
-      };
-    }
+    if (candidatos.length === 0) return { ok: false, folio, motivo: 'folio no encontrado' };
 
     /**
      * Con varios candidatos, el cliente decide. Primero por código de Parranda; si no
