@@ -22,7 +22,7 @@ import { notifyPedidoCompletado } from '../lib/webhook';
 import { emitEvent } from '../lib/events';
 import { redisEnabled, publishJSON, getSubscriber, CH_IMPORT_DONE, CH_IMPORT_FAILED } from '../lib/redis';
 import { importQueue } from '../lib/queues';
-import { anotarEnCurso, borrarEnCurso, leerEnCurso } from '../lib/importEnCurso';
+import { anotarEnCurso, anotarHecha, borrarEnCurso, leerEnCurso, leerHechas } from '../lib/importEnCurso';
 import { mintSseTicket, consumeSseTicket } from '../lib/sseTickets';
 import { ingestaAuth } from '../middleware/ingestaAuth';
 
@@ -1080,6 +1080,17 @@ router.post('/bulk', ingestaAuth, async (req, res) => {
 
       if (!outcome.ok) return res.status(409).json({ error: outcome.error, imported: 0 });
 
+      // Queda apuntado lo que acaba de entrar: las tandas pequeñas terminan tan rápido
+      // que la llave de «en curso» no la ve nadie, y sin esto la barra seguiría muda.
+      void anotarHecha({
+        archivo, sucursalId: uploaderSucursalId ?? null, origen: base.origen,
+        filas: records.length,
+        creados: outcome.results.created,
+        actualizados: outcome.results.updated,
+        fallidos: outcome.results.failed,
+        at: Date.now(),
+      });
+
       return res.json({ success: true, results: outcome.results });
     } finally {
       // Pase lo que pase —terminó, falló o reventó—, deja de anunciarse como en curso.
@@ -1195,8 +1206,13 @@ router.get('/cola', async (req, res) => {
       });
     }
 
+    const hechasSinCola = (await leerHechas(Date.now() - 60 * 60 * 1000))
+      .filter((h) => isGlobalAdmin || h.sucursalId === sucursalId)
+      .map((h) => ({ ...h, sucursal: (h.sucursalId && nom.get(h.sucursalId)) || 'Sin sucursal' }));
+
     return res.json({
       activa: true, ahora: Date.now(), ventanaMin: 60,
+      archivos: hechasSinCola,
       trabajando: enLinea.length > 0,
       entrando: [...acc.values()].sort((a, b) => b.ultimoAt - a.ultimoAt),
       sucursales: [...porSuc.values()],
@@ -1406,10 +1422,19 @@ router.get('/cola', async (req, res) => {
     orderBy: { createdAt: 'desc' },
   });
 
+  /**
+   * Los archivos que ACABAN de entrar. Es lo que se ve de verdad: las tandas son
+   * pequeñas y terminan antes de que la pantalla se refresque.
+   */
+  const hechas = (await leerHechas(Date.now() - VENTANA_MIN * 60 * 1000))
+    .filter((h) => isGlobalAdmin || h.sucursalId === sucursalId)
+    .map((h) => ({ ...h, sucursal: (h.sucursalId && nombre.get(h.sucursalId)) || 'Sin sucursal' }));
+
   res.json({
     activa: true,
     ahora: Date.now(),
     ventanaMin: VENTANA_MIN,
+    archivos: hechas,
     ultimo: ultimo
       ? {
           folio: ultimo.folio,

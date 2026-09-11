@@ -57,6 +57,17 @@ interface Cola {
     vendedores: number;
   }>;
   sucursales?: Array<{ sucursal: string; activos: Trabajo[]; enEspera: number; filasEnEspera: number }>;
+  /** Archivos que ACABAN de entrar. Lo único que se ve cuando las tandas son pequeñas. */
+  archivos?: Array<{
+    archivo: string | null;
+    sucursal: string;
+    origen: "n8n" | "pantalla";
+    filas: number;
+    creados: number;
+    actualizados: number;
+    fallidos: number;
+    at: number;
+  }>;
 }
 
 /** «hace 40 s» / «hace 3 min» / «hace 2 h». Es lo que calma a quien está esperando. */
@@ -95,6 +106,7 @@ export function BarraEntrando({ conectado }: { conectado: boolean }) {
   const ahora = cola?.ahora ?? Date.now();
   const entrando = cola?.entrando ?? [];
   const subiendo = (cola?.sucursales ?? []).filter((s) => s.activos.length > 0 || s.enEspera > 0);
+  const archivos = cola?.archivos ?? [];
   // Algo entró hace menos de dos minutos: eso es «ahora mismo» y merece el punto latiendo.
   const caliente = entrando.length > 0 && ahora - entrando[0].ultimoAt < 120_000;
 
@@ -141,6 +153,22 @@ export function BarraEntrando({ conectado }: { conectado: boolean }) {
           <span className="font-mono">{cola.ultimo.folio}</span> de {cola.ultimo.sucursal}
           {cola.ultimo.vendedor && <>, vendido por {cola.ultimo.vendedor}</>}
           {cola.ultimo.cliente && <> para {cola.ultimo.cliente}</>}, {hace(cola.ultimo.at, ahora)}
+        </span>
+      )}
+
+      {/* ARCHIVOS QUE ACABAN DE ENTRAR.
+          Las tandas son pequeñas y se importan en menos de un segundo, así que la barra de
+          progreso casi nunca llega a verse. Esto es lo que de verdad enseña que los
+          archivos están entrando: el último que entró, cuándo, y qué trajo. */}
+      {archivos.length > 0 && (
+        <span className="text-default-600">
+          <strong>{archivos.length}</strong> {archivos.length === 1 ? "archivo entró" : "archivos entraron"} en
+          la última hora · el último{" "}
+          {archivos[0].archivo ?? (archivos[0].origen === "n8n" ? "de la ingesta" : "subido a mano")} (
+          {archivos[0].sucursal}) con{" "}
+          <span className="tabular-nums">{(archivos[0].creados + archivos[0].actualizados).toLocaleString("es")}</span>{" "}
+          pedidos{archivos[0].fallidos > 0 && <span className="text-warning-600">, {archivos[0].fallidos} con problema</span>},{" "}
+          <span className="text-default-400">{hace(archivos[0].at, ahora)}</span>
         </span>
       )}
 
