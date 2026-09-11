@@ -10,6 +10,7 @@ import { getConfig, firmar, firmaValida } from '../lib/webhook';
 import { aplicarCostoDomicilio } from '../lib/domicilio';
 import { emitEvent } from '../lib/events';
 import prisma from '../prismaClient';
+import { apuntarIntentos } from '../lib/entregaIntentos';
 
 const router = Router();
 
@@ -145,11 +146,26 @@ router.post('/domicilio', async (req, res) => {
   const aplicadas: Array<{ pedidoId?: string; folio?: string; guardado: string[] }> = [];
   const rechazadas: Array<{ folio?: string; pedidoId?: string; motivo: string }> = [];
 
+  /**
+   * Con qué identificaron al cliente en cada entrada.
+   *
+   * Se guarda aparte porque la respuesta no lo lleva, y en el panel es la mitad de la
+   * historia: un «ese folio es de 23 clientes» se explica solo cuando al lado pone que no
+   * vino ningún cliente.
+   */
+  const identificados = new Map<string, string>();
+
   for (const e of entregas) {
     if (!e || typeof e !== 'object') {
       rechazadas.push({ motivo: 'entrada no es un objeto' });
       continue;
     }
+
+    const clave = String(e.folio ?? e.pedidoId ?? e.id ?? '');
+    const quien = e.clienteId ?? e.idCliente ?? e.cliente_id ?? e.clienteCodigo ?? e.codigoCliente ??
+      e.clienteNombre ?? e.nombreCliente ?? (typeof e.cliente === 'string' ? e.cliente : e.cliente?.nombre);
+
+    if (clave) identificados.set(clave, quien ? String(quien) : '(no mandaron cliente)');
     try {
       const r = await aplicarCostoDomicilio({
         pedidoId: e.pedidoId ?? e.id ?? null,
@@ -242,6 +258,23 @@ router.post('/domicilio', async (req, res) => {
    * Si entró aunque sea una, sigue siendo 200: un folio malo entre veinte no convierte la
    * llamada en un fracaso, y el cuerpo dice cuál falló.
    */
+  /**
+   * Al registro, para que se vea desde el panel y no haya que entrar al servidor.
+   *
+   * `void` a propósito: la respuesta no espera a que esto se escriba. Del otro lado hay
+   * un repartidor con el móvil en la mano; el registro es para nosotros.
+   */
+  void apuntarIntentos([
+    ...aplicadas.map((a) => ({
+      folio: a.folio ?? null, motivo: null, ok: true, pedidoId: a.pedidoId ?? null,
+      cliente: identificados.get(a.folio ?? a.pedidoId ?? '') ?? null,
+    })),
+    ...rechazadas.map((r) => ({
+      folio: r.folio ?? null, motivo: r.motivo, ok: false, pedidoId: r.pedidoId ?? null,
+      cliente: identificados.get(r.folio ?? r.pedidoId ?? '') ?? null,
+    })),
+  ]);
+
   const ninguna = aplicadas.length === 0 && rechazadas.length > 0;
 
   res.status(ninguna ? 422 : 200).json({
@@ -255,3 +288,4 @@ router.post('/domicilio', async (req, res) => {
 });
 
 export default router;
+

@@ -31,6 +31,7 @@ const CARDS: Array<{
   // pedidos no tiene por qué mirar el estado de la facturación de la sucursal entera.
   { title: "Facturación", description: "Qué pedidos tienen factura y cuáles no", href: "/panel/sincronizacion/facturacion", icon: "reports", soloGestion: true },
   { title: "Clientes de Parranda", description: "Estado de la sincronización de clientes", href: "/panel/sincronizacion/clientes", icon: "client", soloSuperAdmin: true },
+  { title: "Envíos de Entrega", description: "Qué manda la APK de domicilio y por qué se rechaza", href: "/panel/sincronizacion/entrega", icon: "reports", soloSuperAdmin: true },
   { title: "Configuración", description: "Ajustes del sistema", href: "/panel/config", icon: "configuracion", soloGestion: true },
 ];
 

@@ -44,6 +44,9 @@ const SincronizacionFacturacionPage = lazy(
 const SincronizacionClientesPage = lazy(
   () => import("./pages/sincronizacion/clientes"),
 );
+const SincronizacionEntregaPage = lazy(
+  () => import("./pages/sincronizacion/entrega"),
+);
 const ReportePedidosFechaPage = lazy(
   () => import("./pages/reportes/pedidos-fecha"),
 );
@@ -249,6 +252,12 @@ function App() {
               <Route
                 element={<SincronizacionClientesPage />}
                 path="/panel/sincronizacion/clientes"
+              />
+              {/* Los folios y los nombres de los clientes que manda Entrega: mismo
+                  candado que las otras dos de sincronización. */}
+              <Route
+                element={<SincronizacionEntregaPage />}
+                path="/panel/sincronizacion/entrega"
               />
               <Route
                 element={<ConfiguracionPage />}

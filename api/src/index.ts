@@ -24,6 +24,7 @@ import prisma from './prismaClient';
 import { iniciarArchivadoAutomatico } from './lib/archivador';
 import apiKeysRouter from './routes/apiKeys';
 import webhooksRouter from './routes/webhooks';
+import entregaRouter from './routes/entrega';
 import { sembrarConfigDesdeEntorno } from './lib/webhook';
 import { apiKeyAuth } from './middleware/apiKeyAuth';
 import { observarRespuestas, manejarErrores, estadoSalud } from './middleware/errores';
@@ -102,6 +103,8 @@ app.use('/copias', copiasRouter);
 // Entrada de webhooks de terceros (la APK de domicilio). Sin sesión y sin la clave de
 // servicio: se autentica por firma, con su propio secret.
 app.use('/webhooks', webhooksRouter);
+// Lo que manda la APK de Entrega, para verlo desde el panel. Con sesión: ver el router.
+app.use('/entrega', entregaRouter);
 
 // Manejador final de errores. VA EL ÚLTIMO: recoge lo que revienta dentro de una
 // ruta y que hasta ahora tumbaba la petición sin dejar rastro identificable.

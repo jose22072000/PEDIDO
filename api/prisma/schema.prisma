@@ -1,21 +1,21 @@
 generator client {
-    provider   = "prisma-client-js"
+  provider = "prisma-client-js"
 }
 
 datasource db {
-    provider = "postgresql"
+  provider = "postgresql"
 }
 
 model Sucursal {
-    id        String    @id @default(cuid())
-    nombre    String
-    codigo    String?   @unique  // código de provincia (CAM, STG, TUN, ...); mapea con el consolidado y con Branch.externalId en delivery
-    createdAt DateTime  @default(now())
-    usuarios  Usuario[]
-    vendedores Vendedor[]
-    clientes   Cliente[]
-    pedidos    Pedido[]
-    productos  ProductoSucursal[]
+  id         String             @id @default(cuid())
+  nombre     String
+  codigo     String?            @unique // código de provincia (CAM, STG, TUN, ...); mapea con el consolidado y con Branch.externalId en delivery
+  createdAt  DateTime           @default(now())
+  usuarios   Usuario[]
+  vendedores Vendedor[]
+  clientes   Cliente[]
+  pedidos    Pedido[]
+  productos  ProductoSucursal[]
 }
 
 /// El catálogo de Ventra, copiado aquí por sucursal.
@@ -28,274 +28,272 @@ model Sucursal {
 /// La clave es (sucursal, sku): el MISMO producto tiene precio y existencias
 /// distintas en cada sucursal, y esa es justo la razón de que esto exista.
 model ProductoSucursal {
-    id          String   @id @default(cuid())
-    sucursalId  String
-    sucursal    Sucursal @relation(fields: [sucursalId], references: [id])
-    sku         String
-    nombre      String
-    categoria   String?
-    unidad      String?
-    pesoKg      Float?
-    /// Existencias en ESA sucursal, tal como las da Ventra.
-    stock       Float?
-    /// Precio en ESA sucursal.
-    precio      Float?
-    activo      Boolean  @default(true)
-    /// Cuándo se trajo. Es lo que dice si lo que se está mirando es de hace diez
-    /// minutos o de hace tres días porque la VPN lleva caída desde el lunes.
-    traidoAt    DateTime @default(now())
-    updatedAt   DateTime @default(now()) @updatedAt
+  id         String   @id @default(cuid())
+  sucursalId String
+  sucursal   Sucursal @relation(fields: [sucursalId], references: [id])
+  sku        String
+  nombre     String
+  categoria  String?
+  unidad     String?
+  pesoKg     Float?
+  /// Existencias en ESA sucursal, tal como las da Ventra.
+  stock      Float?
+  /// Precio en ESA sucursal.
+  precio     Float?
+  activo     Boolean  @default(true)
+  /// Cuándo se trajo. Es lo que dice si lo que se está mirando es de hace diez
+  /// minutos o de hace tres días porque la VPN lleva caída desde el lunes.
+  traidoAt   DateTime @default(now())
+  updatedAt  DateTime @default(now()) @updatedAt
 
-    @@unique([sucursalId, sku])
-    @@index([sucursalId])
-    @@index([nombre])
+  @@unique([sucursalId, sku])
+  @@index([sucursalId])
+  @@index([nombre])
 }
 
 model Rol {
-    id        String    @id @default(cuid())
-    nombre    String    @unique @map("rol")
-    createdAt DateTime  @default(now())
-    usuarios  Usuario[]
+  id        String    @id @default(cuid())
+  nombre    String    @unique @map("rol")
+  createdAt DateTime  @default(now())
+  usuarios  Usuario[]
 
-    @@map("Roles")
+  @@map("Roles")
 }
 
 model Usuario {
-    id         String    @id @default(cuid())
-    username   String    @unique
-    password   String?
-    rolId      String?   @map("roleId")
-    rol        Rol?      @relation(fields: [rolId], references: [id])
-    sucursalId String?
-    sucursal   Sucursal? @relation(fields: [sucursalId], references: [id])
-    createdAt  DateTime  @default(now())
-    // Vendedores que gestiona este usuario (solo aplica a los de rol "Gestor").
-    // La sucursal del pedido se deriva: vendedor -> gestor -> gestor.sucursalId.
-    vendedores Vendedor[] @relation("VendedorGestor")
+  id         String     @id @default(cuid())
+  username   String     @unique
+  password   String?
+  rolId      String?    @map("roleId")
+  rol        Rol?       @relation(fields: [rolId], references: [id])
+  sucursalId String?
+  sucursal   Sucursal?  @relation(fields: [sucursalId], references: [id])
+  createdAt  DateTime   @default(now())
+  // Vendedores que gestiona este usuario (solo aplica a los de rol "Gestor").
+  // La sucursal del pedido se deriva: vendedor -> gestor -> gestor.sucursalId.
+  vendedores Vendedor[] @relation("VendedorGestor")
 
-    @@map("User")
+  @@map("User")
 }
 
 model Vendedor {
-    id        String   @id @default(cuid())
-    nombre    String   @map("name")
-    // El CSV se nombra con este código (ej. "andy.almanza" = nombre.apellido).
-    // Es ÚNICO GLOBAL: al importar se busca el vendedor por aquí, sin saber la
-    // sucursal. Si el código existe con OTRO nombre, es otra persona -> colisión.
-    codigo    String?  @unique @map("code")
-    sucursalId String?
-    sucursal  Sucursal? @relation(fields: [sucursalId], references: [id])
-    // Gestor (Usuario con rol "Gestor") al que pertenece este vendedor.
-    // NULL = "Sin asignar": sus pedidos quedan ocultos hasta que se enlace.
-    gestorId  String?
-    gestor    Usuario? @relation("VendedorGestor", fields: [gestorId], references: [id])
-    // Baja del vendedor (se fue / lo botaron): deja de aceptarse su CSV y
-    // desaparece de las listas, pero se CONSERVA su histórico de pedidos.
-    activo    Boolean  @default(true)
-    // QUIÉN lo dio de baja y CUÁNDO. Se guardaba solo QUE estaba de baja, así
-    // que cuando aparecieron dos vendedores inactivos con 97 pedidos ocultos no
-    // hubo forma de saber quién los quitó ni en qué momento — y sin eso no se
-    // puede decidir si fue un error o una decisión tomada a propósito. Se
-    // limpian al reactivar: describen la baja ACTUAL, no un histórico.
-    bajaPor   String?
-    bajaEn    DateTime?
-    // Quién lo dio de alta A MANO desde la aplicación (username). VACÍO = nació
-    // solo, al llegar su CSV. Sirve para lo único que importa cuando aparece un
-    // vendedor duplicado o mal escrito: saber si lo tecleó alguien o vino del
-    // archivo, que son dos problemas distintos y se arreglan de forma distinta.
-    creadoPor String?
-    createdAt DateTime @default(now())
-    pedidos   Pedido[]
+  id         String    @id @default(cuid())
+  nombre     String    @map("name")
+  // El CSV se nombra con este código (ej. "andy.almanza" = nombre.apellido).
+  // Es ÚNICO GLOBAL: al importar se busca el vendedor por aquí, sin saber la
+  // sucursal. Si el código existe con OTRO nombre, es otra persona -> colisión.
+  codigo     String?   @unique @map("code")
+  sucursalId String?
+  sucursal   Sucursal? @relation(fields: [sucursalId], references: [id])
+  // Gestor (Usuario con rol "Gestor") al que pertenece este vendedor.
+  // NULL = "Sin asignar": sus pedidos quedan ocultos hasta que se enlace.
+  gestorId   String?
+  gestor     Usuario?  @relation("VendedorGestor", fields: [gestorId], references: [id])
+  // Baja del vendedor (se fue / lo botaron): deja de aceptarse su CSV y
+  // desaparece de las listas, pero se CONSERVA su histórico de pedidos.
+  activo     Boolean   @default(true)
+  // QUIÉN lo dio de baja y CUÁNDO. Se guardaba solo QUE estaba de baja, así
+  // que cuando aparecieron dos vendedores inactivos con 97 pedidos ocultos no
+  // hubo forma de saber quién los quitó ni en qué momento — y sin eso no se
+  // puede decidir si fue un error o una decisión tomada a propósito. Se
+  // limpian al reactivar: describen la baja ACTUAL, no un histórico.
+  bajaPor    String?
+  bajaEn     DateTime?
+  // Quién lo dio de alta A MANO desde la aplicación (username). VACÍO = nació
+  // solo, al llegar su CSV. Sirve para lo único que importa cuando aparece un
+  // vendedor duplicado o mal escrito: saber si lo tecleó alguien o vino del
+  // archivo, que son dos problemas distintos y se arreglan de forma distinta.
+  creadoPor  String?
+  createdAt  DateTime  @default(now())
+  pedidos    Pedido[]
 
-    @@unique([sucursalId, nombre])
-    @@map("Seller")
+  @@unique([sucursalId, nombre])
+  @@map("Seller")
 }
 
 model Pedido {
-    id                 String       @id @default(cuid())
-    folio              String
-    sucursalId         String?
-    sucursal           Sucursal?    @relation(fields: [sucursalId], references: [id])
-    vendedorId         String?      @map("sellerId")
-    vendedor           Vendedor?    @relation(fields: [vendedorId], references: [id])
-    clienteId          String?      @map("clientId")
-    cliente            Cliente?     @relation(fields: [clienteId], references: [id])
-    direccion          String?
-    encargado          String?
-    telefono           String?
-    fecha              DateTime
-    fecha_comprometida DateTime?
-    estado             String?      @map("status")
-    pedido_cobrado     String?      @map("paymentStatus")
-    requiere_domicilio Boolean?     @map("requiresDelivery")
-    costoDomicilio     Float?       @map("deliveryCost")  // en USD, lo escribe la APK de domicilio
-    /// La tasa CUP/USD del momento en que se guardó ESE domicilio.
-    ///
-    /// La pone PEDIDO de su propia fuente: delivery-apk manda el costo en USD y nada
-    /// más. Se guarda la tasa y no un segundo importe en CUP a propósito: con dos
-    /// importes habría dos verdades que se separan en cuanto cambie la tasa, y ninguna
-    /// forma de saber cuál es la buena. Con la tasa, el CUP se reproduce exacto —el
-    /// mismo que vio quien cobró— y queda registrado a cómo estaba el cambio ese día.
-    tasaDomicilio      Float?
+  id                 String    @id @default(cuid())
+  folio              String
+  sucursalId         String?
+  sucursal           Sucursal? @relation(fields: [sucursalId], references: [id])
+  vendedorId         String?   @map("sellerId")
+  vendedor           Vendedor? @relation(fields: [vendedorId], references: [id])
+  clienteId          String?   @map("clientId")
+  cliente            Cliente?  @relation(fields: [clienteId], references: [id])
+  direccion          String?
+  encargado          String?
+  telefono           String?
+  fecha              DateTime
+  fecha_comprometida DateTime?
+  estado             String?   @map("status")
+  pedido_cobrado     String?   @map("paymentStatus")
+  requiere_domicilio Boolean?  @map("requiresDelivery")
+  costoDomicilio     Float?    @map("deliveryCost") // en USD, lo escribe la APK de domicilio
+  /// La tasa CUP/USD del momento en que se guardó ESE domicilio.
+  ///
+  /// La pone PEDIDO de su propia fuente: delivery-apk manda el costo en USD y nada
+  /// más. Se guarda la tasa y no un segundo importe en CUP a propósito: con dos
+  /// importes habría dos verdades que se separan en cuanto cambie la tasa, y ninguna
+  /// forma de saber cuál es la buena. Con la tasa, el CUP se reproduce exacto —el
+  /// mismo que vio quien cobró— y queda registrado a cómo estaba el cambio ese día.
+  tasaDomicilio      Float?
 
-    /// Cómo quedó este pedido frente a su FACTURA en Ventra:
-    ///   `igual`       — se facturó exactamente lo que se pidió.
-    ///   `cambiado`    — se facturó otra cosa: más, menos o distinto.
-    ///   `sin_factura` — se comprobó y todavía no tiene factura.
-    /// Vacío = nadie lo ha comprobado todavía.
-    ///
-    /// Lo escribe DELIVERY por /integration/orders/invoicing. No lo escribe Ventra:
-    /// Ventra es un ERP detrás de una VPN que no manda nada hacia fuera, así que
-    /// alguien tiene que preguntarle, y quien ya lo hace —cada minuto, sucursal por
-    /// sucursal— es delivery. Aquí sólo se guarda lo que dijo.
-    facturaEstado      String?
-    /// El número de factura con el que cuadró, para poder ir a buscarla. Cuando el
-    /// pedido se facturó en dos documentos, van los dos separados por coma.
-    facturaNumero      String?
-    /// Cuándo se comprobó. Sirve para distinguir «no está facturado» de «hace tres
-    /// días que nadie mira», que en pantalla se parecen y no son lo mismo.
-    facturaAt          DateTime?
-    /// Lo que la FACTURA cobró por el reparto, si trae la línea «ENTREGA A DOMICILIO».
-    ///
-    /// No es lo mismo que `costoDomicilio`: aquél es lo que vale el reparto según la
-    /// fórmula —lo que se recalcula cuando cambia el peso—, y éste es lo que de verdad se
-    /// le cobró al cliente en el mostrador. Teniendo los dos se ve la diferencia; con uno
-    /// solo, no hay contra qué comparar.
-    ///
-    /// Y es la señal más fiable de que un pedido va a domicilio: sale de lo que se cobró,
-    /// no de una casilla que alguien marcó al tomarlo.
-    facturaDomicilio   Float?
-    /// Las líneas TAL COMO LAS PIDIÓ EL CLIENTE, en JSON, cuando la factura las cambió.
-    ///
-    /// El pedido se reescribe con lo facturado para que el pre-despacho cargue el camión
-    /// con lo que de verdad sale. Pero lo que se pidió no se puede perder: es la única
-    /// forma de ver en qué se diferencian, que es justo lo que hay que mirar.
-    ///
-    /// Se escribe UNA vez, la primera. Si se reescribiera en cada pasada, la segunda
-    /// guardaría como «original» lo que ya era la factura.
-    ///
-    /// Texto y no `Json` porque esta base corre en Postgres en producción y en SQLite en
-    /// desarrollo, y el tipo Json no se comporta igual en las dos.
-    itemsOriginal      String?
-    /// Lo que dice la FACTURA, al lado del pedido. JSON en texto.
-    ///
-    /// Se guarda aparte y NO se mete en las líneas del pedido. Reescribir el pedido con
-    /// la factura fue un error caro: cuando un cliente tiene varios pedidos el mismo día
-    /// no hay forma de saber qué factura es de cuál, y la misma factura acabó copiada en
-    /// dos y tres pedidos —el mismo producto repetido, uno completado y otros en proceso—.
-    ///
-    /// El pedido se queda como lo tomó el vendedor. Esto es lo que se llevó el cliente, y
-    /// se enseña al lado para poder comparar.
-    lineasFactura      String?
-    /// Cuándo se CORRIGIÓ el pedido con lo que decía la factura.
-    ///
-    /// Distingue las dos formas de cuadrar, que no son la misma: un pedido que se tomó
-    /// bien y coincidió, y uno que no coincidía y se reescribió con lo facturado. Sin
-    /// esta marca los dos quedan en `igual` y no hay forma de saber cuál fue cuál —ni de
-    /// contar cuántos está corrigiendo el sistema, que es lo primero que hay que vigilar
-    /// después de encender esto.
-    ///
-    /// Lo que el vendedor había tomado queda en `itemsOriginal`.
-    facturaCorregidoAt DateTime?
-    /// En qué se diferenciaban, en palabras. JSON en texto.
-    ///
-    /// «ARROZ: pedido 24, facturado 54». Es lo que se le enseña al vendedor y lo que va
-    /// en el aviso a Entrega; recalcularlo comparando dos listas cada vez que alguien
-    /// abre el pedido es rehacer un trabajo que ya estaba hecho.
-    facturaDiferencias String?
-    /// En qué punto del REPARTO está el pedido. Lo escribe delivery.
-    ///
-    ///   despachado   — se cargó en el camión (la ruta se creó con él dentro).
-    ///   en_transito  — el camión salió.
-    ///   entregado    — se le dio al cliente.
-    ///   devuelto     — volvió al almacén: el cliente no lo quiso.
-    ///   cancelado    — el cliente lo canceló antes de salir o durante el reparto.
-    ///
-    /// Va APARTE de `estado` a propósito. `estado` manda sobre el archivado, sobre el
-    /// expirado y sobre todos los filtros de la lista; metiéndole «en tránsito» se rompen
-    /// los tres a la vez, y encima un pedido puede estar completado en PEDIDO y todavía
-    /// dando vueltas en el camión: son dos cosas distintas y tienen que poder decirse las
-    /// dos.
-    ///
-    /// `devuelto` y `cancelado` NO tocan el inventario. El reintegro lo hace Ventra, y
-    /// quien lleva la cuenta de lo que vuelve en el camión es el logístico. Poner el
-    /// estado esperando que el stock vuelva solo es contar con algo que no pasa.
-    estadoEntrega      String?
-    estadoEntregaAt    DateTime?
-    /// Por qué volvió o se canceló, si alguien lo escribió. Un pedido devuelto sin motivo
-    /// es un número en un informe que nadie puede explicar tres semanas después.
-    estadoEntregaNota  String?
-    createdAt          DateTime     @default(now())
-    // Cuándo se tocó por última vez. Es lo que hace posible la sincronización
-    // INCREMENTAL de las tablets: piden "lo que cambió desde tal hora" en vez del
-    // histórico entero, que por datos móviles son megas y minutos que no tienen.
-    //
-    // Con `@default(now())` las filas que ya existen quedan con una fecha razonable en
-    // vez de nula, así que la primera sync de cada tablet no se las salta.
-    updatedAt          DateTime     @default(now()) @updatedAt
-    // Archivado (soft-delete): completados y expirados-viejos se ocultan de la lista pero
-    // se conservan para reportes. null = activo (en proceso).
-    archivedAt         DateTime?
-    completedAt        DateTime?    // cuándo se completó (para archivar unos días después)
-    /**
-     * QUIÉN lo completó. Se guardan el id y el NOMBRE, y el nombre a propósito.
-     *
-     * Completar es decir «esto ya se facturó», y cuando aparece un pedido completado sin
-     * factura hay que poder preguntarle a alguien. Sólo estaba el cuándo.
-     *
-     * El nombre va copiado y no por relación: los usuarios se borran —hoy mismo se
-     * arregló para que se pueda—, y con una relación el nombre desaparecería justo de los
-     * pedidos viejos, que son los que se van a revisar. Un id huérfano no le dice nada a
-     * nadie. Mismo motivo por el que `itemsOriginal` guarda una copia y no un puntero.
-     */
-    completadoPorId    String?
-    completadoPor      String?
-    items              PedidoItem[]
-    copias             CopiaPortapapeles[]
+  /// Cómo quedó este pedido frente a su FACTURA en Ventra:
+  ///   `igual`       — se facturó exactamente lo que se pidió.
+  ///   `cambiado`    — se facturó otra cosa: más, menos o distinto.
+  ///   `sin_factura` — se comprobó y todavía no tiene factura.
+  /// Vacío = nadie lo ha comprobado todavía.
+  ///
+  /// Lo escribe DELIVERY por /integration/orders/invoicing. No lo escribe Ventra:
+  /// Ventra es un ERP detrás de una VPN que no manda nada hacia fuera, así que
+  /// alguien tiene que preguntarle, y quien ya lo hace —cada minuto, sucursal por
+  /// sucursal— es delivery. Aquí sólo se guarda lo que dijo.
+  facturaEstado      String?
+  /// El número de factura con el que cuadró, para poder ir a buscarla. Cuando el
+  /// pedido se facturó en dos documentos, van los dos separados por coma.
+  facturaNumero      String?
+  /// Cuándo se comprobó. Sirve para distinguir «no está facturado» de «hace tres
+  /// días que nadie mira», que en pantalla se parecen y no son lo mismo.
+  facturaAt          DateTime?
+  /// Lo que la FACTURA cobró por el reparto, si trae la línea «ENTREGA A DOMICILIO».
+  ///
+  /// No es lo mismo que `costoDomicilio`: aquél es lo que vale el reparto según la
+  /// fórmula —lo que se recalcula cuando cambia el peso—, y éste es lo que de verdad se
+  /// le cobró al cliente en el mostrador. Teniendo los dos se ve la diferencia; con uno
+  /// solo, no hay contra qué comparar.
+  ///
+  /// Y es la señal más fiable de que un pedido va a domicilio: sale de lo que se cobró,
+  /// no de una casilla que alguien marcó al tomarlo.
+  facturaDomicilio   Float?
+  /// Las líneas TAL COMO LAS PIDIÓ EL CLIENTE, en JSON, cuando la factura las cambió.
+  ///
+  /// El pedido se reescribe con lo facturado para que el pre-despacho cargue el camión
+  /// con lo que de verdad sale. Pero lo que se pidió no se puede perder: es la única
+  /// forma de ver en qué se diferencian, que es justo lo que hay que mirar.
+  ///
+  /// Se escribe UNA vez, la primera. Si se reescribiera en cada pasada, la segunda
+  /// guardaría como «original» lo que ya era la factura.
+  ///
+  /// Texto y no `Json` porque esta base corre en Postgres en producción y en SQLite en
+  /// desarrollo, y el tipo Json no se comporta igual en las dos.
+  itemsOriginal      String?
+  /// Lo que dice la FACTURA, al lado del pedido. JSON en texto.
+  ///
+  /// Se guarda aparte y NO se mete en las líneas del pedido. Reescribir el pedido con
+  /// la factura fue un error caro: cuando un cliente tiene varios pedidos el mismo día
+  /// no hay forma de saber qué factura es de cuál, y la misma factura acabó copiada en
+  /// dos y tres pedidos —el mismo producto repetido, uno completado y otros en proceso—.
+  ///
+  /// El pedido se queda como lo tomó el vendedor. Esto es lo que se llevó el cliente, y
+  /// se enseña al lado para poder comparar.
+  lineasFactura      String?
+  /// Cuándo se CORRIGIÓ el pedido con lo que decía la factura.
+  ///
+  /// Distingue las dos formas de cuadrar, que no son la misma: un pedido que se tomó
+  /// bien y coincidió, y uno que no coincidía y se reescribió con lo facturado. Sin
+  /// esta marca los dos quedan en `igual` y no hay forma de saber cuál fue cuál —ni de
+  /// contar cuántos está corrigiendo el sistema, que es lo primero que hay que vigilar
+  /// después de encender esto.
+  ///
+  /// Lo que el vendedor había tomado queda en `itemsOriginal`.
+  facturaCorregidoAt DateTime?
+  /// En qué se diferenciaban, en palabras. JSON en texto.
+  ///
+  /// «ARROZ: pedido 24, facturado 54». Es lo que se le enseña al vendedor y lo que va
+  /// en el aviso a Entrega; recalcularlo comparando dos listas cada vez que alguien
+  /// abre el pedido es rehacer un trabajo que ya estaba hecho.
+  facturaDiferencias String?
+  /// En qué punto del REPARTO está el pedido. Lo escribe delivery.
+  ///
+  ///   despachado   — se cargó en el camión (la ruta se creó con él dentro).
+  ///   en_transito  — el camión salió.
+  ///   entregado    — se le dio al cliente.
+  ///   devuelto     — volvió al almacén: el cliente no lo quiso.
+  ///   cancelado    — el cliente lo canceló antes de salir o durante el reparto.
+  ///
+  /// Va APARTE de `estado` a propósito. `estado` manda sobre el archivado, sobre el
+  /// expirado y sobre todos los filtros de la lista; metiéndole «en tránsito» se rompen
+  /// los tres a la vez, y encima un pedido puede estar completado en PEDIDO y todavía
+  /// dando vueltas en el camión: son dos cosas distintas y tienen que poder decirse las
+  /// dos.
+  ///
+  /// `devuelto` y `cancelado` NO tocan el inventario. El reintegro lo hace Ventra, y
+  /// quien lleva la cuenta de lo que vuelve en el camión es el logístico. Poner el
+  /// estado esperando que el stock vuelva solo es contar con algo que no pasa.
+  estadoEntrega      String?
+  estadoEntregaAt    DateTime?
+  /// Por qué volvió o se canceló, si alguien lo escribió. Un pedido devuelto sin motivo
+  /// es un número en un informe que nadie puede explicar tres semanas después.
+  estadoEntregaNota  String?
+  createdAt          DateTime            @default(now())
+  // Cuándo se tocó por última vez. Es lo que hace posible la sincronización
+  // INCREMENTAL de las tablets: piden "lo que cambió desde tal hora" en vez del
+  // histórico entero, que por datos móviles son megas y minutos que no tienen.
+  //
+  // Con `@default(now())` las filas que ya existen quedan con una fecha razonable en
+  // vez de nula, así que la primera sync de cada tablet no se las salta.
+  updatedAt          DateTime            @default(now()) @updatedAt
+  // Archivado (soft-delete): completados y expirados-viejos se ocultan de la lista pero
+  // se conservan para reportes. null = activo (en proceso).
+  archivedAt         DateTime?
+  completedAt        DateTime? // cuándo se completó (para archivar unos días después)
+  /**
+   * QUIÉN lo completó. Se guardan el id y el NOMBRE, y el nombre a propósito.
+   * Completar es decir «esto ya se facturó», y cuando aparece un pedido completado sin
+   * factura hay que poder preguntarle a alguien. Sólo estaba el cuándo.
+   * El nombre va copiado y no por relación: los usuarios se borran —hoy mismo se
+   * arregló para que se pueda—, y con una relación el nombre desaparecería justo de los
+   * pedidos viejos, que son los que se van a revisar. Un id huérfano no le dice nada a
+   * nadie. Mismo motivo por el que `itemsOriginal` guarda una copia y no un puntero.
+   */
+  completadoPorId    String?
+  completadoPor      String?
+  items              PedidoItem[]
+  copias             CopiaPortapapeles[]
 
-    @@unique([sucursalId, folio, vendedorId])
-    @@index([fecha])
-    @@index([archivedAt])
-    // La sincronización incremental filtra por esto en cada llamada de cada tablet.
-    // Sin índice, cada sync recorre los 44.700 pedidos.
-    @@index([updatedAt])
-    // Los reportes y la vista de vendedores filtran por vendedorId (8 sitios en
-    // el código). Sin índice, cada uno recorre los 43k pedidos.
-    @@index([vendedorId])
-    // La lista de clientes busca, por página, el pedido más antiguo de cada uno
-    // para saber qué vendedor lo trajo. Sin este índice esa consulta recorre
-    // los 43k pedidos en cada carga de la lista.
-    @@index([clienteId])
-    @@map("Order")
+  @@unique([sucursalId, folio, vendedorId])
+  @@index([fecha])
+  @@index([archivedAt])
+  // La sincronización incremental filtra por esto en cada llamada de cada tablet.
+  // Sin índice, cada sync recorre los 44.700 pedidos.
+  @@index([updatedAt])
+  // Los reportes y la vista de vendedores filtran por vendedorId (8 sitios en
+  // el código). Sin índice, cada uno recorre los 43k pedidos.
+  @@index([vendedorId])
+  // La lista de clientes busca, por página, el pedido más antiguo de cada uno
+  // para saber qué vendedor lo trajo. Sin este índice esa consulta recorre
+  // los 43k pedidos en cada carga de la lista.
+  @@index([clienteId])
+  @@map("Order")
 }
 
 model PedidoItem {
-    id          String  @id @default(cuid())
-    pedidoId    String  @map("orderId")
-    pedido      Pedido  @relation(fields: [pedidoId], references: [id])
-    codigo      String? @map("code")
-    producto    String
-    unidades    Int
-    packs       Int?    @default(0)
-    descripcion String?
+  id          String  @id @default(cuid())
+  pedidoId    String  @map("orderId")
+  pedido      Pedido  @relation(fields: [pedidoId], references: [id])
+  codigo      String? @map("code")
+  producto    String
+  unidades    Int
+  packs       Int?    @default(0)
+  descripcion String?
 
-    // Campos que empezo a mandar Parranda el 06/08/2026. Van en la LINEA porque
-    // son de la linea: los hectolitros y el importe de ESE producto en ESA
-    // cantidad, no del pedido entero.
-    //
-    // Decimal y no Float: son cantidades e importes. Un Float redondea en
-    // binario y al sumar miles de lineas el total se desvia de lo que dice el
-    // papel — en dinero eso no se puede.
-    hl           Decimal? @db.Decimal(12, 4)
-    precio_linea Decimal? @db.Decimal(14, 2)
+  // Campos que empezo a mandar Parranda el 06/08/2026. Van en la LINEA porque
+  // son de la linea: los hectolitros y el importe de ESE producto en ESA
+  // cantidad, no del pedido entero.
+  //
+  // Decimal y no Float: son cantidades e importes. Un Float redondea en
+  // binario y al sumar miles de lineas el total se desvia de lo que dice el
+  // papel — en dinero eso no se puede.
+  hl           Decimal? @db.Decimal(12, 4)
+  precio_linea Decimal? @db.Decimal(14, 2)
 
-    // Prisma NO crea indices automaticos sobre las claves foraneas en
-    // PostgreSQL. Sin este, cada vez que se traen los items de un pedido se
-    // recorre la tabla ENTERA: medido, 43 escaneos completos habian leido
-    // 2.878.764 filas y cero consultas habian usado indice. Hay 11 sitios en
-    // el codigo que incluyen los items.
-    @@index([pedidoId])
-    @@map("OrderItem")
+  // Prisma NO crea indices automaticos sobre las claves foraneas en
+  // PostgreSQL. Sin este, cada vez que se traen los items de un pedido se
+  // recorre la tabla ENTERA: medido, 43 escaneos completos habian leido
+  // 2.878.764 filas y cero consultas habian usado indice. Hay 11 sitios en
+  // el codigo que incluyen los items.
+  @@index([pedidoId])
+  @@map("OrderItem")
 }
 
 /// Cada vez que alguien pulsa "copiar al portapapeles".
@@ -314,133 +312,131 @@ model PedidoItem {
 /// "van 8000". Con la fecha, el usuario y la sucursal se puede ver quién lo usa,
 /// desde cuándo, y qué sucursal dejó de hacerlo.
 model CopiaPortapapeles {
-    id         String   @id @default(cuid())
-    /// Qué se copió: 'pedido' (el que se pega en la factura), 'vendedor' o 'cliente'.
-    tipo       String
-    /// Si el pedido se borra, sus copias se van con él: no sirven para nada sueltas.
-    pedidoId   String?
-    pedido     Pedido?  @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
-    /// Vendedor y cliente se guardan SUELTOS (sin llave foránea) a propósito: son
-    /// para contar, y no queremos que borrar un cliente arrastre el histórico de
-    /// uso ni que un id viejo impida guardar la copia.
-    vendedorId String?
-    clienteId  String?
-    usuarioId  String?
-    /// El nombre de quien copió, congelado. Si mañana se le renombra o se le da de
-    /// baja, el histórico sigue diciendo quién fue.
-    username   String?
-    sucursalId String?
-    creada     DateTime @default(now())
+  id         String   @id @default(cuid())
+  /// Qué se copió: 'pedido' (el que se pega en la factura), 'vendedor' o 'cliente'.
+  tipo       String
+  /// Si el pedido se borra, sus copias se van con él: no sirven para nada sueltas.
+  pedidoId   String?
+  pedido     Pedido?  @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  /// Vendedor y cliente se guardan SUELTOS (sin llave foránea) a propósito: son
+  /// para contar, y no queremos que borrar un cliente arrastre el histórico de
+  /// uso ni que un id viejo impida guardar la copia.
+  vendedorId String?
+  clienteId  String?
+  usuarioId  String?
+  /// El nombre de quien copió, congelado. Si mañana se le renombra o se le da de
+  /// baja, el histórico sigue diciendo quién fue.
+  username   String?
+  sucursalId String?
+  creada     DateTime @default(now())
 
-    @@index([tipo, creada])
-    @@index([sucursalId, creada])
-    @@index([vendedorId])
-    @@index([pedidoId])
-    @@map("ClipboardCopy")
+  @@index([tipo, creada])
+  @@index([sucursalId, creada])
+  @@index([vendedorId])
+  @@index([pedidoId])
+  @@map("ClipboardCopy")
 }
 
 model Cliente {
-    id        String   @id @default(cuid())
-    codigo    String?  @map("parrandaId")
-    sucursalId String?
-    sucursal  Sucursal? @relation(fields: [sucursalId], references: [id])
-    nombre    String
-    zona      String?
-    // Datos de geolocalización (del Consolidado_Geolocalizacion que entregó Parranda).
-    // El CSV de pedidos NO los trae; se enriquecen a los clientes por nombre+sucursal.
-    direccion       String?
-    municipio       String?
-    tipoCliente     String?  @map("clientType")      // Kiosko, Cafeteria, ...
-    estadoCompra    String?  @map("purchaseStatus")  // "Compra" | "No Compra"
-    latitud         Float?                           // usado por delivery para el cálculo de domicilio
-    longitud        Float?
-    geolocalizacion String?  @map("geoRaw")          // "lat,lng" crudo del consolidado
+  id              String    @id @default(cuid())
+  codigo          String?   @map("parrandaId")
+  sucursalId      String?
+  sucursal        Sucursal? @relation(fields: [sucursalId], references: [id])
+  nombre          String
+  zona            String?
+  // Datos de geolocalización (del Consolidado_Geolocalizacion que entregó Parranda).
+  // El CSV de pedidos NO los trae; se enriquecen a los clientes por nombre+sucursal.
+  direccion       String?
+  municipio       String?
+  tipoCliente     String?   @map("clientType") // Kiosko, Cafeteria, ...
+  estadoCompra    String?   @map("purchaseStatus") // "Compra" | "No Compra"
+  latitud         Float? // usado por delivery para el cálculo de domicilio
+  longitud        Float?
+  geolocalizacion String?   @map("geoRaw") // "lat,lng" crudo del consolidado
 
-    /// Distancia por carretera desde el ALMACÉN hasta este cliente, en kilómetros.
-    ///
-    /// La calcula la APK de domicilio y nos la devuelve. Se guarda en el CLIENTE y no
-    /// sólo en el pedido porque no cambia entre pedidos: el almacén está donde está y
-    /// el cliente también. Calculada una vez, sirve para todos sus pedidos.
-    ///
-    /// No es la distancia en línea recta —eso se saca de las coordenadas en dos
-    /// líneas—: es la que se recorre de verdad, que es por la que se cobra.
-    distanciaKm     Float?
+  /// Distancia por carretera desde el ALMACÉN hasta este cliente, en kilómetros.
+  ///
+  /// La calcula la APK de domicilio y nos la devuelve. Se guarda en el CLIENTE y no
+  /// sólo en el pedido porque no cambia entre pedidos: el almacén está donde está y
+  /// el cliente también. Calculada una vez, sirve para todos sus pedidos.
+  ///
+  /// No es la distancia en línea recta —eso se saca de las coordenadas en dos
+  /// líneas—: es la que se recorre de verdad, que es por la que se cobra.
+  distanciaKm Float?
 
-    /// Desde qué punto se midió, y cuándo.
-    ///
-    /// Sin esto la distancia es un número sin contexto: el día que se corrija la
-    /// ubicación de un almacén —siete de las diez la tienen puesta en el centro de la
-    /// ciudad— todas las distancias medidas desde el punto viejo quedan mal, y sin
-    /// saber cuál es cuál habría que recalcularlas TODAS o fiarse de ninguna.
-    distanciaDesde  String?
-    distanciaAt     DateTime?
+  /// Desde qué punto se midió, y cuándo.
+  ///
+  /// Sin esto la distancia es un número sin contexto: el día que se corrija la
+  /// ubicación de un almacén —siete de las diez la tienen puesta en el centro de la
+  /// ciudad— todas las distancias medidas desde el punto viejo quedan mal, y sin
+  /// saber cuál es cuál habría que recalcularlas TODAS o fiarse de ninguna.
+  distanciaDesde String?
+  distanciaAt    DateTime?
 
-    /// De dónde salió la ubicación que tiene ahora: "parranda", "apk", o quién la puso.
-    ///
-    /// Hace falta porque la APK de domicilio SÍ puede corregirla —quien va a llevar el
-    /// pedido es el que sabe dónde es de verdad—, y entonces hay que poder distinguir
-    /// el dato del consolidado del que corrigió un repartidor. Sin esto, una corrección
-    /// buena y un error se ven exactamente igual.
-    geoFuente       String?
-    geoAt           DateTime?
+  /// De dónde salió la ubicación que tiene ahora: "parranda", "apk", o quién la puso.
+  ///
+  /// Hace falta porque la APK de domicilio SÍ puede corregirla —quien va a llevar el
+  /// pedido es el que sabe dónde es de verdad—, y entonces hay que poder distinguir
+  /// el dato del consolidado del que corrigió un repartidor. Sin esto, una corrección
+  /// buena y un error se ven exactamente igual.
+  geoFuente String?
+  geoAt     DateTime?
 
-    /**
-     * El teléfono del cliente. Hasta ahora sólo vivía en el PEDIDO.
-     *
-     * Eso hacía imposible contestar "¿tienes el teléfono de este cliente?" sin abrir
-     * sus pedidos uno por uno, y para el que no había pedido nada últimamente, la
-     * respuesta era que no lo teníamos —cuando sí—. Se rellena del pedido más reciente
-     * que traiga uno, y se actualiza cuando entra un pedido con un número distinto: el
-     * último que dio el cliente es el bueno.
-     */
-    telefono        String?
+  /**
+   * El teléfono del cliente. Hasta ahora sólo vivía en el PEDIDO.
+   * Eso hacía imposible contestar "¿tienes el teléfono de este cliente?" sin abrir
+   * sus pedidos uno por uno, y para el que no había pedido nada últimamente, la
+   * respuesta era que no lo teníamos —cuando sí—. Se rellena del pedido más reciente
+   * que traiga uno, y se actualiza cuando entra un pedido con un número distinto: el
+   * último que dio el cliente es el bueno.
+   */
+  telefono String?
 
-    createdAt DateTime @default(now())
-    // Fecha de la última sincronización (Parranda) del cliente. La setea Prisma en cada
-    // update/create -> refleja "cuándo se sincronizó por última vez".
-    updatedAt DateTime @updatedAt @default(now())
-    pedidos   Pedido[]
+  createdAt DateTime @default(now())
+  // Fecha de la última sincronización (Parranda) del cliente. La setea Prisma en cada
+  // update/create -> refleja "cuándo se sincronizó por última vez".
+  updatedAt DateTime @default(now()) @updatedAt
+  pedidos   Pedido[]
 
-    @@unique([sucursalId, codigo])
-    // El nombre identifica al cliente dentro de su sucursal (asi lo busca la importacion).
-    // Sin este unico, dos pedidos del mismo cliente importados a la vez creaban el cliente
-    // dos veces, y el pedido salia con folio -1, -2... en vez de actualizarse.
-    @@unique([nombre, sucursalId])
-    @@map("Client")
+  @@unique([sucursalId, codigo])
+  // El nombre identifica al cliente dentro de su sucursal (asi lo busca la importacion).
+  // Sin este unico, dos pedidos del mismo cliente importados a la vez creaban el cliente
+  // dos veces, y el pedido salia con folio -1, -2... en vez de actualizarse.
+  @@unique([nombre, sucursalId])
+  @@map("Client")
 }
 
 // Config del webhook saliente (ej. Parranda). Fila única (id fijo). La edita el Super
 // Admin desde la UI de Mantenimiento (NO por .env). `secret` firma el envío (HMAC).
 model WebhookConfig {
-    id        String   @id @default("parranda")
-    url       String?
-    apiKey    String?  @map("key")
-    secret    String?
-    activo    Boolean  @default(true)
-    updatedAt DateTime @updatedAt @default(now())
+  id        String   @id @default("parranda")
+  url       String?
+  apiKey    String?  @map("key")
+  secret    String?
+  activo    Boolean  @default(true)
+  updatedAt DateTime @default(now()) @updatedAt
 }
 
 /// Claves de API para que otros proyectos/compañeros consuman la API.
 /// Se guarda SOLO el hash sha256 del token; el texto plano (pk_...) se muestra UNA vez
 /// al crearla. lastUsedAt/usageCount/lastUsedIp = "quién entra/sale".
 model ApiKey {
-    id          String    @id @default(cuid())
-    label       String // nombre del proyecto/consumidor
-    prefix      String    @unique // primeros chars visibles para identificarla
-    tokenHash   String // sha256(token) — nunca el token en claro
-    scope       String    @default("integration") // integration | read | full (reservado)
-    activo      Boolean   @default(true)
-    createdById String? // Usuario (Super Admin) que la emitió
-    lastUsedAt  DateTime?
-    lastUsedIp  String?
-    usageCount  Int       @default(0)
-    expiresAt   DateTime?
-    revokedAt   DateTime?
-    createdAt   DateTime  @default(now())
+  id          String    @id @default(cuid())
+  label       String // nombre del proyecto/consumidor
+  prefix      String    @unique // primeros chars visibles para identificarla
+  tokenHash   String // sha256(token) — nunca el token en claro
+  scope       String    @default("integration") // integration | read | full (reservado)
+  activo      Boolean   @default(true)
+  createdById String? // Usuario (Super Admin) que la emitió
+  lastUsedAt  DateTime?
+  lastUsedIp  String?
+  usageCount  Int       @default(0)
+  expiresAt   DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
 
-    @@map("ApiKey")
+  @@map("ApiKey")
 }
-
 
 /// Cuando el nombre de Parranda y el de Ventra no se parecen lo bastante, alguien dice
 /// cuál es cuál.
@@ -450,19 +446,18 @@ model ApiKey {
 /// otro formato (10 KG contra 1 KG PACA 30U). Adivinarlos sería peor que dejarlos sin
 /// precio: un precio equivocado no falla, sale mal y cuadra.
 model ProductoVinculo {
-    id             String   @id @default(cuid())
-    /// El nombre TAL CUAL viene en el pedido de Parranda.
-    nombrePedido   String   @unique
-    /// El nombre tal cual está en el catálogo de Ventra.
-    nombreVentra   String
-    /// Quién lo vinculó, para poder preguntarle si sale un precio raro.
-    creadoPor      String?
-    createdAt      DateTime @default(now())
-    updatedAt      DateTime @updatedAt @default(now())
+  id           String   @id @default(cuid())
+  /// El nombre TAL CUAL viene en el pedido de Parranda.
+  nombrePedido String   @unique
+  /// El nombre tal cual está en el catálogo de Ventra.
+  nombreVentra String
+  /// Quién lo vinculó, para poder preguntarle si sale un precio raro.
+  creadoPor    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @default(now()) @updatedAt
 
-    @@index([nombrePedido])
+  @@index([nombrePedido])
 }
-
 
 /// La tasa de cambio, para poder ver los importes en CUP además de en USD.
 ///
@@ -481,18 +476,17 @@ model ProductoVinculo {
 /// no es el suyo. No falla nada — sale un precio en CUP perfectamente creíble y
 /// equivocado.
 model TasaCambio {
-    /// El CÓDIGO de la sucursal: "HAB", "STG"… La fila "actual" es la de antes, que se
-    /// conserva como respaldo para las pantallas que aún no eligen sucursal.
-    id        String   @id @default("actual")
-    /// Cuántos CUP vale un USD.
-    cupPorUsd Float
-    /// De dónde salió: "amado", "manual", el nombre de quien la puso.
-    fuente    String?
-    /// Cuándo se trajo. Si esto envejece, el CUP deja de ser fiable y hay que decirlo.
-    traidoAt  DateTime @default(now())
-    updatedAt DateTime @updatedAt @default(now())
+  /// El CÓDIGO de la sucursal: "HAB", "STG"… La fila "actual" es la de antes, que se
+  /// conserva como respaldo para las pantallas que aún no eligen sucursal.
+  id        String   @id @default("actual")
+  /// Cuántos CUP vale un USD.
+  cupPorUsd Float
+  /// De dónde salió: "amado", "manual", el nombre de quien la puso.
+  fuente    String?
+  /// Cuándo se trajo. Si esto envejece, el CUP deja de ser fiable y hay que decirlo.
+  traidoAt  DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
 }
-
 
 /// Cada vez que alguien cambia dónde está un cliente, se guarda lo que había.
 ///
@@ -508,17 +502,53 @@ model TasaCambio {
 /// Es un registro, no un histórico completo: sólo se escribe cuando algo cambia de
 /// verdad, así que no crece por las sincronizaciones que dejan todo igual.
 model ClienteGeoCambio {
-    id                 String   @id @default(cuid())
-    clienteId          String
-    latitudAnterior    Float?
-    longitudAnterior   Float?
-    direccionAnterior  String?
-    latitudNueva       Float?
-    longitudNueva      Float?
-    direccionNueva     String?
-    /// Quién lo cambió: "apk", "parranda", o el usuario.
-    fuente             String
-    createdAt          DateTime @default(now())
+  id                String   @id @default(cuid())
+  clienteId         String
+  latitudAnterior   Float?
+  longitudAnterior  Float?
+  direccionAnterior String?
+  latitudNueva      Float?
+  longitudNueva     Float?
+  direccionNueva    String?
+  /// Quién lo cambió: "apk", "parranda", o el usuario.
+  fuente            String
+  createdAt         DateTime @default(now())
 
-    @@index([clienteId, createdAt])
+  @@index([clienteId, createdAt])
+}
+
+/// Cada cosa que intenta meter la APK de Entrega, y cómo acabó.
+///
+/// # Por qué agrupado y no una fila por llamada
+///
+/// La APK reintenta cada 60 segundos y no para. Con 25 entradas por intento son unas
+/// 36.000 filas al día, casi todas repetidas: el mismo folio fallando por lo mismo un
+/// millar de veces. Guardar cada una llenaría la base para responder peor — lo que hace
+/// falta saber es QUÉ folio falla, POR QUÉ, desde cuándo y cuántas veces lo ha intentado.
+///
+/// Por eso la clave es (folio, motivo) y lo que se acumula es el contador con la primera
+/// y la última vez. Un folio que cambia de motivo abre su propia fila, que es justo lo que
+/// se quiere ver: «éste pasó de 'no encontrado' a 'no va a domicilio'».
+model EntregaIntento {
+  id       String  @id @default(cuid())
+  /// El folio TAL COMO lo mandó la APK, sin tocarlo. Es la mitad de la gracia: se
+  /// compara con el nuestro para ver si coinciden.
+  folio    String
+  /// El motivo del rechazo. Cadena vacía cuando entró bien.
+  motivo   String
+  ok       Boolean
+  intentos Int     @default(1)
+
+  /// El pedido al que se resolvió, cuando se llegó a saber cuál era.
+  pedidoId String?
+  /// Lo que mandaron para identificar al cliente, para poder ver si viene o no.
+  cliente  String?
+  costo    Float?
+
+  primeroAt DateTime @default(now())
+  ultimoAt  DateTime @default(now())
+
+  @@unique([folio, motivo])
+  @@index([ultimoAt])
+  @@map("EntregaIntento")
 }
