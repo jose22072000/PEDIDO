@@ -428,7 +428,7 @@ export const ConfiguracionForm = () => {
         </CardBody>
       </Card>
 
-      {/* LOS DOS SINCRONIZADORES, JUNTOS Y COMO ENLACES.
+      {/* LOS SINCRONIZADORES, JUNTOS Y COMO ENLACES.
 
           El de clientes estaba entero metido en esta página —quinientas líneas de
           resumen, historial y tabla paginada— entre los parámetros del sistema y el
@@ -437,8 +437,11 @@ export const ConfiguracionForm = () => {
           importa; el panel escribe sus tarjetas a mano en `panel.tsx`— así que el enlace
           no se veía en ninguna parte.
 
-          Van los dos aquí, en un bloque, porque son lo mismo: pantallas de COMPROBAR que
-          algo corre solo. Y como enlaces, no incrustados: cada una tiene su ruta. */}
+          Van todos aquí, en un bloque, porque son lo mismo: pantallas de COMPROBAR que
+          algo corre solo. Y como enlaces, no incrustados: cada una tiene su ruta.
+
+          OJO al añadir una nueva: `panel-links.tsx` NO vale, es código muerto. Esta lista
+          es la que se ve. */}
       <Card className={cards()}>
         <CardBody>
           <div className="flex flex-col gap-1 mb-4">
@@ -460,6 +463,12 @@ export const ConfiguracionForm = () => {
                 texto:
                   "Cuántos clientes hay por sucursal, cuándo se sincronizó por última vez y cómo fue. Se sincroniza solo todos los días a las 6 de la tarde.",
                 href: "/panel/sincronizacion/clientes",
+              },
+              {
+                titulo: "Envíos de Entrega",
+                texto:
+                  "Qué folios intenta cobrar la APK de domicilio, por qué entran o no, cuántas veces lo ha reintentado y qué tenemos nosotros de cada folio.",
+                href: "/panel/sincronizacion/entrega",
               },
             ].map((s) => (
               <div

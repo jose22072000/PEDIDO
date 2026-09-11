@@ -46,6 +46,8 @@ interface Intento {
     fecha: string | null;
     creadoAt: string;
     requiereDomicilio: boolean | null;
+    vendedor: string | null;
+    sucursal: string | null;
   } | null;
 }
 
@@ -179,6 +181,7 @@ export function EntregaEnviosPanel() {
           <TableColumn>FOLIO QUE MANDA LA APK</TableColumn>
           <TableColumn>QUÉ PASA</TableColumn>
           <TableColumn>LO QUE TENEMOS NOSOTROS</TableColumn>
+          <TableColumn>VENDEDOR</TableColumn>
           <TableColumn>CLIENTE QUE MANDA</TableColumn>
           <TableColumn>INTENTOS</TableColumn>
           <TableColumn>DESDE / ÚLTIMO</TableColumn>
@@ -210,7 +213,22 @@ export function EntregaEnviosPanel() {
                   <span className="text-xs text-default-400">no está en PEDIDO</span>
                 )}
               </TableCell>
-              <TableCell className="text-xs">{i.cliente ?? "—"}</TableCell>
+              <TableCell className="text-xs">
+                {i.nuestro?.vendedor ?? "—"}
+                {i.nuestro?.sucursal && (
+                  <span className="text-default-400"> · {i.nuestro.sucursal}</span>
+                )}
+              </TableCell>
+              {/* Lo que mandaron para decir de qué cliente es. Cuando pone «no mandaron
+                  cliente» y al lado el motivo es «ese folio es de N clientes», la fila se
+                  explica sola. */}
+              <TableCell className="text-xs">
+                {i.cliente === "(no mandaron cliente)" ? (
+                  <span className="text-warning-600">no mandaron cliente</span>
+                ) : (
+                  (i.cliente ?? "—")
+                )}
+              </TableCell>
               <TableCell className="tabular-nums">{i.intentos.toLocaleString("es")}</TableCell>
               <TableCell className="text-xs text-default-500">
                 {haceCuanto(i.primeroAt)}

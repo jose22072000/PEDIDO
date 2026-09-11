@@ -61,7 +61,12 @@ router.get('/intentos', async (req, res) => {
     ? await prisma.pedido.findMany({
         where: { OR: folios.map((f) => ({ folio: { startsWith: f } })) },
         select: { folio: true, requiere_domicilio: true, fecha: true, createdAt: true,
-                  cliente: { select: { nombre: true } } },
+                  cliente: { select: { nombre: true } },
+                  // El vendedor es lo que hace la fila identificable de un vistazo: el
+                  // folio lleva sus iniciales dentro, y hay seis prefijos que comparten
+                  // dos vendedores (PDG26 es Dayana González y Diango Gola).
+                  vendedor: { select: { nombre: true, codigo: true } },
+                  sucursal: { select: { codigo: true } } },
       })
     : [];
 
@@ -101,7 +106,9 @@ router.get('/intentos', async (req, res) => {
       // Lo que tenemos nosotros de ese folio, para poder comparar de un vistazo.
       nuestro: p
         ? { folio: p.folio, cliente: p.cliente?.nombre ?? null, fecha: p.fecha,
-            creadoAt: p.createdAt, requiereDomicilio: p.requiere_domicilio }
+            creadoAt: p.createdAt, requiereDomicilio: p.requiere_domicilio,
+            vendedor: p.vendedor?.nombre ?? p.vendedor?.codigo ?? null,
+            sucursal: p.sucursal?.codigo ?? null }
         : null,
     };
   });
