@@ -36,6 +36,8 @@ interface Trabajo {
   actualizados: number;
   fallidos: number;
   desdeAt: number | null;
+  /** De dónde viene: la ingesta automática (n8n) o alguien subiendo por la pantalla. */
+  origen?: "n8n" | "pantalla";
 }
 
 interface Cola {
@@ -161,7 +163,9 @@ export function BarraEntrando({ conectado }: { conectado: boolean }) {
             </span>
             {t ? (
               <>
-                <strong>{s.sucursal}</strong> subiendo {t.archivo ?? "un archivo"}
+                <strong>{s.sucursal}</strong>{" "}
+                {t.origen === "n8n" ? "metiendo" : "subiendo"}{" "}
+                {t.archivo ?? (t.origen === "n8n" ? "un archivo de la ingesta" : "un archivo")}
                 {t.deLotes && t.deLotes > 1 && ` (trozo ${t.lote}/${t.deLotes})`} · línea{" "}
                 <span className="tabular-nums">
                   {t.hechos.toLocaleString("es")} de {t.filas.toLocaleString("es")}

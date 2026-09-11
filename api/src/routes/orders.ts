@@ -22,6 +22,7 @@ import { notifyPedidoCompletado } from '../lib/webhook';
 import { emitEvent } from '../lib/events';
 import { redisEnabled, publishJSON, getSubscriber, CH_IMPORT_DONE, CH_IMPORT_FAILED } from '../lib/redis';
 import { importQueue } from '../lib/queues';
+import { anotarEnCurso, borrarEnCurso, leerEnCurso } from '../lib/importEnCurso';
 import { mintSseTicket, consumeSseTicket } from '../lib/sseTickets';
 import { ingestaAuth } from '../middleware/ingestaAuth';
 
@@ -1050,9 +1051,40 @@ router.post('/bulk', ingestaAuth, async (req, res) => {
       return res.status(202).json({ enqueued: true, jobId: String(job.id) });
     }
 
-    const outcome = await processBulkImport(records, uploaderSucursalId ?? null, restrictToGestorId);
-    if (!outcome.ok) return res.status(409).json({ error: outcome.error, imported: 0 });
-    return res.json({ success: true, results: outcome.results });
+    /**
+     * En línea, pero DEJANDO RASTRO mientras dura.
+     *
+     * Este es el camino de n8n. Antes no se veía nada: los CSV se movían a Procesados en
+     * el Drive y en la pantalla no cambiaba un píxel, así que los operadores seguían
+     * preguntando si estaban entrando datos. Ahora se apunta en Redis mientras corre y la
+     * barra lo enseña; al acabar se borra.
+     */
+    const idEnCurso = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const base = {
+      id: idEnCurso,
+      archivo,
+      sucursalId: uploaderSucursalId ?? null,
+      origen: (forceInline ? 'n8n' : 'pantalla') as 'n8n' | 'pantalla',
+      desdeAt: Date.now(),
+    };
+
+    try {
+      const outcome = await processBulkImport(
+        records,
+        uploaderSucursalId ?? null,
+        restrictToGestorId,
+        (hechos, total, parcial) => {
+          void anotarEnCurso({ ...base, filas: total, hechos, ...parcial });
+        },
+      );
+
+      if (!outcome.ok) return res.status(409).json({ error: outcome.error, imported: 0 });
+
+      return res.json({ success: true, results: outcome.results });
+    } finally {
+      // Pase lo que pase —terminó, falló o reventó—, deja de anunciarse como en curso.
+      void borrarEnCurso(idEnCurso);
+    }
   } catch (err) {
     console.error('Bulk create error:', err);
     res.status(500).json({ error: 'Failed to create orders' });
@@ -1139,10 +1171,35 @@ router.get('/cola', async (req, res) => {
       });
     }
 
+    /**
+     * Sin cola, pero la ingesta de n8n SÍ deja rastro: se enseña igual. Es justo la
+     * instalación donde más falta hace, porque ahí todo entra por ese camino.
+     */
+    const enLinea = (await leerEnCurso()).filter((e) => isGlobalAdmin || e.sucursalId === sucursalId);
+    const porSuc = new Map<string, { sucursal: string; activos: unknown[]; enEspera: number; filasEnEspera: number; archivosEnEspera: string[] }>();
+
+    for (const e of enLinea) {
+      const k = e.sucursalId ?? '(sin sucursal)';
+
+      if (!porSuc.has(k)) {
+        porSuc.set(k, {
+          sucursal: (e.sucursalId && nom.get(e.sucursalId)) || 'Sin sucursal',
+          activos: [], enEspera: 0, filasEnEspera: 0, archivosEnEspera: [],
+        });
+      }
+
+      porSuc.get(k)!.activos.push({
+        jobId: e.id, archivo: e.archivo, lote: null, deLotes: null,
+        filas: e.filas, hechos: e.hechos, creados: e.creados,
+        actualizados: e.actualizados, fallidos: e.fallidos, desdeAt: e.desdeAt, origen: e.origen,
+      });
+    }
+
     return res.json({
-      activa: true, ahora: Date.now(), ventanaMin: 60, trabajando: false,
+      activa: true, ahora: Date.now(), ventanaMin: 60,
+      trabajando: enLinea.length > 0,
       entrando: [...acc.values()].sort((a, b) => b.ultimoAt - a.ultimoAt),
-      sucursales: [],
+      sucursales: [...porSuc.values()],
     });
   }
 
@@ -1158,7 +1215,7 @@ router.get('/cola', async (req, res) => {
   type Trabajo = {
     jobId: string; archivo: string | null; lote: number | null; deLotes: number | null;
     filas: number; hechos: number; creados: number; actualizados: number; fallidos: number;
-    desdeAt: number | null;
+    desdeAt: number | null; origen?: 'n8n' | 'pantalla';
   };
   const porSucursal = new Map<string, {
     sucursalId: string | null; sucursal: string; activos: Trabajo[];
@@ -1225,6 +1282,33 @@ router.get('/cola', async (req, res) => {
     c.enEspera++;
     c.filasEnEspera += d.totalFilas ?? d.records?.length ?? 0;
     if (d.archivo && !c.archivosEnEspera.includes(d.archivo)) c.archivosEnEspera.push(d.archivo);
+  }
+
+  /**
+   * Y las que se están haciendo EN LÍNEA, que es por donde entra n8n.
+   *
+   * Se meten en el mismo cajón que las de la cola: para quien mira la pantalla es lo
+   * mismo —«se está metiendo este archivo y va por la línea tal»— y de dónde viene es un
+   * detalle nuestro, no suyo.
+   */
+  for (const e of await leerEnCurso()) {
+    if (!mio(e.sucursalId)) continue;
+
+    cajon(e.sucursalId).activos.push({
+      jobId: e.id,
+      archivo: e.archivo,
+      // El origen se dice cuando no hay nombre de archivo: «la ingesta automática» es
+      // mejor respuesta que un hueco.
+      lote: null,
+      deLotes: null,
+      filas: e.filas,
+      hechos: e.hechos,
+      creados: e.creados,
+      actualizados: e.actualizados,
+      fallidos: e.fallidos,
+      desdeAt: e.desdeAt,
+      origen: e.origen,
+    });
   }
 
   const lista = [...porSucursal.values()].sort((a, b) => a.sucursal.localeCompare(b.sucursal));
