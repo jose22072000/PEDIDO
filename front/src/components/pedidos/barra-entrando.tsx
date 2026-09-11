@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import {
+  Drawer, DrawerBody, DrawerContent, DrawerHeader,
+  Modal, ModalBody, ModalContent, ModalHeader,
+} from "@heroui/react";
+import { ElementType, useCallback, useEffect, useState } from "react";
+
+import { usePantallaChica } from "@/hooks/pantalla";
 
 import { getApiBaseUrl } from "@/config";
 import { cn } from "@/lib/utils";
@@ -85,6 +91,20 @@ export function BarraEntrando({ conectado }: { conectado: boolean }) {
   // Con varias sucursales la línea se resume; esto abre el detalle de todas.
   const [abierto, setAbierto] = useState(false);
 
+  /**
+   * Modal en escritorio, cajón en móvil. Es la regla de la casa en todo Procovar, y el
+   * mismo envase que usa el detalle del pedido en esta misma pantalla.
+   *
+   * Antes el detalle se desplegaba debajo, dentro de la propia barra: empujaba la lista
+   * de pedidos hacia abajo y dejaba cuatro frases apretadas en un hueco que no es para
+   * leer. Aquí tiene sitio.
+   */
+  const pantallaChica = usePantallaChica();
+  const Envase: ElementType = pantallaChica ? Drawer : Modal;
+  const EnvaseContenido: ElementType = pantallaChica ? DrawerContent : ModalContent;
+  const EnvaseCabecera: ElementType = pantallaChica ? DrawerHeader : ModalHeader;
+  const EnvaseCuerpo: ElementType = pantallaChica ? DrawerBody : ModalBody;
+
   const cargar = useCallback(async () => {
     try {
       setCola(await fetch(`${api()}/orders/cola`).then((r) => r.json()));
@@ -146,6 +166,11 @@ export function BarraEntrando({ conectado }: { conectado: boolean }) {
           todos— y el detalle con vendedor y cliente se abre al pulsar. */}
       {entrando.length > 1 && (
         <>
+          {/* Todo en una línea. Cada pieza que se quita es una que cabe:
+              - las pastillas con fondo y padding ocupaban el doble que «STG 2»;
+              - el folio del último sobra en el resumen —con cuatro sucursales lo que
+                importa es cuánto y hace cuánto—, y sigue estando en el detalle y en el
+                título de cada sucursal al pasar el ratón. */}
           <span className="text-default-600">
             <strong className="tabular-nums">
               {entrando.reduce((n, e) => n + e.entrados, 0)}
@@ -153,40 +178,63 @@ export function BarraEntrando({ conectado }: { conectado: boolean }) {
             pedidos en la última hora
           </span>
 
-          {entrando.map((e) => (
-            <span
-              key={e.sucursalId ?? e.sucursal}
-              className="rounded-full bg-default-100 px-2 py-0.5 text-default-600"
-              title={`${e.sucursal}: ${e.entrados} en la última hora · el último ${e.ultimoFolio}${e.ultimoVendedor ? `, de ${e.ultimoVendedor}` : ""}`}
-            >
-              {e.sucursal} <span className="tabular-nums font-medium">{e.entrados}</span>
-            </span>
-          ))}
-
-          <span className="text-default-500">
-            el último <span className="font-mono">{entrando[0].ultimoFolio}</span> ({entrando[0].sucursal}){" "}
-            {hace(entrando[0].ultimoAt, ahora)}
+          <span className="text-default-600">
+            {entrando.map((e, i) => (
+              <span
+                key={e.sucursalId ?? e.sucursal}
+                title={`${e.sucursal}: ${e.entrados} en la última hora · el último ${e.ultimoFolio}${e.ultimoVendedor ? `, de ${e.ultimoVendedor}` : ""}`}
+              >
+                {i > 0 && <span className="text-default-300"> · </span>}
+                {e.sucursal} <span className="font-medium tabular-nums">{e.entrados}</span>
+              </span>
+            ))}
           </span>
 
+          <span className="text-default-400">el último {hace(entrando[0].ultimoAt, ahora)}</span>
+
           <button className="underline text-default-500" type="button" onClick={() => setAbierto(!abierto)}>
-            {abierto ? "menos" : "ver detalle"}
+            {abierto ? "menos" : "detalle"}
           </button>
 
-          {abierto && (
-            <div className="basis-full flex flex-col gap-0.5 pt-1 text-default-600">
-              {entrando.map((e) => (
-                <span key={`d-${e.sucursalId ?? e.sucursal}`}>
-                  <strong>{e.sucursal}</strong>: {e.entrados}{" "}
-                  {e.entrados === 1 ? "pedido" : "pedidos"}
-                  {e.vendedores > 1 && <> de {e.vendedores} vendedores</>} · el último{" "}
-                  <span className="font-mono">{e.ultimoFolio}</span>
-                  {e.ultimoVendedor && <>, de {e.ultimoVendedor}</>}
-                  {e.ultimoCliente && <> para {e.ultimoCliente}</>},{" "}
-                  <span className="text-default-400">{hace(e.ultimoAt, ahora)}</span>
+          <Envase
+            isOpen={abierto}
+            {...(pantallaChica ? { placement: "right" } : { size: "2xl", scrollBehavior: "inside" })}
+            onOpenChange={setAbierto}
+          >
+            <EnvaseContenido>
+              <EnvaseCabecera className="flex flex-col gap-0.5">
+                <span>Qué está entrando</span>
+                <span className="text-sm font-normal text-default-500">
+                  Pedidos de la última hora, por sucursal
                 </span>
-              ))}
-            </div>
-          )}
+              </EnvaseCabecera>
+              <EnvaseCuerpo className="pb-6">
+                <div className="flex flex-col gap-3">
+                  {entrando.map((e) => (
+                    <div
+                      key={`d-${e.sucursalId ?? e.sucursal}`}
+                      className="flex flex-col gap-0.5 rounded-medium border-medium border-default-200 p-3"
+                    >
+                      <div className="flex items-baseline justify-between gap-3">
+                        <span className="font-medium">{e.sucursal}</span>
+                        <span className="text-sm text-default-500">
+                          <span className="tabular-nums font-medium text-default-700">{e.entrados}</span>{" "}
+                          {e.entrados === 1 ? "pedido" : "pedidos"}
+                          {e.vendedores > 1 && <> · {e.vendedores} vendedores</>}
+                        </span>
+                      </div>
+                      <div className="text-sm text-default-600">
+                        El último <span className="font-mono">{e.ultimoFolio}</span>
+                        {e.ultimoVendedor && <>, de {e.ultimoVendedor}</>}
+                        {e.ultimoCliente && <> para {e.ultimoCliente}</>}
+                      </div>
+                      <div className="text-xs text-default-400">{hace(e.ultimoAt, ahora)}</div>
+                    </div>
+                  ))}
+                </div>
+              </EnvaseCuerpo>
+            </EnvaseContenido>
+          </Envase>
         </>
       )}
 
