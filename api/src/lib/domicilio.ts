@@ -117,6 +117,16 @@ export async function aplicarCostoDomicilio(u: {
    * ninguno, Santiago el 29,8%—, así que el nombre vale de reserva: por nombre chocan 11
    * de 18.818, y esos once se rechazan con su motivo en vez de adivinar.
    */
+  /**
+   * NUESTRO id de cliente, el que sale en `GET /integration/clients`.
+   *
+   * Es el mejor de los tres porque no tiene agujeros: el código falta en el 17,9% de los
+   * pedidos —Granma y Moa no tienen ninguno— y además hay tres numeraciones distintas
+   * dando vueltas (la de Ventra, la del CSV de pedidos y la del consolidado de
+   * geolocalización), así que «el código del cliente» no quiere decir lo mismo para
+   * todo el mundo. Este id sí: lo damos nosotros y lo tiene ya quien sincroniza clientes.
+   */
+  clienteId?: string | null;
   clienteCodigo?: string | null;
   clienteNombre?: string | null;
   costo: number;
@@ -308,7 +318,7 @@ export async function aplicarCostoDomicilio(u: {
           ...alcance,
           ...(u.vendedorCodigo ? { vendedor: { codigo: String(u.vendedorCodigo) } } : {}),
         },
-        select: { id: true, folio: true, cliente: { select: { codigo: true, nombre: true } } },
+        select: { id: true, folio: true, cliente: { select: { id: true, codigo: true, nombre: true } } },
         take: 40,
       })
     ).filter((p) => p.folio === folio || /^-\d{1,2}$/.test(p.folio.slice(folio.length)));
@@ -323,6 +333,14 @@ export async function aplicarCostoDomicilio(u: {
      * reserva se quedarían fuera Granma y Moa enteras, que no tienen ni un código.
      */
     let elegidos = candidatos;
+
+    // Por orden de fiabilidad: nuestro id, el código, y el nombre como último recurso.
+    if (elegidos.length > 1 && u.clienteId) {
+      const id = String(u.clienteId).trim();
+      const porId = elegidos.filter((p) => p.cliente?.id === id);
+
+      if (porId.length > 0) elegidos = porId;
+    }
 
     if (elegidos.length > 1 && u.clienteCodigo) {
       const cod = String(u.clienteCodigo).trim();
@@ -356,8 +374,9 @@ export async function aplicarCostoDomicilio(u: {
         ok: false,
         folio,
         motivo:
-          `ese folio es de ${elegidos.length} clientes distintos: manda clienteCodigo ` +
-          `(o clienteNombre) para señalar cuál. Son: ${quienes}`,
+          `ese folio es de ${elegidos.length} clientes distintos: manda clienteId ` +
+          `(el de /integration/clients), clienteCodigo o clienteNombre para señalar cuál. ` +
+          `Son: ${quienes}`,
       };
     }
 

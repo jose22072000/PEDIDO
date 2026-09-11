@@ -108,7 +108,7 @@ router.post('/ping', async (req, res) => {
 
 /**
  * POST /webhooks/domicilio
- * Body: { entregas: [{ pedidoId?, folio?, clienteCodigo?, clienteNombre?, vendedorCodigo?,
+ * Body: { entregas: [{ pedidoId?, folio?, clienteId?, clienteCodigo?, clienteNombre?, vendedorCodigo?,
  *                       costo, distanciaKm?, distanciaDesde? }] }
  *
  * En LOTE e idempotente: mandar dos veces lo mismo deja lo mismo, así que ante la duda
@@ -158,6 +158,7 @@ router.post('/domicilio', async (req, res) => {
         // Quién es el cliente de ese folio: es lo que deja usar el folio TAL COMO lo da
         // Parranda, sin que del otro lado tengan que conocer los sufijos que les ponemos
         // aquí cuando un mismo folio trae varios clientes. Ver `aplicarCostoDomicilio`.
+        clienteId: e.clienteId ?? e.idCliente ?? e.cliente_id ?? null,
         clienteCodigo: e.clienteCodigo ?? e.codigoCliente ?? e.cliente_codigo ?? e.parrandaId ?? null,
         clienteNombre: e.clienteNombre ?? e.nombreCliente ?? e.cliente_nombre ??
           (typeof e.cliente === 'string' ? e.cliente : e.cliente?.nombre) ?? null,
