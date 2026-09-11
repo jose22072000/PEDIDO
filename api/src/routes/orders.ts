@@ -1111,7 +1111,39 @@ router.get('/cola', async (req, res) => {
      * no hay nada que mirar. Se dice tal cual: una pantalla vacía sin explicación parece
      * que está rota.
      */
-    return res.json({ activa: false, nota: 'Las subidas se procesan al momento, sin cola.', sucursales: [] });
+    /**
+     * Sin cola no hay archivos que seguir, pero los pedidos siguen entrando: se devuelve
+     * `activa: true` igual y sólo la parte de actividad. Devolver `activa: false` apagaba
+     * la barra entera justo en la instalación donde más falta hace.
+     */
+    const desdeSinCola = new Date(Date.now() - 15 * 60 * 1000);
+    const recientesSinCola = await prisma.pedido.findMany({
+      where: { createdAt: { gte: desdeSinCola }, ...(isGlobalAdmin && !sucursalId ? {} : { sucursalId }) },
+      select: { folio: true, createdAt: true, sucursalId: true },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    });
+    const sucs = await prisma.sucursal.findMany({ select: { id: true, codigo: true, nombre: true } });
+    const nom = new Map(sucs.map((x) => [x.id, x.codigo || x.nombre]));
+    const acc = new Map<string, { sucursalId: string | null; sucursal: string; entrados: number; ultimoAt: number; ultimoFolio: string }>();
+
+    for (const p of recientesSinCola) {
+      const k = p.sucursalId ?? '(sin sucursal)';
+      const y = acc.get(k);
+
+      if (y) y.entrados++;
+      else acc.set(k, {
+        sucursalId: p.sucursalId,
+        sucursal: (p.sucursalId && nom.get(p.sucursalId)) || 'Sin sucursal',
+        entrados: 1, ultimoAt: p.createdAt.getTime(), ultimoFolio: p.folio,
+      });
+    }
+
+    return res.json({
+      activa: true, ahora: Date.now(), ventanaMin: 15, trabajando: false,
+      entrando: [...acc.values()].sort((a, b) => b.ultimoAt - a.ultimoAt),
+      sucursales: [],
+    });
   }
 
   // Los ACTIVOS con todo su detalle: son pocos (la concurrencia del worker) y son los
@@ -1197,11 +1229,55 @@ router.get('/cola', async (req, res) => {
 
   const lista = [...porSucursal.values()].sort((a, b) => a.sucursal.localeCompare(b.sucursal));
 
+  /**
+   * LO QUE DE VERDAD ESTÁ ENTRANDO, venga por donde venga.
+   *
+   * La cola sólo existe cuando alguien sube un CSV grande por la pantalla. Los pedidos
+   * entran casi siempre por otro lado —uno a uno, o en tandas pequeñas del ingestor— y
+   * entonces la cola está vacía aunque estén cayendo pedidos cada minuto. Mirando sólo la
+   * cola, la barra no aparecía nunca justo cuando hacía falta.
+   *
+   * Así que se mira la BASE: qué ha entrado en los últimos minutos, por sucursal. Eso
+   * contesta «¿ya entró mi pedido?» sin depender del camino por el que vino.
+   */
+  const VENTANA_MIN = 15;
+  const desde = new Date(Date.now() - VENTANA_MIN * 60 * 1000);
+  const recientes = await prisma.pedido.findMany({
+    where: { createdAt: { gte: desde }, ...(isGlobalAdmin && !sucursalId ? {} : { sucursalId }) },
+    select: { folio: true, createdAt: true, sucursalId: true },
+    orderBy: { createdAt: 'desc' },
+    take: 500,
+  });
+
+  type Entrando = { sucursalId: string | null; sucursal: string; entrados: number; ultimoAt: number; ultimoFolio: string };
+  const entrando = new Map<string, Entrando>();
+
+  for (const p of recientes) {
+    const clave = p.sucursalId ?? '(sin sucursal)';
+    const y = entrando.get(clave);
+
+    if (y) {
+      y.entrados++;
+    } else {
+      entrando.set(clave, {
+        sucursalId: p.sucursalId,
+        sucursal: (p.sucursalId && nombre.get(p.sucursalId)) || 'Sin sucursal',
+        entrados: 1,
+        // Vienen ordenados de más nuevo a más viejo, así que el primero es el último que
+        // entró: es la hora que contesta «¿sigue entrando?».
+        ultimoAt: p.createdAt.getTime(),
+        ultimoFolio: p.folio,
+      });
+    }
+  }
+
   res.json({
     activa: true,
     ahora: Date.now(),
+    ventanaMin: VENTANA_MIN,
     // Lo que contesta la pregunta de verdad: ¿siguen entrando datos?
     trabajando: lista.some((s) => s.activos.length > 0),
+    entrando: [...entrando.values()].sort((a, b) => b.ultimoAt - a.ultimoAt),
     sucursales: lista,
   });
 });

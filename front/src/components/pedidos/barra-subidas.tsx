@@ -46,10 +46,21 @@ interface EnSucursal {
   archivosEnEspera: string[];
 }
 
+/** Lo que ha entrado de verdad en los últimos minutos, venga por donde venga. */
+interface Entrando {
+  sucursalId: string | null;
+  sucursal: string;
+  entrados: number;
+  ultimoAt: number;
+  ultimoFolio: string;
+}
+
 interface Cola {
   activa: boolean;
   ahora?: number;
+  ventanaMin?: number;
   trabajando?: boolean;
+  entrando?: Entrando[];
   sucursales: EnSucursal[];
 }
 
@@ -116,15 +127,48 @@ export function BarraSubidas() {
 
   const ahora = cola.ahora ?? Date.now();
   const conAlgo = (cola.sucursales ?? []).filter((s) => s.activos.length > 0 || s.enEspera > 0);
+  const entrando = cola.entrando ?? [];
 
-  // Ni trabajo ni un «acabó» reciente que enseñar: la barra no existe y no estorba.
-  if (conAlgo.length === 0 && !acabado) return null;
+  /**
+   * Nada que decir: ni archivos, ni pedidos recientes, ni un «acabó» que enseñar.
+   *
+   * Si no hay nada, la barra no existe. Pero basta con que haya entrado UN pedido en los
+   * últimos minutos para enseñarla: eso es exactamente lo que contesta la pregunta que la
+   * hizo falta —«¿siguen entrando?»—.
+   */
+  if (conAlgo.length === 0 && entrando.length === 0 && !acabado) return null;
 
   return (
     <div className="fixed inset-x-0 bottom-0 z-50 border-t border-default-200 bg-content1/95 shadow-lg backdrop-blur">
       <div className="container mx-auto max-w-7xl px-4 py-2">
         {conAlgo.length === 0 ? (
-          <p className="text-sm text-success-600">{acabado}</p>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+            {acabado && <span className="text-sm text-success-600">{acabado}</span>}
+
+            {entrando.length > 0 && (
+              <>
+                <span className="flex items-center gap-1.5 font-medium text-default-700">
+                  {/* El punto que late dice «vivo» sin una palabra. */}
+                  <span className="relative flex size-2">
+                    <span className="absolute inline-flex size-full animate-ping rounded-full bg-success opacity-75" />
+                    <span className="relative inline-flex size-2 rounded-full bg-success" />
+                  </span>
+                  Entrando pedidos
+                </span>
+                {entrando.slice(0, 4).map((e) => (
+                  <span key={e.sucursalId ?? e.sucursal} className="text-default-600">
+                    <strong>{e.sucursal}</strong>{" "}
+                    <span className="tabular-nums">{e.entrados}</span> en {cola.ventanaMin ?? 15} min ·{" "}
+                    <span className="font-mono">{e.ultimoFolio}</span>{" "}
+                    <span className="text-default-400">hace {llevando(e.ultimoAt, ahora)}</span>
+                  </span>
+                ))}
+                {entrando.length > 4 && (
+                  <span className="text-default-500">y {entrando.length - 4} sucursales más</span>
+                )}
+              </>
+            )}
+          </div>
         ) : (
           <div className="flex flex-col gap-2">
             {/* Como mucho dos sucursales a la vez: esto es una barra, no un informe. */}
