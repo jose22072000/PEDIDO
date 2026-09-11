@@ -48,6 +48,7 @@
  * El pedido es de PEDIDO, y a Entrega no se le puede preguntar nada: es una APK que
  * trabaja sin conexión. El cotejo tiene que ocurrir del lado que siempre está en línea.
  */
+import { avisarCompletadoAutomatico, camposParaCompletar } from './autocompletado';
 import prisma from '../prismaClient';
 import { databases, ventasDeSucursal, ventasPorPrefijoDeFolio, type LineaVentaVentra } from './ventra';
 import { baseDeSucursal } from './baseDeVentra';
@@ -354,6 +355,8 @@ type PedidoConItems = {
   costoDomicilio: number | null;
   facturaEstado: string | null;
   facturaNumero: string | null;
+  /** El del PEDIDO (`completada` o nulo), no el de la factura. */
+  estado: string | null;
   itemsOriginal: string | null;
   items: Array<{ id: string; producto: string; codigo: string | null; unidades: number; packs: number | null; descripcion: string | null }>;
   encargado: string | null;
@@ -398,6 +401,12 @@ async function cotejarUnPedido(
     datos.facturaNumero = r.numero;
     datos.facturaAt = new Date();
   }
+
+  // Con factura, el pedido está completado: lo dice la factura, no hace falta que nadie
+  // vaya a pulsarlo. La regla vive en un solo sitio porque la factura entra por dos.
+  const completar = camposParaCompletar(r.estado, p.estado);
+
+  if (completar) Object.assign(datos, completar);
   if (r.domicilioFacturado != null) datos.facturaDomicilio = r.domicilioFacturado;
 
   /**
@@ -548,6 +557,18 @@ async function cotejarUnPedido(
 
   if (Object.keys(datos).length > 0 || corregido) {
     if (Object.keys(datos).length > 0) await prisma.pedido.update({ where: { id: p.id }, data: datos });
+    /**
+     * A Parranda se le avisa SOLO si la factura es nueva en esta pasada.
+     *
+     * Al encender esto había 215 pedidos ya facturados y sin completar, de once días
+     * atrás. Completarlos está bien —es la verdad— pero soltarle a Parranda 215 avisos de
+     * golpe por pedidos viejos no es contarle una novedad: es una ráfaga contra un sistema
+     * de fuera que no la espera.
+     *
+     * Con factura nueva sí se avisa, que es el caso normal a partir de ahora: la factura
+     * aparece y el pedido se completa en la misma pasada.
+     */
+    if (completar && cotejoNuevo) await avisarCompletadoAutomatico(p.id);
     // Que se vea sin que nadie recargue.
     emitEvent('pedido', { id: p.id, sucursalId: p.sucursalId, accion: 'update' });
   }

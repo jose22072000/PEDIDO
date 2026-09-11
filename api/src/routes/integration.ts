@@ -1,3 +1,4 @@
+import { avisarCompletadoAutomatico, camposParaCompletar } from '../lib/autocompletado';
 import { Router } from 'express';
 import prisma from '../prismaClient';
 import { catalogosDeSucursales, unidadesDeVenta } from '../lib/catalogoSucursal';
@@ -967,12 +968,23 @@ router.post('/orders/invoicing', async (req, res) => {
        * enterarse de que no había ninguna novedad.
        */
       const numero = f.numero ? String(f.numero) : null;
-      if (pedido.facturaEstado !== estado || pedido.facturaNumero !== numero) {
+      // Con factura, el pedido está completado — y da igual que la factura entre por aquí
+      // o por el cotejo contra Ventra: la regla es la misma función para los dos, porque
+      // dos copias acabarían completando distinto según por dónde hubiera entrado.
+      const completar = camposParaCompletar(estado, pedido.estado);
+
+      if (pedido.facturaEstado !== estado || pedido.facturaNumero !== numero || completar) {
         await prisma.pedido.update({
           where: { id: pedido.id },
-          data: { facturaEstado: estado, facturaNumero: numero, facturaAt: new Date() },
+          data: { facturaEstado: estado, facturaNumero: numero, facturaAt: new Date(), ...(completar || {}) },
         });
         guardado.push('factura');
+        if (completar) {
+          guardado.push('completado');
+          // Igual que en el cotejo: sólo se avisa a Parranda si la factura es nueva. Poner
+          // al día los ya facturados no es una novedad que contarle a nadie.
+          if (pedido.facturaEstado !== estado) await avisarCompletadoAutomatico(pedido.id);
+        }
       }
 
       /**
