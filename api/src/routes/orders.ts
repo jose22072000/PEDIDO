@@ -1082,8 +1082,35 @@ router.post('/bulk', ingestaAuth, async (req, res) => {
 
       // Queda apuntado lo que acaba de entrar: las tandas pequeñas terminan tan rápido
       // que la llave de «en curso» no la ve nadie, y sin esto la barra seguiría muda.
+      /**
+       * La sucursal, sacada de los pedidos si no vino en la petición.
+       *
+       * n8n se autentica con clave de API y no manda sucursal, así que
+       * `uploaderSucursalId` va en nulo y todos los archivos de la ingesta salían como
+       * «Sin sucursal» — justo el dato que hace falta para saber de quién es el archivo.
+       * Los pedidos que acaban de entrar sí la tienen: se resuelve de ahí.
+       */
+      let sucursalDelArchivo = uploaderSucursalId ?? null;
+
+      if (!sucursalDelArchivo) {
+        const folios = records
+          .map((r: any) => String(r?.folio || r?.Folio || '').toUpperCase().trim())
+          .filter(Boolean)
+          .slice(0, 20);
+
+        if (folios.length > 0) {
+          const uno = await prisma.pedido.findFirst({
+            where: { folio: { in: folios }, sucursalId: { not: null } },
+            select: { sucursalId: true },
+            orderBy: { updatedAt: 'desc' },
+          });
+
+          sucursalDelArchivo = uno?.sucursalId ?? null;
+        }
+      }
+
       void anotarHecha({
-        archivo, sucursalId: uploaderSucursalId ?? null, origen: base.origen,
+        archivo, sucursalId: sucursalDelArchivo, origen: base.origen,
         filas: records.length,
         creados: outcome.results.created,
         actualizados: outcome.results.updated,
