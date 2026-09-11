@@ -183,10 +183,23 @@ export function getRequesterContext(req: Request): RequesterContext {
   // manda en la sucursal (Supervisor, Administrador, Super Admin).
   const puedeCompletarPedidos = !!role && !isGestor;
 
-  // Borrar: solo quien responde de la sucursal. El Operador tampoco: factura con
-  // lo que hay, y un pedido borrado por un mal clic no vuelve.
+  /**
+   * Borrar un pedido.
+   *
+   * Quien responde de la sucursal, y el GESTOR **solo los suyos** — los de los vendedores
+   * que lleva, que son los que él mismo subió. Es lo que pidió Jose: el que se equivoca al
+   * cargar un pedido es quien lo cargó, y hasta ahora tenía que buscar a un supervisor
+   * para que le borrara su propio error.
+   *
+   * El límite no está aquí sino en el endpoint, que le añade `gestorId` al `where`: este
+   * permiso dice QUÉ puede hacer, no SOBRE QUÉ. Poner las dos cosas en el mismo sitio es
+   * como acabas dando permiso global sin darte cuenta.
+   *
+   * El Operador sigue sin poder: factura con lo que hay, y un pedido borrado por un mal
+   * clic no vuelve.
+   */
   const puedeBorrarPedidos =
-    isSuperAdmin || role === 'ADMINISTRADOR' || role === 'SUPERVISOR';
+    isSuperAdmin || role === 'ADMINISTRADOR' || role === 'SUPERVISOR' || isGestor;
 
   return {
     userId: payload?.userId,

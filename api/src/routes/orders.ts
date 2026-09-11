@@ -14,6 +14,7 @@ import {
   resolveSucursalFilter,
   resolveSucursalScope,
   getRequesterContext,
+  soloLoSuyo,
 } from '../lib/sucursalContext';
 import { nombreComparable, codigoComparable } from '../lib/nombreVendedor';
 import { parsearFechaConsulta } from '../lib/fechaConsulta';
@@ -720,9 +721,19 @@ router.delete('/:id', async (req, res) => {
       return res.status(400).json({ error: sucursalError });
     }
 
+    /**
+     * El Gestor borra LO SUYO y nada más.
+     *
+     * Se acota aquí, en la consulta, y no comprobando después: buscando sin el filtro y
+     * comparando luego, un despiste deja el borrado hecho. Con el filtro dentro, el pedido
+     * de otro sencillamente no aparece — contesta «no encontrado», que además es lo que
+     * tiene que ver alguien que no debería saber que ese pedido existe.
+     */
+    const suyo = soloLoSuyo(req);
+
     // Check if order exists
     const existingOrder = await prisma.pedido.findFirst({
-      where,
+      where: { ...where, ...(suyo || {}) },
       include: { items: true },
     });
 
