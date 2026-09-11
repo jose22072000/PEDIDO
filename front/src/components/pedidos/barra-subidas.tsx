@@ -147,18 +147,26 @@ export function BarraSubidas() {
 
             {entrando.length > 0 && (
               <>
+                {/* El punto late SÓLO si de verdad está cayendo algo ahora mismo.
+                    Latiendo siempre sería mentira: a los veinte minutos sin un pedido,
+                    un punto verde parpadeando dice «está entrando» cuando no entra nada,
+                    y es justo la confianza que hay que no romper. */}
                 <span className="flex items-center gap-1.5 font-medium text-default-700">
-                  {/* El punto que late dice «vivo» sin una palabra. */}
-                  <span className="relative flex size-2">
-                    <span className="absolute inline-flex size-full animate-ping rounded-full bg-success opacity-75" />
-                    <span className="relative inline-flex size-2 rounded-full bg-success" />
-                  </span>
-                  Entrando pedidos
+                  {ahora - (entrando[0]?.ultimoAt ?? 0) < 120_000 ? (
+                    <span className="relative flex size-2">
+                      <span className="absolute inline-flex size-full animate-ping rounded-full bg-success opacity-75" />
+                      <span className="relative inline-flex size-2 rounded-full bg-success" />
+                    </span>
+                  ) : (
+                    <span className="inline-flex size-2 rounded-full bg-default-400" />
+                  )}
+                  {ahora - (entrando[0]?.ultimoAt ?? 0) < 120_000 ? "Entrando pedidos" : "Último pedido"}
                 </span>
                 {entrando.slice(0, 4).map((e) => (
                   <span key={e.sucursalId ?? e.sucursal} className="text-default-600">
                     <strong>{e.sucursal}</strong>{" "}
-                    <span className="tabular-nums">{e.entrados}</span> en {cola.ventanaMin ?? 15} min ·{" "}
+                    <span className="tabular-nums">{e.entrados}</span> en{" "}
+                    {(cola.ventanaMin ?? 60) >= 60 ? "1 h" : `${cola.ventanaMin} min`} ·{" "}
                     <span className="font-mono">{e.ultimoFolio}</span>{" "}
                     <span className="text-default-400">hace {llevando(e.ultimoAt, ahora)}</span>
                   </span>

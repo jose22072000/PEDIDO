@@ -1116,7 +1116,7 @@ router.get('/cola', async (req, res) => {
      * `activa: true` igual y sólo la parte de actividad. Devolver `activa: false` apagaba
      * la barra entera justo en la instalación donde más falta hace.
      */
-    const desdeSinCola = new Date(Date.now() - 15 * 60 * 1000);
+    const desdeSinCola = new Date(Date.now() - 60 * 60 * 1000);
     const recientesSinCola = await prisma.pedido.findMany({
       where: { createdAt: { gte: desdeSinCola }, ...(isGlobalAdmin && !sucursalId ? {} : { sucursalId }) },
       select: { folio: true, createdAt: true, sucursalId: true },
@@ -1140,7 +1140,7 @@ router.get('/cola', async (req, res) => {
     }
 
     return res.json({
-      activa: true, ahora: Date.now(), ventanaMin: 15, trabajando: false,
+      activa: true, ahora: Date.now(), ventanaMin: 60, trabajando: false,
       entrando: [...acc.values()].sort((a, b) => b.ultimoAt - a.ultimoAt),
       sucursales: [],
     });
@@ -1240,7 +1240,15 @@ router.get('/cola', async (req, res) => {
    * Así que se mira la BASE: qué ha entrado en los últimos minutos, por sucursal. Eso
    * contesta «¿ya entró mi pedido?» sin depender del camino por el que vino.
    */
-  const VENTANA_MIN = 15;
+  /**
+   * Una hora, no quince minutos.
+   *
+   * Los pedidos no entran a un ritmo constante: entran a rachas —cinco en un minuto y
+   * luego media hora sin nada—. Con una ventana corta la barra desaparecía justo cuando
+   * alguien preguntaba «¿entró lo mío?», que es cuando tiene que contestar «sí, y el
+   * último fue hace media hora».
+   */
+  const VENTANA_MIN = 60;
   const desde = new Date(Date.now() - VENTANA_MIN * 60 * 1000);
   const recientes = await prisma.pedido.findMany({
     where: { createdAt: { gte: desde }, ...(isGlobalAdmin && !sucursalId ? {} : { sucursalId }) },
