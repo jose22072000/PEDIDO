@@ -1054,6 +1054,117 @@ router.post('/bulk', ingestaAuth, async (req, res) => {
 //
 // Se scopea por sucursal igual que el stream: los conteos de una sucursal no se
 // devuelven a otra.
+/**
+ * GET /orders/cola — cómo va la subida, por sucursal.
+ *
+ * # Por qué
+ *
+ * Mientras un archivo se importa, el operador no ve nada: sube, y a esperar. Y como no
+ * ve nada, pregunta cada cinco segundos si su pedido ya entró. Esto es para que lo vea
+ * él: qué se está procesando ahora, por dónde va y cuánto queda en cola.
+ *
+ * # Qué se enseña y qué no
+ *
+ * Cada uno ve **su** sucursal. Quien las ve todas —admin global— ve todas, que es lo que
+ * hace falta para saber si la cosa va atascada en general o es sólo una.
+ *
+ * No se devuelven los registros de los trabajos, sólo cuántos son: el `data` de un job
+ * lleva el CSV entero y sacarlo por una API para pintar una barra sería mover megas para
+ * nada.
+ */
+router.get('/cola', async (req, res) => {
+  const { sucursalId, error } = resolveSucursalFilter(req);
+
+  if (error) return res.status(400).json({ error });
+
+  const { isGlobalAdmin } = getRequesterContext(req);
+
+  // Cerrado por defecto, igual que `import-status`: sin sucursal sólo el admin global.
+  if (!sucursalId && !isGlobalAdmin) {
+    return res.status(403).json({ error: 'Sin permiso para ver la cola.' });
+  }
+
+  const q = importQueue();
+
+  if (!q) {
+    /**
+     * Sin cola las importaciones se hacen en línea y terminan antes de contestar, así que
+     * no hay nada que mirar. Se dice tal cual: una pantalla vacía sin explicación parece
+     * que está rota.
+     */
+    return res.json({ activa: false, nota: 'Las subidas se procesan al momento, sin cola.', sucursales: [] });
+  }
+
+  // Los ACTIVOS con todo su detalle: son pocos (la concurrencia del worker) y son los
+  // únicos que tienen barra que enseñar.
+  const activos = await q.getJobs(['active'], 0, 20);
+  // Los que esperan: sólo hacen falta para contar y para decir cuántas filas traen.
+  const esperando = await q.getJobs(['waiting', 'delayed'], 0, 50);
+
+  const sucursales = await prisma.sucursal.findMany({ select: { id: true, codigo: true, nombre: true } });
+  const nombre = new Map(sucursales.map((s) => [s.id, s.codigo || s.nombre]));
+
+  type Trabajo = { jobId: string; filas: number; hechos: number; desdeAt: number | null };
+  const porSucursal = new Map<string, { sucursalId: string | null; sucursal: string; activos: Trabajo[]; enEspera: number; filasEnEspera: number }>();
+
+  const cajon = (sid: string | null) => {
+    const clave = sid ?? '(sin sucursal)';
+
+    if (!porSucursal.has(clave)) {
+      porSucursal.set(clave, {
+        sucursalId: sid,
+        sucursal: (sid && nombre.get(sid)) || 'Sin sucursal',
+        activos: [], enEspera: 0, filasEnEspera: 0,
+      });
+    }
+
+    return porSucursal.get(clave)!;
+  };
+
+  const mio = (sid: string | null) => isGlobalAdmin || sid === sucursalId;
+
+  for (const j of activos) {
+    const d = j.data as { records?: unknown[]; uploaderSucursalId?: string | null };
+    const sid = d.uploaderSucursalId ?? null;
+
+    if (!mio(sid)) continue;
+
+    const p = j.progress() as { hechos?: number; total?: number } | number | null;
+    const filas = (typeof p === 'object' && p?.total) || d.records?.length || 0;
+
+    cajon(sid).activos.push({
+      jobId: String(j.id),
+      filas,
+      hechos: typeof p === 'object' ? (p?.hechos ?? 0) : 0,
+      // `processedOn` es cuándo lo cogió el worker: con eso se dice «lleva 40 s», que es
+      // lo que calma a quien está esperando.
+      desdeAt: j.processedOn ?? null,
+    });
+  }
+
+  for (const j of esperando) {
+    const d = j.data as { records?: unknown[]; uploaderSucursalId?: string | null };
+    const sid = d.uploaderSucursalId ?? null;
+
+    if (!mio(sid)) continue;
+
+    const c = cajon(sid);
+
+    c.enEspera++;
+    c.filasEnEspera += d.records?.length ?? 0;
+  }
+
+  const lista = [...porSucursal.values()].sort((a, b) => a.sucursal.localeCompare(b.sucursal));
+
+  res.json({
+    activa: true,
+    ahora: Date.now(),
+    // Lo que contesta la pregunta de verdad: ¿siguen entrando datos?
+    trabajando: lista.some((s) => s.activos.length > 0),
+    sucursales: lista,
+  });
+});
+
 router.get('/import-status/:jobId', async (req, res) => {
   const { sucursalId, error } = resolveSucursalFilter(req);
   if (error) return res.status(400).json({ error });
@@ -1211,6 +1322,17 @@ export async function processBulkImport(
   // Cuando lo sube un GESTOR: su usuario.id. Solo podrá importar pedidos de SUS
   // vendedores (vendedor.gestorId === este id). null = sin restricción (admin/superv).
   restrictToGestorId: string | null = null,
+  /**
+   * Se llama cada pocas filas para decir por dónde va.
+   *
+   * Existe por una razón muy concreta: mientras un archivo se importa, el operador no ve
+   * NADA y pregunta cada cinco segundos si ya entró su pedido. Sin esto no hay forma de
+   * contestarle, porque el trabajo es una caja negra entre que se encola y termina.
+   *
+   * Es opcional: la importación en línea —la de n8n, que espera el resultado— no lo pasa
+   * y se comporta exactamente igual que antes.
+   */
+  avisar?: (hechos: number, total: number) => void,
 ): Promise<BulkImportOutcome> {
   /**
    * Antes de repartir los folios, se mira QUÉ FOLIO TIENE YA CADA CLIENTE.
@@ -1288,7 +1410,20 @@ export async function processBulkImport(
   }
 
   const results: BulkImportResults = { created: 0, updated: 0, failed: 0, sinAsignar: 0, errors: [] };
+  /**
+   * Cada 25 filas, no en cada una: avisar por fila serían miles de escrituras en Redis
+   * para mover una barra que nadie ve moverse tan fino, y eso sí frenaría la importación.
+   */
+  const CADA = 25;
+  let hechos = 0;
+
+  avisar?.(0, mappedRecords.length);
+
   for (const record of mappedRecords) {
+    hechos++;
+
+    if (hechos % CADA === 0) avisar?.(hechos, mappedRecords.length);
+
     const key = record.seller.code || record.seller.name.toUpperCase().trim();
     const rechazo = vendedoresRechazados.get(key);
 
@@ -1331,6 +1466,8 @@ export async function processBulkImport(
   }
 
   // Se importaron pedidos: los que pidan domicilio entran en la cola de cotización.
+  avisar?.(mappedRecords.length, mappedRecords.length);
+
   if (results.created > 0 || results.updated > 0) {
     emitEvent('pedido', { sucursalId: uploaderSucursalId ?? null, accion: 'bulk' });
     emitEvent('cliente', { sucursalId: uploaderSucursalId ?? null, accion: 'bulk' });

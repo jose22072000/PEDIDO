@@ -53,10 +53,22 @@ async function main() {
       uploaderSucursalId: string | null;
       restrictToGestorId?: string | null;
     };
+    /**
+     * El progreso se guarda EN EL JOB, que es lo que puede leer la API.
+     *
+     * El worker corre en otro contenedor, así que no hay forma de preguntarle. Bull deja
+     * el progreso en Redis junto al job y desde la API se lee sin tocar al worker: eso es
+     * lo que alimenta la barra que ven los operadores.
+     *
+     * Si escribir el progreso falla, la importación sigue: es información, no el trabajo.
+     */
     const outcome = await processBulkImport(
       records as any[],
       uploaderSucursalId,
       restrictToGestorId ?? null,
+      (hechos, total) => {
+        void job.progress({ hechos, total }).catch(() => {});
+      },
     );
     if (!outcome.ok) {
       // Colisión de vendedor: publica el fallo (el SSE lo reenvía al front) y falla el job.
