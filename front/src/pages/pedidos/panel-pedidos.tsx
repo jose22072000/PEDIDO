@@ -1,4 +1,3 @@
-import { ColaSubidas } from "@/components/pedidos/cola-subidas";
 import { NavigationHeading } from "@/components/navigation-heading";
 import { OrdersList } from "@/components/pedidos/order-list";
 
@@ -11,10 +10,6 @@ export default function PedidosPanelPage() {
         paragraph="Gestiona y filtra todos tus pedidos desde un solo lugar"
         title="Gestión de Pedidos"
       />
-
-      {/* Va ARRIBA del listado a propósito: es lo primero que mira quien acaba de subir
-          un archivo y viene a ver si su pedido entró. */}
-      <ColaSubidas />
 
       <OrdersList />
     </section>
