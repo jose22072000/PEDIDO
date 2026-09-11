@@ -1,4 +1,4 @@
-import { Button, Card, CardBody, Chip, Spinner, Table, TableBody, TableCell, TableColumn, TableHeader, TableRow } from "@heroui/react";
+import { Button, Card, CardBody, Chip, Spinner } from "@heroui/react";
 import { useCallback, useEffect, useState } from "react";
 
 import { getApiBaseUrl } from "@/config";
@@ -29,11 +29,12 @@ import { getApiBaseUrl } from "@/config";
  */
 const api = getApiBaseUrl;
 
-type Clase = "aplicada" | "no_subido" | "sin_domicilio" | "otro";
+type Clase = "aplicada" | "no_subido" | "sin_domicilio" | "ambiguo" | "otro";
 
 interface Intento {
   folio: string;
   motivo: string;
+  codigo: string;
   ok: boolean;
   clase: Clase;
   intentos: number;
@@ -60,26 +61,49 @@ interface Respuesta {
     aplicadas: number;
     no_subido: number;
     sin_domicilio: number;
+    ambiguo: number;
     otro: number;
     reintentos_en_balde: number;
   };
   intentos: Intento[];
 }
 
-/** Etiqueta, color y —lo importante— qué hacer con cada clase. */
-const CLASES: Record<Clase, { texto: string; color: "success" | "warning" | "danger" | "default"; queHacer: string }> = {
-  aplicada: { texto: "Entró", color: "success", queHacer: "El costo se guardó" },
+/**
+ * Etiqueta, color y qué hacer con cada clase.
+ *
+ * `resumen` es la frase corta que va en la fila. El motivo entero —que puede ser un
+ * párrafo con los nombres de veintitrés clientes— va en el detalle que se abre al pulsar:
+ * metido en una celda revienta la tabla y obliga a hacer scroll lateral para leer lo demás.
+ */
+const CLASES: Record<Clase, { texto: string; color: "success" | "warning" | "danger" | "default"; resumen: string; queHacer: string }> = {
+  aplicada: {
+    texto: "Entró",
+    color: "success",
+    resumen: "el costo se guardó",
+    queHacer: "El costo se guardó",
+  },
   no_subido: {
     texto: "No subido",
     color: "warning",
-    queHacer: "El pedido no está en PEDIDO. Entra solo cuando el vendedor suba su archivo; si lleva más de un día, no lo ha subido nadie",
+    resumen: "el pedido aún no está en PEDIDO",
+    queHacer:
+      "El repartidor entrega el mismo día y el pedido entra cuando el vendedor sube su archivo. Si lleva más de un día, no lo ha subido nadie: eso es nuestro",
   },
   sin_domicilio: {
     texto: "No lleva domicilio",
     color: "danger",
-    queHacer: "El pedido se recoge en el almacén. La APK no debería cobrarlo, y reintentar no sirve de nada",
+    resumen: "ese pedido se recoge en el almacén",
+    queHacer:
+      "La APK no debería cobrarlo y reintentar no sirve de nada. Se evita sincronizando /integration/orders?soloDomicilio=1 en el móvil",
   },
-  otro: { texto: "Otro", color: "default", queHacer: "Mirar el motivo" },
+  ambiguo: {
+    texto: "Falta el cliente",
+    color: "warning",
+    resumen: "ese folio tiene varios clientes debajo",
+    queHacer:
+      "Entra en cuanto la APK mande clienteId. El folio lo pone Parranda y trae varios clientes; nosotros le ponemos sufijo para separarlos",
+  },
+  otro: { texto: "Otro", color: "default", resumen: "ver el detalle", queHacer: "Mirar el motivo" },
 };
 
 function haceCuanto(iso: string): string {
@@ -103,6 +127,7 @@ export function EntregaEnviosPanel() {
   const [datos, setDatos] = useState<Respuesta | null>(null);
   const [cargando, setCargando] = useState(true);
   const [filtro, setFiltro] = useState<Clase | "todo">("todo");
+  const [abierto, setAbierto] = useState<string | null>(null);
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -115,7 +140,7 @@ export function EntregaEnviosPanel() {
 
   useEffect(() => {
     cargar();
-    // Se refresca solo: la APK reintenta cada minuto y esta pantalla se mira mientras se
+    // Se refresca sola: la APK reintenta cada minuto y esta pantalla se mira mientras se
     // arregla algo, así que quedarse congelada engaña.
     const t = setInterval(cargar, 60_000);
 
@@ -129,15 +154,16 @@ export function EntregaEnviosPanel() {
   const filas = filtro === "todo" ? datos.intentos : datos.intentos.filter((i) => i.clase === filtro);
 
   const tarjetas: Array<{ clase: Clase | "todo"; titulo: string; valor: number; pie: string }> = [
-    { clase: "todo", titulo: "Folios distintos", valor: r.folios, pie: "en los últimos 7 días" },
-    { clase: "sin_domicilio", titulo: "No llevan domicilio", valor: r.sin_domicilio, pie: "de la APK: no debería mandarlos" },
-    { clase: "no_subido", titulo: "Sin subir a PEDIDO", valor: r.no_subido, pie: "nuestro: falta subir el archivo" },
-    { clase: "aplicada", titulo: "Entraron", valor: r.aplicadas, pie: "con su costo guardado" },
+    { clase: "todo", titulo: "Folios", valor: r.folios, pie: "en 7 días" },
+    { clase: "sin_domicilio", titulo: "Sin domicilio", valor: r.sin_domicilio, pie: "de la APK" },
+    { clase: "no_subido", titulo: "Sin subir", valor: r.no_subido, pie: "nuestro" },
+    { clase: "ambiguo", titulo: "Falta cliente", valor: r.ambiguo ?? 0, pie: "de la APK" },
+    { clase: "aplicada", titulo: "Entraron", valor: r.aplicadas, pie: "con su costo" },
   ];
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         {tarjetas.map((t) => (
           <Card
             key={t.titulo}
@@ -157,10 +183,10 @@ export function EntregaEnviosPanel() {
       {/* El número que duele: cuántas veces se ha reintentado algo que nunca va a entrar. */}
       {r.reintentos_en_balde > 0 && (
         <Card>
-          <CardBody className="py-3 flex-row items-baseline justify-between gap-3">
+          <CardBody className="py-3 flex-row items-center justify-between gap-3 flex-wrap">
             <span className="text-sm">
-              <strong className="tabular-nums">{r.reintentos_en_balde.toLocaleString("es")}</strong> reintentos
-              que no han entrado. La APK repite cada minuto y no para sola.
+              <strong className="tabular-nums">{r.reintentos_en_balde.toLocaleString("es")}</strong>{" "}
+              reintentos que no han entrado. La APK repite cada minuto y no para sola.
             </span>
             <Button size="sm" variant="flat" onPress={cargar}>
               Actualizar
@@ -178,92 +204,96 @@ export function EntregaEnviosPanel() {
         </p>
       )}
 
-      <Table aria-label="Lo que manda la APK de Entrega">
-        <TableHeader>
-          <TableColumn>FOLIO QUE MANDA ENTREGA</TableColumn>
-          <TableColumn>QUÉ PASA</TableColumn>
-          <TableColumn>EL PEDIDO NUESTRO</TableColumn>
-          <TableColumn>VENDEDOR (EL NUESTRO)</TableColumn>
-          <TableColumn>CLIENTE QUE MANDA</TableColumn>
-          <TableColumn>CAMPOS QUE LLEGAN</TableColumn>
-          <TableColumn>INTENTOS</TableColumn>
-          <TableColumn>DESDE / ÚLTIMO</TableColumn>
-        </TableHeader>
-        <TableBody emptyContent="No ha llegado nada de Entrega en los últimos 7 días.">
-          {filas.map((i) => (
-            <TableRow key={`${i.folio}|${i.motivo}`}>
-              <TableCell className="font-mono text-xs">{i.folio}</TableCell>
-              <TableCell>
-                <div className="flex flex-col gap-1">
-                  <Chip color={CLASES[i.clase].color} size="sm" variant="flat">
-                    {CLASES[i.clase].texto}
+      {/* UNA FILA POR FOLIO, Y EL DETALLE DEBAJO.
+
+          Antes era una tabla de siete columnas con el motivo entero dentro de una celda.
+          Un motivo puede ser un párrafo con los nombres de veintitrés clientes, así que la
+          fila crecía hasta ocupar la pantalla y había que hacer scroll lateral para leer
+          las otras columnas. Aquí la fila cabe en una línea y lo largo se abre al pulsar.
+
+          Sin `<table>` a propósito: con contenido de anchos tan distintos —un folio corto y
+          un párrafo— la tabla reparte mal el ancho y se rompe en cuanto se estrecha. */}
+      <div className="flex flex-col gap-2">
+        {filas.length === 0 && (
+          <p className="text-sm text-default-500">No ha llegado nada de Entrega en los últimos 7 días.</p>
+        )}
+        {filas.map((i) => {
+          const clave = `${i.folio}|${i.codigo}`;
+          const esta = abierto === clave;
+          const c = CLASES[i.clase];
+
+          return (
+            <Card key={clave} isPressable className="w-full" onPress={() => setAbierto(esta ? null : clave)}>
+              <CardBody className="gap-2 py-3">
+                {/* La línea de siempre: folio, qué pasa, cuántas veces y cuándo. */}
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <span className="font-mono text-sm">{i.folio}</span>
+                  <Chip color={c.color} size="sm" variant="flat">
+                    {c.texto}
                   </Chip>
-                  {i.motivo && <span className="text-xs text-default-500">{i.motivo}</span>}
-                </div>
-              </TableCell>
-              <TableCell>
-                {i.nuestro ? (
-                  <div className="flex flex-col">
-                    {/* Si las dos cadenas no son iguales, es que le pusimos sufijo: verlo
-                        aquí es lo que evita la discusión de «ese folio no existe». */}
-                    <span className="font-mono text-xs">{i.nuestro.folio}</span>
-                    <span className="text-xs text-default-500">
-                      {i.nuestro.cliente ?? "—"} · pedido del {fechaCorta(i.nuestro.fecha)} · subido el{" "}
-                      {fechaCorta(i.nuestro.creadoAt)}
-                    </span>
-                  </div>
-                ) : (
-                  <span className="text-xs text-default-400">no está en PEDIDO</span>
-                )}
-              </TableCell>
-              {/* El nuestro arriba y, debajo, lo que mandaron ellos. Verlos juntos es lo
-                  que deja decir si el vendedor cuadra o si ni siquiera lo mandan. */}
-              <TableCell className="text-xs">
-                <div className="flex flex-col">
-                  <span>
-                    {/* NUESTRO vendedor, el del pedido. En las filas sin pedido sale «—»,
-                        que es la señal de que esta columna no viene de Entrega. */}
-                    {i.nuestro?.vendedor ?? "—"}
-                    {i.nuestro?.sucursal && (
-                      <span className="text-default-400"> · {i.nuestro.sucursal}</span>
-                    )}
+                  <span className="text-xs text-default-500">{c.resumen}</span>
+                  <span className="ml-auto text-xs text-default-500">
+                    <strong className="tabular-nums">{i.intentos.toLocaleString("es")}</strong> intentos ·{" "}
+                    {haceCuanto(i.ultimoAt)}
                   </span>
-                  {i.vendedorMandado === "(no mandaron vendedor)" ? (
-                    <span className="text-warning-600">no mandan vendedor</span>
-                  ) : (
-                    i.vendedorMandado && (
-                      <span className="text-default-400">mandan: {i.vendedorMandado}</span>
-                    )
-                  )}
                 </div>
-              </TableCell>
-              {/* Lo que mandaron para decir de qué cliente es. Cuando pone «no mandaron
-                  cliente» y al lado el motivo es «ese folio es de N clientes», la fila se
-                  explica sola. */}
-              <TableCell className="text-xs">
-                {i.cliente === "(no mandaron cliente)" ? (
-                  <span className="text-warning-600">no mandaron cliente</span>
-                ) : (
-                  (i.cliente ?? "—")
+
+                {/* Lo nuestro, en una línea. Si no hay pedido se dice y ya. */}
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-default-500">
+                  {i.nuestro ? (
+                    <>
+                      <span className="font-mono">{i.nuestro.folio}</span>
+                      <span>{i.nuestro.cliente ?? "—"}</span>
+                      <span>
+                        {i.nuestro.vendedor ?? "—"}
+                        {i.nuestro.sucursal ? ` · ${i.nuestro.sucursal}` : ""}
+                      </span>
+                    </>
+                  ) : (
+                    <span>no está en PEDIDO</span>
+                  )}
+                  {/* Lo que NO mandan, que es la mitad del diagnóstico. */}
+                  {i.cliente === "(no mandaron cliente)" && <span className="text-warning-600">sin cliente</span>}
+                  {i.vendedorMandado === "(no mandaron vendedor)" && (
+                    <span className="text-warning-600">sin vendedor</span>
+                  )}
+                  <span className="ml-auto underline">{esta ? "menos" : "ver detalle"}</span>
+                </div>
+
+                {esta && (
+                  <div className="mt-1 flex flex-col gap-2 rounded-medium bg-default-100 p-3 text-xs">
+                    <div>
+                      <p className="font-medium text-default-700">Lo que contestamos</p>
+                      <p className="text-default-600">{i.motivo || "Entró bien."}</p>
+                    </div>
+                    <div>
+                      <p className="font-medium text-default-700">Qué hacer</p>
+                      <p className="text-default-600">{c.queHacer}.</p>
+                    </div>
+                    <div>
+                      <p className="font-medium text-default-700">Campos que llegan</p>
+                      {/* Los nombres del JSON, tal cual. Es lo que acaba con la discusión
+                          de qué manda la APK: si un campo no está aquí, no lo manda. */}
+                      <p className="font-mono text-default-600">{i.campos ?? "—"}</p>
+                    </div>
+                    <div className="flex flex-wrap gap-x-6 gap-y-1 text-default-500">
+                      <span>Cliente que manda: {i.cliente ?? "—"}</span>
+                      <span>Vendedor que manda: {i.vendedorMandado ?? "—"}</span>
+                      {i.nuestro && (
+                        <>
+                          <span>Pedido del {fechaCorta(i.nuestro.fecha)}</span>
+                          <span>Subido el {fechaCorta(i.nuestro.creadoAt)}</span>
+                        </>
+                      )}
+                      <span>Primer intento {haceCuanto(i.primeroAt)}</span>
+                    </div>
+                  </div>
                 )}
-              </TableCell>
-              {/* Los nombres de los campos del JSON, tal cual. Si aquí sale un campo del
-                  vendedor y aun así la columna de al lado dice que no lo mandan, es que lo
-                  mandan con un nombre que no estamos leyendo — y se arregla en un minuto
-                  en vez de discutirlo. */}
-              <TableCell className="font-mono text-[11px] text-default-500 max-w-[220px]">
-                {i.campos ?? "—"}
-              </TableCell>
-              <TableCell className="tabular-nums">{i.intentos.toLocaleString("es")}</TableCell>
-              <TableCell className="text-xs text-default-500">
-                {haceCuanto(i.primeroAt)}
-                <br />
-                {haceCuanto(i.ultimoAt)}
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+              </CardBody>
+            </Card>
+          );
+        })}
+      </div>
     </div>
   );
 }

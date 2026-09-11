@@ -86,17 +86,27 @@ router.get('/intentos', async (req, res) => {
 
   const salida = filas.map((f) => {
     const p = porFolio.get(f.folio) ?? null;
+    /**
+     * La clase que se enseña sale de CRUZAR el código con lo que hay ahora en la base.
+     *
+     * El código dice qué contestamos entonces; el pedido dice qué hay ahora. Un folio que
+     * se rechazó por «no encontrado» y que mientras tanto se ha subido deja de ser un
+     * problema, y esta pantalla tiene que enseñar lo de ahora, no lo de hace dos horas.
+     */
     const clase = f.ok
       ? 'aplicada'
       : !p
         ? 'no_subido'
         : p.requiere_domicilio === false
           ? 'sin_domicilio'
-          : 'otro';
+          : f.codigo === 'ambiguo'
+            ? 'ambiguo'
+            : 'otro';
 
     return {
       folio: f.folio,
       motivo: f.motivo,
+      codigo: f.codigo,
       ok: f.ok,
       clase,
       intentos: f.intentos,
@@ -124,6 +134,7 @@ router.get('/intentos', async (req, res) => {
       aplicadas: cuenta('aplicada'),
       no_subido: cuenta('no_subido'),
       sin_domicilio: cuenta('sin_domicilio'),
+      ambiguo: cuenta('ambiguo'),
       otro: cuenta('otro'),
       // Lo que de verdad duele: cuántas veces se ha reintentado en balde.
       reintentos_en_balde: salida.filter((s) => !s.ok).reduce((n, s) => n + s.intentos, 0),

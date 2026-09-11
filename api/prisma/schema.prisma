@@ -534,7 +534,15 @@ model EntregaIntento {
   /// El folio TAL COMO lo mandó la APK, sin tocarlo. Es la mitad de la gracia: se
   /// compara con el nuestro para ver si coinciden.
   folio    String
-  /// El motivo del rechazo. Cadena vacía cuando entró bien.
+  /// Un código estable de lo que pasó: `ok`, `no_subido`, `sin_domicilio`, `ambiguo`,
+  /// `costo_invalido`, `sin_identificar`, `otra_sucursal`, `otro`.
+  ///
+  /// La clave de agrupación es ÉSTE y no el motivo. Agrupando por el texto, cambiarle una
+  /// coma a un mensaje parte la fila en dos y el mismo folio aparece repetido con los
+  /// intentos divididos — pasó el 11/09 nada más estrenarlo. El código no cambia aunque se
+  /// reescriba el mensaje.
+  codigo   String  @default("otro")
+  /// El motivo tal cual, el del ÚLTIMO intento. Es el texto que se le enseña a Amado.
   motivo   String
   ok       Boolean
   intentos Int     @default(1)
@@ -560,7 +568,7 @@ model EntregaIntento {
   primeroAt DateTime @default(now())
   ultimoAt  DateTime @default(now())
 
-  @@unique([folio, motivo])
+  @@unique([folio, codigo])
   @@index([ultimoAt])
   @@map("EntregaIntento")
 }

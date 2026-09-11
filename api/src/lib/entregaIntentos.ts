@@ -20,6 +20,28 @@ import prisma from '../prismaClient';
  * lenta—, la entrega tiene que aplicarse igual: lo que importa es que el costo entre. Por
  * eso todo va dentro de un `catch` que se traga el error y sigue.
  */
+/**
+ * De qué TIPO es lo que pasó, a partir del motivo.
+ *
+ * El texto del motivo está escrito para que Amado sepa qué hacer, así que se reescribe
+ * cuando hace falta explicarlo mejor. El código es lo que no se toca: es lo que agrupa las
+ * filas y lo que la pantalla usa para clasificar y contar.
+ */
+export function codigoDelMotivo(motivo: string | null, ok: boolean): string {
+  if (ok) return 'ok';
+
+  const m = (motivo || '').toLowerCase();
+
+  if (m.includes('folio no encontrado')) return 'no_subido';
+  if (m.includes('no va a domicilio')) return 'sin_domicilio';
+  if (m.includes('clientes distintos') || m.includes('folio repetido')) return 'ambiguo';
+  if (m.includes('costo no es un')) return 'costo_invalido';
+  if (m.includes('falta pedidoid')) return 'sin_identificar';
+  if (m.includes('otra sucursal')) return 'otra_sucursal';
+
+  return 'otro';
+}
+
 export type IntentoDeEntrega = {
   folio: string | null;
   motivo: string | null;
@@ -39,12 +61,13 @@ export async function apuntarIntentos(entradas: IntentoDeEntrega[]): Promise<voi
     // pedido van, y se apuntan bajo una etiqueta común para que se vean sin ensuciar.
     const folio = (e.folio || '').trim() || '(sin folio)';
     const motivo = e.ok ? '' : (e.motivo || 'no aplicada').trim();
+    const codigo = codigoDelMotivo(motivo, e.ok);
 
     try {
       await prisma.entregaIntento.upsert({
-        where: { folio_motivo: { folio, motivo } },
+        where: { folio_codigo: { folio, codigo } },
         create: {
-          folio, motivo, ok: e.ok,
+          folio, codigo, motivo, ok: e.ok,
           pedidoId: e.pedidoId ?? null,
           cliente: e.cliente ?? null,
           vendedor: e.vendedor ?? null,
@@ -54,6 +77,9 @@ export async function apuntarIntentos(entradas: IntentoDeEntrega[]): Promise<voi
         update: {
           intentos: { increment: 1 },
           ultimoAt: new Date(),
+          // El texto del último intento: si se reescribe el mensaje, se ve el de ahora.
+          motivo,
+          ok: e.ok,
           // El pedido resuelto y el cliente se refrescan: si antes no se sabía cuál era y
           // ahora sí, interesa lo de ahora.
           ...(e.pedidoId ? { pedidoId: e.pedidoId } : {}),
