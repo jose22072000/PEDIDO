@@ -142,7 +142,7 @@ router.post('/domicilio', async (req, res) => {
    * descarta, y una ubicación idéntica a la que ya había no se toca. Si la respuesta
    * no lo dijera, del otro lado se daría por guardado algo que no lo está.
    */
-  const aplicadas: Array<{ pedidoId?: string; folio?: string; guardado: string[] }> = [];
+  const aplicadas: Array<{ pedidoId?: string; folio?: string; guardado: string[]; aviso?: string }> = [];
   const rechazadas: Array<{ folio?: string; pedidoId?: string; motivo: string }> = [];
 
   for (const e of entregas) {
@@ -179,7 +179,7 @@ router.post('/domicilio', async (req, res) => {
         if (c?.tasa) guardado.push('tasa');
         if (c?.distancia) guardado.push('distancia');
         if (c?.ubicacionCliente) guardado.push('ubicacionCliente');
-        aplicadas.push({ pedidoId: r.pedidoId, folio: r.folio, guardado });
+        aplicadas.push({ pedidoId: r.pedidoId, folio: r.folio, guardado, ...(r.aviso ? { aviso: r.aviso } : {}) });
       }
       else rechazadas.push({ pedidoId: r.pedidoId, folio: r.folio, motivo: r.motivo || 'no aplicada' });
     } catch (err) {
@@ -242,6 +242,23 @@ router.post('/domicilio', async (req, res) => {
    * Si entró aunque sea una, sigue siendo 200: un folio malo entre veinte no convierte la
    * llamada en un fracaso, y el cuerpo dice cuál falló.
    */
+  /**
+   * Las que entraron PERO con algo que decir, al log.
+   *
+   * Hoy es una sola cosa: el folio venía con otra fecha. Si sólo fuera al cuerpo de la
+   * respuesta se perdería igual que se perdieron las `rechazadas` durante tres días, y
+   * este es justo el rastro que hace falta para cerrar de quién es el fallo de la fecha.
+   */
+  const conAviso = aplicadas.filter((a) => a.aviso);
+
+  if (conAviso.length > 0) {
+    console.log(
+      `[webhook:domicilio] ${conAviso.length} aplicadas CON AVISO — ` +
+        conAviso.slice(0, 8).map((a) => a.aviso).join(' · ') +
+        (conAviso.length > 8 ? ` y ${conAviso.length - 8} mas` : ''),
+    );
+  }
+
   const ninguna = aplicadas.length === 0 && rechazadas.length > 0;
 
   res.status(ninguna ? 422 : 200).json({
