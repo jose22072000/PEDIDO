@@ -1769,30 +1769,40 @@ export const OrdersList = () => {
                           </Tooltip>
                         )}
                     </div>
-                    {(order.costoDomicilio != null ||
+                    {(order.total != null ||
+                      order.costoDomicilio != null ||
                       order.requiere_domicilio) && (
                       <div className="flex flex-wrap items-center gap-1.5 sm:absolute sm:top-0 sm:right-0 sm:z-10 sm:flex-nowrap sm:-translate-y-7">
-                        {/* El TOTAL, al lado del domicilio y no sólo dentro del pedido.
-                            Es el número por el que se pregunta —"¿cuánto es este
-                            pedido?"— y tenerlo que abrir uno por uno para verlo hacía
-                            inútil la lista. */}
+                        {/* EL TOTAL VA EN TODOS, lleven domicilio o no.
+                            Es el número por el que se pregunta —"¿cuánto es este pedido?"—
+                            y tenerlo que abrir uno por uno para verlo hacía inútil la
+                            lista. Estaba metido DENTRO del bloque del domicilio, así que
+                            heredaba su condición y sólo salía en los pedidos que se
+                            reparten: los de mostrador, que son la mayoría, se quedaban sin
+                            su importe sin ninguna razón. */}
                         {order.total != null && (
                           <Chip color="default" size="sm" variant="flat">
                             Total: {$$(order.total)}
                             {(order.lineasSinPrecio ?? 0) > 0 && " *"}
                           </Chip>
                         )}
-                        <Chip
-                          color={
-                            order.costoDomicilio != null ? "success" : "warning"
-                          }
-                          size="sm"
-                          variant="flat"
-                        >
-                          {order.costoDomicilio != null
-                            ? `Domicilio: ${$$(order.costoDomicilio)}`
-                            : "Domicilio sin calcular"}
-                        </Chip>
+                        {/* El domicilio, sólo en los que lo llevan. */}
+                        {(order.costoDomicilio != null ||
+                          order.requiere_domicilio) && (
+                          <Chip
+                            color={
+                              order.costoDomicilio != null
+                                ? "success"
+                                : "warning"
+                            }
+                            size="sm"
+                            variant="flat"
+                          >
+                            {order.costoDomicilio != null
+                              ? `Domicilio: ${$$(order.costoDomicilio)}`
+                              : "Domicilio sin calcular"}
+                          </Chip>
+                        )}
                       </div>
                     )}
                   </div>
