@@ -43,13 +43,16 @@ interface Cola {
   ahora?: number;
   ventanaMin?: number;
   trabajando?: boolean;
-  ultimo?: { folio: string; at: number; sucursal: string } | null;
+  ultimo?: { folio: string; at: number; sucursal: string; vendedor: string | null; cliente: string | null } | null;
   entrando?: Array<{
     sucursalId: string | null;
     sucursal: string;
     entrados: number;
     ultimoAt: number;
     ultimoFolio: string;
+    ultimoVendedor: string | null;
+    ultimoCliente: string | null;
+    vendedores: number;
   }>;
   sucursales?: Array<{ sucursal: string; activos: Trabajo[]; enEspera: number; filasEnEspera: number }>;
 }
@@ -115,9 +118,14 @@ export function BarraEntrando({ conectado }: { conectado: boolean }) {
       {entrando.slice(0, 4).map((e) => (
         <span key={e.sucursalId ?? e.sucursal} className="text-default-600">
           <strong>{e.sucursal}</strong>: <span className="tabular-nums">{e.entrados}</span>{" "}
-          {e.entrados === 1 ? "pedido" : "pedidos"} en la última hora · el último{" "}
-          <span className="font-mono">{e.ultimoFolio}</span>{" "}
-          <span className="text-default-400">{hace(e.ultimoAt, ahora)}</span>
+          {e.entrados === 1 ? "pedido" : "pedidos"} en la última hora
+          {/* De cuántos vendedores: distingue «uno subiendo lo suyo» de «la calle entera
+              metiendo pedidos», que no es lo mismo cuando alguien pregunta si va lento. */}
+          {e.vendedores > 1 && <> de {e.vendedores} vendedores</>} · el último{" "}
+          <span className="font-mono">{e.ultimoFolio}</span>
+          {e.ultimoVendedor && <>, de {e.ultimoVendedor}</>}
+          {e.ultimoCliente && <> para {e.ultimoCliente}</>}
+          , <span className="text-default-400">{hace(e.ultimoAt, ahora)}</span>
         </span>
       ))}
       {entrando.length > 4 && (
@@ -128,8 +136,9 @@ export function BarraEntrando({ conectado }: { conectado: boolean }) {
       {entrando.length === 0 && cola?.ultimo && (
         <span className="text-default-500">
           Nada en la última hora. El último pedido fue{" "}
-          <span className="font-mono">{cola.ultimo.folio}</span> de {cola.ultimo.sucursal},{" "}
-          {hace(cola.ultimo.at, ahora)}
+          <span className="font-mono">{cola.ultimo.folio}</span> de {cola.ultimo.sucursal}
+          {cola.ultimo.vendedor && <>, vendido por {cola.ultimo.vendedor}</>}
+          {cola.ultimo.cliente && <> para {cola.ultimo.cliente}</>}, {hace(cola.ultimo.at, ahora)}
         </span>
       )}
 

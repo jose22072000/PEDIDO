@@ -1252,17 +1252,33 @@ router.get('/cola', async (req, res) => {
   const desde = new Date(Date.now() - VENTANA_MIN * 60 * 1000);
   const recientes = await prisma.pedido.findMany({
     where: { createdAt: { gte: desde }, ...(isGlobalAdmin && !sucursalId ? {} : { sucursalId }) },
-    select: { folio: true, createdAt: true, sucursalId: true },
+    select: {
+      folio: true, createdAt: true, sucursalId: true, vendedorId: true,
+      // El vendedor y el cliente del último: es lo que convierte «entró un pedido» en
+      // «entró el de Fulano para tal cliente», que es lo que se quiere saber de verdad.
+      vendedor: { select: { nombre: true } },
+      cliente: { select: { nombre: true } },
+    },
     orderBy: { createdAt: 'desc' },
     take: 500,
   });
 
-  type Entrando = { sucursalId: string | null; sucursal: string; entrados: number; ultimoAt: number; ultimoFolio: string };
+  type Entrando = {
+    sucursalId: string | null; sucursal: string; entrados: number;
+    ultimoAt: number; ultimoFolio: string;
+    ultimoVendedor: string | null; ultimoCliente: string | null;
+    /** Cuántos vendedores distintos han metido algo: distingue «uno subiendo» de «la calle entera». */
+    vendedores: number;
+  };
   const entrando = new Map<string, Entrando>();
+  const vendedoresPorSuc = new Map<string, Set<string>>();
 
   for (const p of recientes) {
     const clave = p.sucursalId ?? '(sin sucursal)';
     const y = entrando.get(clave);
+
+    if (!vendedoresPorSuc.has(clave)) vendedoresPorSuc.set(clave, new Set());
+    if (p.vendedorId) vendedoresPorSuc.get(clave)!.add(p.vendedorId);
 
     if (y) {
       y.entrados++;
@@ -1275,8 +1291,17 @@ router.get('/cola', async (req, res) => {
         // entró: es la hora que contesta «¿sigue entrando?».
         ultimoAt: p.createdAt.getTime(),
         ultimoFolio: p.folio,
+        ultimoVendedor: p.vendedor?.nombre ?? null,
+        ultimoCliente: p.cliente?.nombre ?? null,
+        vendedores: 0,
       });
     }
+  }
+
+  for (const [clave, set] of vendedoresPorSuc) {
+    const e = entrando.get(clave);
+
+    if (e) e.vendedores = set.size;
   }
 
   /**
@@ -1289,7 +1314,11 @@ router.get('/cola', async (req, res) => {
    */
   const ultimo = await prisma.pedido.findFirst({
     where: isGlobalAdmin && !sucursalId ? {} : { sucursalId },
-    select: { folio: true, createdAt: true, sucursalId: true },
+    select: {
+      folio: true, createdAt: true, sucursalId: true,
+      vendedor: { select: { nombre: true } },
+      cliente: { select: { nombre: true } },
+    },
     orderBy: { createdAt: 'desc' },
   });
 
@@ -1302,6 +1331,8 @@ router.get('/cola', async (req, res) => {
           folio: ultimo.folio,
           at: ultimo.createdAt.getTime(),
           sucursal: (ultimo.sucursalId && nombre.get(ultimo.sucursalId)) || 'Sin sucursal',
+          vendedor: ultimo.vendedor?.nombre ?? null,
+          cliente: ultimo.cliente?.nombre ?? null,
         }
       : null,
     // Lo que contesta la pregunta de verdad: ¿siguen entrando datos?
