@@ -28,6 +28,8 @@ export type IntentoDeEntrega = {
   cliente?: string | null;
   /** Con qué identificaron al vendedor, o que no lo mandaron. */
   vendedor?: string | null;
+  /** Los nombres de los campos que venían, para saber qué manda de verdad la APK. */
+  campos?: string | null;
   costo?: number | null;
 };
 
@@ -46,6 +48,7 @@ export async function apuntarIntentos(entradas: IntentoDeEntrega[]): Promise<voi
           pedidoId: e.pedidoId ?? null,
           cliente: e.cliente ?? null,
           vendedor: e.vendedor ?? null,
+          campos: e.campos ?? null,
           costo: e.costo ?? null,
         },
         update: {
@@ -56,6 +59,8 @@ export async function apuntarIntentos(entradas: IntentoDeEntrega[]): Promise<voi
           ...(e.pedidoId ? { pedidoId: e.pedidoId } : {}),
           ...(e.cliente ? { cliente: e.cliente } : {}),
           ...(e.vendedor ? { vendedor: e.vendedor } : {}),
+          // Siempre lo de la última: si cambian el envío, interesa lo de ahora.
+          ...(e.campos ? { campos: e.campos } : {}),
           ...(e.costo != null ? { costo: e.costo } : {}),
         },
       });

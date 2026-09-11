@@ -39,6 +39,7 @@ interface Intento {
   intentos: number;
   cliente: string | null;
   vendedorMandado: string | null;
+  campos: string | null;
   primeroAt: string;
   ultimoAt: string;
   nuestro: {
@@ -184,6 +185,7 @@ export function EntregaEnviosPanel() {
           <TableColumn>LO QUE TENEMOS NOSOTROS</TableColumn>
           <TableColumn>VENDEDOR</TableColumn>
           <TableColumn>CLIENTE QUE MANDA</TableColumn>
+          <TableColumn>CAMPOS QUE LLEGAN</TableColumn>
           <TableColumn>INTENTOS</TableColumn>
           <TableColumn>DESDE / ÚLTIMO</TableColumn>
         </TableHeader>
@@ -242,6 +244,13 @@ export function EntregaEnviosPanel() {
                 ) : (
                   (i.cliente ?? "—")
                 )}
+              </TableCell>
+              {/* Los nombres de los campos del JSON, tal cual. Si aquí sale un campo del
+                  vendedor y aun así la columna de al lado dice que no lo mandan, es que lo
+                  mandan con un nombre que no estamos leyendo — y se arregla en un minuto
+                  en vez de discutirlo. */}
+              <TableCell className="font-mono text-[11px] text-default-500 max-w-[220px]">
+                {i.campos ?? "—"}
               </TableCell>
               <TableCell className="tabular-nums">{i.intentos.toLocaleString("es")}</TableCell>
               <TableCell className="text-xs text-default-500">

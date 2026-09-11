@@ -546,6 +546,15 @@ model EntregaIntento {
   /// Y lo que mandaron para identificar al vendedor. Mismo motivo: ver de un vistazo si
   /// viene o no, que es la mitad de lo que hace falta para saber por qué falla un folio.
   vendedor String?
+
+  /// Los NOMBRES de los campos que traía la entrada, tal cual, separados por comas.
+  ///
+  /// Es lo que acaba con la adivinanza. Aceptamos un puñado de alias para cada cosa
+  /// (`vendedorCodigo`, `codigoVendedor`, `vendedor`…) y aun así se puede estar mandando
+  /// con un nombre que no contemplamos: entonces el dato SÍ viene y aquí parece que no.
+  /// Guardando las claves se ve en la pantalla qué manda de verdad la APK y se deja de
+  /// discutir sobre ello.
+  campos   String?
   costo    Float?
 
   primeroAt DateTime @default(now())

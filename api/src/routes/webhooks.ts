@@ -156,6 +156,7 @@ router.post('/domicilio', async (req, res) => {
    */
   const identificados = new Map<string, string>();
   const vendedores = new Map<string, string>();
+  const campos = new Map<string, string>();
 
   for (const e of entregas) {
     if (!e || typeof e !== 'object') {
@@ -172,6 +173,8 @@ router.post('/domicilio', async (req, res) => {
     if (clave) {
       identificados.set(clave, quien ? String(quien) : '(no mandaron cliente)');
       vendedores.set(clave, deQuien ? String(deQuien) : '(no mandaron vendedor)');
+      // Las CLAVES, no los valores: dice qué manda la APK sin enseñar datos de nadie.
+      campos.set(clave, Object.keys(e).join(', '));
     }
     try {
       const r = await aplicarCostoDomicilio({
@@ -278,11 +281,13 @@ router.post('/domicilio', async (req, res) => {
       folio: a.folio ?? null, motivo: null, ok: true, pedidoId: a.pedidoId ?? null,
       cliente: identificados.get(a.folio ?? a.pedidoId ?? '') ?? null,
       vendedor: vendedores.get(a.folio ?? a.pedidoId ?? '') ?? null,
+      campos: campos.get(a.folio ?? a.pedidoId ?? '') ?? null,
     })),
     ...rechazadas.map((r) => ({
       folio: r.folio ?? null, motivo: r.motivo, ok: false, pedidoId: r.pedidoId ?? null,
       cliente: identificados.get(r.folio ?? r.pedidoId ?? '') ?? null,
       vendedor: vendedores.get(r.folio ?? r.pedidoId ?? '') ?? null,
+      campos: campos.get(r.folio ?? r.pedidoId ?? '') ?? null,
     })),
   ]);
 
