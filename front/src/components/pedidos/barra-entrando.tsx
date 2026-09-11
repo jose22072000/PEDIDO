@@ -205,12 +205,85 @@ export function BarraEntrando({ conectado }: { conectado: boolean }) {
         </>
       )}
 
-      {/* El detalle es de TODO —archivos y sucursales—, así que el botón va fuera del
-          bloque de «varias sucursales»: con una sola, o sin ninguna pero con archivos
-          entrando, también hay algo que enseñar. */}
+      {/* Nada en la última hora: se dice cuál fue el último, en vez de quedarse mudo. */}
+      {entrando.length === 0 && cola?.ultimo && (
+        <span className="text-default-500">
+          Nada en la última hora · el último <span className="font-mono">{cola.ultimo.folio}</span> (
+          {cola.ultimo.sucursal}) {hace(cola.ultimo.at, ahora)}
+        </span>
+      )}
+
+      {/* ARCHIVOS QUE ACABAN DE ENTRAR, en corto.
+          La frase entera —«15 archivos entraron en la última hora · el último Copia de
+          andy.almanza.pedidos.2026-09-11.csv (CAM) con 13 pedidos, hace 5 min»— no cabe
+          en la línea y se llevaba una entera para ella sola. Aquí va lo justo, el nombre
+          recortado, y la lista completa con cuántos pedidos y cuánto tardó cada uno está
+          en el detalle. */}
+      {archivos.length > 0 && (
+        <span className="flex min-w-0 items-baseline gap-1 text-default-600">
+          <strong className="tabular-nums">{archivos.length}</strong>
+          <span>{archivos.length === 1 ? "archivo" : "archivos"}</span>
+          <span className="text-default-300">·</span>
+          <span className="max-w-[16rem] truncate" title={archivos[0].archivo ?? ""}>
+            {archivos[0].archivo ?? "sin nombre"}
+          </span>
+          <span className="shrink-0 text-default-400">
+            {archivos[0].sucursal !== "Sin sucursal" && `(${archivos[0].sucursal}) `}
+            {hace(archivos[0].at, ahora)}
+          </span>
+        </span>
+      )}
+
+      {/* Y si alguien está subiendo un archivo, por qué línea va. */}
+      {subiendo.map((s) => {
+        const t = s.activos[0];
+        const pct = t && t.filas > 0 ? Math.min(Math.round((t.hechos / t.filas) * 100), 100) : 0;
+
+        return (
+          <span key={s.sucursal} className="inline-flex items-center gap-2 text-default-700">
+            <span className="inline-block h-1 w-24 overflow-hidden rounded-full bg-default-200 align-middle">
+              <span
+                className={
+                  t && t.filas > 0
+                    ? "block h-full rounded-full bg-primary transition-all duration-500"
+                    : "block h-full w-1/3 animate-pulse rounded-full bg-primary"
+                }
+                style={t && t.filas > 0 ? { width: `${pct}%` } : undefined}
+              />
+            </span>
+            {t ? (
+              <>
+                <strong>{s.sucursal}</strong>{" "}
+                {t.origen === "n8n" ? "metiendo" : "subiendo"}{" "}
+                {t.archivo ?? (t.origen === "n8n" ? "un archivo de la ingesta" : "un archivo")}
+                {t.deLotes && t.deLotes > 1 && ` (trozo ${t.lote}/${t.deLotes})`} · línea{" "}
+                <span className="tabular-nums">
+                  {t.hechos.toLocaleString("es")} de {t.filas.toLocaleString("es")}
+                </span>
+                {t.fallidos > 0 && <span className="text-warning-600"> · {t.fallidos} con problema</span>}
+              </>
+            ) : (
+              <>
+                <strong>{s.sucursal}</strong> {s.enEspera} en cola ({s.filasEnEspera.toLocaleString("es")} filas)
+              </>
+            )}
+          </span>
+        );
+      })}
+
+      {/* EL DETALLE, SIEMPRE AL FINAL Y SIEMPRE EN EL MISMO SITIO.
+          Estaba en medio, así que según el caso aparecía antes o después del texto y
+          bailaba de posición. Lo que se lee cambia; el botón no tiene por qué.
+
+          Y va fuera del bloque de «varias sucursales»: con una sola, o sin ninguna pero
+          con archivos entrando, también hay algo que enseñar. */}
       {(entrando.length > 0 || archivos.length > 0) && (
         <>
-          <button className="underline text-default-500" type="button" onClick={() => setAbierto(true)}>
+          <button
+            className="ml-auto shrink-0 underline text-default-500"
+            type="button"
+            onClick={() => setAbierto(true)}
+          >
             ver detalle
           </button>
 
@@ -300,72 +373,6 @@ export function BarraEntrando({ conectado }: { conectado: boolean }) {
           </Envase>
         </>
       )}
-
-      {/* Nada en la última hora: se dice cuál fue el último, en vez de quedarse mudo. */}
-      {entrando.length === 0 && cola?.ultimo && (
-        <span className="text-default-500">
-          Nada en la última hora · el último <span className="font-mono">{cola.ultimo.folio}</span> (
-          {cola.ultimo.sucursal}) {hace(cola.ultimo.at, ahora)}
-        </span>
-      )}
-
-      {/* ARCHIVOS QUE ACABAN DE ENTRAR, en corto.
-          La frase entera —«15 archivos entraron en la última hora · el último Copia de
-          andy.almanza.pedidos.2026-09-11.csv (CAM) con 13 pedidos, hace 5 min»— no cabe
-          en la línea y se llevaba una entera para ella sola. Aquí va lo justo, el nombre
-          recortado, y la lista completa con cuántos pedidos y cuánto tardó cada uno está
-          en el detalle. */}
-      {archivos.length > 0 && (
-        <span className="flex min-w-0 items-baseline gap-1 text-default-600">
-          <strong className="tabular-nums">{archivos.length}</strong>
-          <span>{archivos.length === 1 ? "archivo" : "archivos"}</span>
-          <span className="text-default-300">·</span>
-          <span className="max-w-[16rem] truncate" title={archivos[0].archivo ?? ""}>
-            {archivos[0].archivo ?? "sin nombre"}
-          </span>
-          <span className="shrink-0 text-default-400">
-            {archivos[0].sucursal !== "Sin sucursal" && `(${archivos[0].sucursal}) `}
-            {hace(archivos[0].at, ahora)}
-          </span>
-        </span>
-      )}
-
-      {/* Y si alguien está subiendo un archivo, por qué línea va. */}
-      {subiendo.map((s) => {
-        const t = s.activos[0];
-        const pct = t && t.filas > 0 ? Math.min(Math.round((t.hechos / t.filas) * 100), 100) : 0;
-
-        return (
-          <span key={s.sucursal} className="inline-flex items-center gap-2 text-default-700">
-            <span className="inline-block h-1 w-24 overflow-hidden rounded-full bg-default-200 align-middle">
-              <span
-                className={
-                  t && t.filas > 0
-                    ? "block h-full rounded-full bg-primary transition-all duration-500"
-                    : "block h-full w-1/3 animate-pulse rounded-full bg-primary"
-                }
-                style={t && t.filas > 0 ? { width: `${pct}%` } : undefined}
-              />
-            </span>
-            {t ? (
-              <>
-                <strong>{s.sucursal}</strong>{" "}
-                {t.origen === "n8n" ? "metiendo" : "subiendo"}{" "}
-                {t.archivo ?? (t.origen === "n8n" ? "un archivo de la ingesta" : "un archivo")}
-                {t.deLotes && t.deLotes > 1 && ` (trozo ${t.lote}/${t.deLotes})`} · línea{" "}
-                <span className="tabular-nums">
-                  {t.hechos.toLocaleString("es")} de {t.filas.toLocaleString("es")}
-                </span>
-                {t.fallidos > 0 && <span className="text-warning-600"> · {t.fallidos} con problema</span>}
-              </>
-            ) : (
-              <>
-                <strong>{s.sucursal}</strong> {s.enEspera} en cola ({s.filasEnEspera.toLocaleString("es")} filas)
-              </>
-            )}
-          </span>
-        );
-      })}
     </div>
   );
 }
