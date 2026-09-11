@@ -159,15 +159,14 @@ export function BarraEntrando({ conectado }: { conectado: boolean }) {
         {!conectado ? "Conectando…" : caliente ? "Entrando pedidos" : "Sin movimiento ahora"}
       </span>
 
-      {/* UNA SOLA SUCURSAL: cabe la frase entera y se lee de corrido. */}
+      {/* UNA SOLA SUCURSAL.
+          Sin el vendedor ni el cliente: con los dos nombres la frase se pasaba de línea
+          ella sola, y esos nombres están a un clic en el detalle. */}
       {entrando.length === 1 && (
         <span className="text-default-600">
           <strong>{entrando[0].sucursal}</strong>: <span className="tabular-nums">{entrando[0].entrados}</span>{" "}
-          {entrando[0].entrados === 1 ? "pedido" : "pedidos"} en la última hora
-          {entrando[0].vendedores > 1 && <> de {entrando[0].vendedores} vendedores</>} · el último{" "}
-          <span className="font-mono">{entrando[0].ultimoFolio}</span>
-          {entrando[0].ultimoVendedor && <>, de {entrando[0].ultimoVendedor}</>}
-          {entrando[0].ultimoCliente && <> para {entrando[0].ultimoCliente}</>},{" "}
+          {entrando[0].entrados === 1 ? "pedido" : "pedidos"} en la última hora · el último{" "}
+          <span className="font-mono">{entrando[0].ultimoFolio}</span>{" "}
           <span className="text-default-400">{hace(entrando[0].ultimoAt, ahora)}</span>
         </span>
       )}
@@ -255,7 +254,24 @@ export function BarraEntrando({ conectado }: { conectado: boolean }) {
                   </div>
                 )}
 
-                <p className="mb-2 text-sm font-medium text-default-700">Por sucursal</p>
+                {/* Sin nada en la última hora, el detalle enseña el último pedido con
+                    su vendedor y su cliente: en la línea no cabía, pero aquí sí, y es
+                    la respuesta a «¿entró lo mío?» cuando lleva rato parado. */}
+                {entrando.length === 0 && cola?.ultimo && (
+                  <div className="mb-4 rounded-medium border-medium border-default-200 p-3">
+                    <p className="text-sm font-medium text-default-700">El último pedido</p>
+                    <p className="text-sm text-default-600">
+                      <span className="font-mono">{cola.ultimo.folio}</span> de {cola.ultimo.sucursal}
+                      {cola.ultimo.vendedor && <>, vendido por {cola.ultimo.vendedor}</>}
+                      {cola.ultimo.cliente && <> para {cola.ultimo.cliente}</>}
+                    </p>
+                    <p className="text-xs text-default-400">{hace(cola.ultimo.at, ahora)}</p>
+                  </div>
+                )}
+
+                {entrando.length > 0 && (
+                  <p className="mb-2 text-sm font-medium text-default-700">Por sucursal</p>
+                )}
                 <div className="flex flex-col gap-3">
                   {entrando.map((e) => (
                     <div
@@ -288,10 +304,8 @@ export function BarraEntrando({ conectado }: { conectado: boolean }) {
       {/* Nada en la última hora: se dice cuál fue el último, en vez de quedarse mudo. */}
       {entrando.length === 0 && cola?.ultimo && (
         <span className="text-default-500">
-          Nada en la última hora. El último pedido fue{" "}
-          <span className="font-mono">{cola.ultimo.folio}</span> de {cola.ultimo.sucursal}
-          {cola.ultimo.vendedor && <>, vendido por {cola.ultimo.vendedor}</>}
-          {cola.ultimo.cliente && <> para {cola.ultimo.cliente}</>}, {hace(cola.ultimo.at, ahora)}
+          Nada en la última hora · el último <span className="font-mono">{cola.ultimo.folio}</span> (
+          {cola.ultimo.sucursal}) {hace(cola.ultimo.at, ahora)}
         </span>
       )}
 
