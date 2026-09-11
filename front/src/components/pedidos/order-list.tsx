@@ -601,8 +601,17 @@ export const OrdersList = () => {
       vivo = false;
     };
   }, []);
-  const [debouncedSearch, setDebouncedSearch] = useState<string>("");
-  const [searchValue, setSearchValue] = useState<string>("");
+  /**
+   * La búsqueda puede venir en la URL: `/panel/panel-pedidos?buscar=PDG26-260908-3013`.
+   *
+   * Es para llegar aquí desde otra pantalla con el folio ya puesto —de Envíos de Entrega,
+   * por ejemplo— en vez de copiar, venir, y pegar. Se lee UNA vez al montar: después manda
+   * lo que se teclee, y no se reescribe la URL para no pelearse con el teclado.
+   */
+  const buscarDeLaUrl = new URLSearchParams(window.location.search).get("buscar") ?? "";
+
+  const [debouncedSearch, setDebouncedSearch] = useState<string>(buscarDeLaUrl);
+  const [searchValue, setSearchValue] = useState<string>(buscarDeLaUrl);
   // La moneda en la que se enseñan los importes. Es preferencia de quien mira, no del
 
   // pedido: quien factura quiere CUP y quien mira márgenes, USD.

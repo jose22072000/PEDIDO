@@ -1,4 +1,4 @@
-import { Button, Card, CardBody, Chip, Input, Pagination, Select, SelectItem, Spinner } from "@heroui/react";
+import { Button, Card, CardBody, Chip, Input, Pagination, Select, SelectItem, Spinner, addToast } from "@heroui/react";
 import { useCallback, useEffect, useState } from "react";
 
 import { getApiBaseUrl } from "@/config";
@@ -106,6 +106,44 @@ const CLASES: Record<Clase, { texto: string; color: "success" | "warning" | "dan
   },
   otro: { texto: "Otro", color: "default", resumen: "ver el detalle", queHacer: "Mirar el motivo" },
 };
+
+/**
+ * Copiar un folio, y decirlo.
+ *
+ * Sin el aviso no se sabe si el clic hizo algo —el portapapeles no se ve— y se acaba
+ * pulsando tres veces. `clipboard` puede no existir (contexto no seguro), y entonces se
+ * dice en vez de fallar en silencio.
+ */
+function copiar(texto: string) {
+  navigator.clipboard
+    ?.writeText(texto)
+    .then(() => addToast({ title: "Copiado", description: texto, color: "success" }))
+    .catch(() =>
+      addToast({ title: "No se pudo copiar", description: "Selecciónalo y cópialo a mano.", color: "warning" }),
+    );
+}
+
+/** Un folio que se puede copiar de un clic, sin que parezca un botón enorme. */
+function FolioCopiable({ folio, fuerte = false }: { folio: string; fuerte?: boolean }) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className={fuerte ? "font-mono text-sm" : "font-mono"}>{folio}</span>
+      <button
+        aria-label={`Copiar ${folio}`}
+        className="rounded px-1 text-[10px] uppercase tracking-wide text-default-400 hover:bg-default-200 hover:text-default-700"
+        title="Copiar el folio"
+        type="button"
+        onClick={(e) => {
+          // Sin esto, el clic también abre o cierra la tarjeta que hay debajo.
+          e.stopPropagation();
+          copiar(folio);
+        }}
+      >
+        copiar
+      </button>
+    </span>
+  );
+}
 
 function haceCuanto(iso: string): string {
   const min = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
@@ -308,7 +346,7 @@ export function EntregaEnviosPanel() {
               <CardBody className="gap-2 py-3">
                 {/* La línea de siempre: folio, qué pasa, cuántas veces y cuándo. */}
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                  <span className="font-mono text-sm">{i.folio}</span>
+                  <FolioCopiable fuerte folio={i.folio} />
                   <Chip color={c.color} size="sm" variant="flat">
                     {c.texto}
                   </Chip>
@@ -323,7 +361,7 @@ export function EntregaEnviosPanel() {
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-default-500">
                   {i.nuestro ? (
                     <>
-                      <span className="font-mono">{i.nuestro.folio}</span>
+                      <FolioCopiable folio={i.nuestro.folio} />
                       <span>{i.nuestro.cliente ?? "—"}</span>
                       <span>
                         {i.nuestro.vendedor ?? "—"}
@@ -356,6 +394,22 @@ export function EntregaEnviosPanel() {
                       {/* Los nombres del JSON, tal cual. Es lo que acaba con la discusión
                           de qué manda la APK: si un campo no está aquí, no lo manda. */}
                       <p className="font-mono text-default-600">{i.campos ?? "—"}</p>
+                    </div>
+                    {/* Para comprobarlo a mano: abre el listado de pedidos con el folio
+                        ya buscado. Se busca el NUESTRO si lo hay —es el que tiene el
+                        sufijo—; si no, el que mandó Entrega, que es justo el caso en que
+                        uno quiere ver con sus ojos que no está. */}
+                    <div>
+                      <Button
+                        as="a"
+                        href={`/panel/panel-pedidos?buscar=${encodeURIComponent(i.nuestro?.folio ?? i.folio)}`}
+                        size="sm"
+                        target="_blank"
+                        variant="flat"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        Buscarlo en Pedidos
+                      </Button>
                     </div>
                     <div className="flex flex-wrap gap-x-6 gap-y-1 text-default-500">
                       <span>Cliente que manda: {i.cliente ?? "—"}</span>
