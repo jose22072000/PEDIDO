@@ -109,21 +109,26 @@ export function BarraEntrando({ conectado }: { conectado: boolean }) {
         {!conectado ? "Conectando…" : caliente ? "Entrando pedidos" : "Sin movimiento ahora"}
       </span>
 
-      {/* Cuántos van por sucursal en la última hora, y cuál fue el último de cada una. */}
+      {/* Cuántos van por sucursal en la última hora, y cuál fue el último de cada una.
+          Escrito entero —«8 pedidos en la última hora»— y no «8 en 1 h»: abreviado hay
+          que preguntarlo, y una etiqueta que hay que preguntar no sirve. */}
       {entrando.slice(0, 4).map((e) => (
         <span key={e.sucursalId ?? e.sucursal} className="text-default-600">
-          <strong>{e.sucursal}</strong> <span className="tabular-nums">{e.entrados}</span> en{" "}
-          {(cola?.ventanaMin ?? 60) >= 60 ? "1 h" : `${cola?.ventanaMin} min`} ·{" "}
+          <strong>{e.sucursal}</strong>: <span className="tabular-nums">{e.entrados}</span>{" "}
+          {e.entrados === 1 ? "pedido" : "pedidos"} en la última hora · el último{" "}
           <span className="font-mono">{e.ultimoFolio}</span>{" "}
           <span className="text-default-400">{hace(e.ultimoAt, ahora)}</span>
         </span>
       ))}
-      {entrando.length > 4 && <span className="text-default-500">y {entrando.length - 4} más</span>}
+      {entrando.length > 4 && (
+        <span className="text-default-500">y {entrando.length - 4} sucursales más</span>
+      )}
 
       {/* Nada en la última hora: se dice cuál fue el último, en vez de quedarse mudo. */}
       {entrando.length === 0 && cola?.ultimo && (
         <span className="text-default-500">
-          último <span className="font-mono">{cola.ultimo.folio}</span> ({cola.ultimo.sucursal}){" "}
+          Nada en la última hora. El último pedido fue{" "}
+          <span className="font-mono">{cola.ultimo.folio}</span> de {cola.ultimo.sucursal},{" "}
           {hace(cola.ultimo.at, ahora)}
         </span>
       )}
