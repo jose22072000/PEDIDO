@@ -82,6 +82,8 @@ function hace(at: number, ahora: number): string {
 
 export function BarraEntrando({ conectado }: { conectado: boolean }) {
   const [cola, setCola] = useState<Cola | null>(null);
+  // Con varias sucursales la línea se resume; esto abre el detalle de todas.
+  const [abierto, setAbierto] = useState(false);
 
   const cargar = useCallback(async () => {
     try {
@@ -126,24 +128,66 @@ export function BarraEntrando({ conectado }: { conectado: boolean }) {
         {!conectado ? "Conectando…" : caliente ? "Entrando pedidos" : "Sin movimiento ahora"}
       </span>
 
-      {/* Cuántos van por sucursal en la última hora, y cuál fue el último de cada una.
-          Escrito entero —«8 pedidos en la última hora»— y no «8 en 1 h»: abreviado hay
-          que preguntarlo, y una etiqueta que hay que preguntar no sirve. */}
-      {entrando.slice(0, 4).map((e) => (
-        <span key={e.sucursalId ?? e.sucursal} className="text-default-600">
-          <strong>{e.sucursal}</strong>: <span className="tabular-nums">{e.entrados}</span>{" "}
-          {e.entrados === 1 ? "pedido" : "pedidos"} en la última hora
-          {/* De cuántos vendedores: distingue «uno subiendo lo suyo» de «la calle entera
-              metiendo pedidos», que no es lo mismo cuando alguien pregunta si va lento. */}
-          {e.vendedores > 1 && <> de {e.vendedores} vendedores</>} · el último{" "}
-          <span className="font-mono">{e.ultimoFolio}</span>
-          {e.ultimoVendedor && <>, de {e.ultimoVendedor}</>}
-          {e.ultimoCliente && <> para {e.ultimoCliente}</>}
-          , <span className="text-default-400">{hace(e.ultimoAt, ahora)}</span>
+      {/* UNA SOLA SUCURSAL: cabe la frase entera y se lee de corrido. */}
+      {entrando.length === 1 && (
+        <span className="text-default-600">
+          <strong>{entrando[0].sucursal}</strong>: <span className="tabular-nums">{entrando[0].entrados}</span>{" "}
+          {entrando[0].entrados === 1 ? "pedido" : "pedidos"} en la última hora
+          {entrando[0].vendedores > 1 && <> de {entrando[0].vendedores} vendedores</>} · el último{" "}
+          <span className="font-mono">{entrando[0].ultimoFolio}</span>
+          {entrando[0].ultimoVendedor && <>, de {entrando[0].ultimoVendedor}</>}
+          {entrando[0].ultimoCliente && <> para {entrando[0].ultimoCliente}</>},{" "}
+          <span className="text-default-400">{hace(entrando[0].ultimoAt, ahora)}</span>
         </span>
-      ))}
-      {entrando.length > 4 && (
-        <span className="text-default-500">y {entrando.length - 4} sucursales más</span>
+      )}
+
+      {/* VARIAS SUCURSALES: cuatro frases seguidas son un párrafo, no una barra.
+          Se resume en una línea —el total, una pastilla por sucursal y el último de
+          todos— y el detalle con vendedor y cliente se abre al pulsar. */}
+      {entrando.length > 1 && (
+        <>
+          <span className="text-default-600">
+            <strong className="tabular-nums">
+              {entrando.reduce((n, e) => n + e.entrados, 0)}
+            </strong>{" "}
+            pedidos en la última hora
+          </span>
+
+          {entrando.map((e) => (
+            <span
+              key={e.sucursalId ?? e.sucursal}
+              className="rounded-full bg-default-100 px-2 py-0.5 text-default-600"
+              title={`${e.sucursal}: ${e.entrados} en la última hora · el último ${e.ultimoFolio}${e.ultimoVendedor ? `, de ${e.ultimoVendedor}` : ""}`}
+            >
+              {e.sucursal} <span className="tabular-nums font-medium">{e.entrados}</span>
+            </span>
+          ))}
+
+          <span className="text-default-500">
+            el último <span className="font-mono">{entrando[0].ultimoFolio}</span> ({entrando[0].sucursal}){" "}
+            {hace(entrando[0].ultimoAt, ahora)}
+          </span>
+
+          <button className="underline text-default-500" type="button" onClick={() => setAbierto(!abierto)}>
+            {abierto ? "menos" : "ver detalle"}
+          </button>
+
+          {abierto && (
+            <div className="basis-full flex flex-col gap-0.5 pt-1 text-default-600">
+              {entrando.map((e) => (
+                <span key={`d-${e.sucursalId ?? e.sucursal}`}>
+                  <strong>{e.sucursal}</strong>: {e.entrados}{" "}
+                  {e.entrados === 1 ? "pedido" : "pedidos"}
+                  {e.vendedores > 1 && <> de {e.vendedores} vendedores</>} · el último{" "}
+                  <span className="font-mono">{e.ultimoFolio}</span>
+                  {e.ultimoVendedor && <>, de {e.ultimoVendedor}</>}
+                  {e.ultimoCliente && <> para {e.ultimoCliente}</>},{" "}
+                  <span className="text-default-400">{hace(e.ultimoAt, ahora)}</span>
+                </span>
+              ))}
+            </div>
+          )}
+        </>
       )}
 
       {/* Nada en la última hora: se dice cuál fue el último, en vez de quedarse mudo. */}
