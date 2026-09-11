@@ -733,9 +733,14 @@ export const OrdersList = () => {
   } = useDisclosure();
   const { session } = useAuthStore();
 
-  // Quién borra un pedido: el MISMO trío que acepta el servidor
+  // Quién borra un pedido: los MISMOS que acepta el servidor
   // (`puedeBorrarPedidos` en api/src/lib/sucursalContext.ts): Super Admin,
-  // Administrador y Supervisor.
+  // Administrador, Supervisor — y el GESTOR, pero solo los suyos.
+  //
+  // Lo del Gestor lo limita el servidor, no esta lista: el endpoint le añade su
+  // `gestorId` a la consulta, así que el pedido de otro le contesta "no encontrado".
+  // Aquí solo se enseña el botón; el permiso de verdad está allí. Esconder un botón
+  // nunca ha sido un permiso, y al revés tampoco: enseñarlo no da acceso a nada.
   //
   // El SUPER ADMIN faltaba aquí. El endpoint le dejaba borrar, pero esta lista le
   // escondía el botón, así que desde la app no podía borrar NINGÚN pedido, de
@@ -746,7 +751,8 @@ export const OrdersList = () => {
     session?.isGlobalAdmin === true ||
     session?.rol === "SUPER ADMIN" ||
     session?.rol === "ADMINISTRADOR" ||
-    session?.rol === "SUPERVISOR";
+    session?.rol === "SUPERVISOR" ||
+    session?.rol === "GESTOR";
 
   // El GESTOR sube los pedidos de SUS vendedores y los ve, pero no los cierra:
   // completar es decir "esto ya se facturó", y eso lo dice quien factura (el
