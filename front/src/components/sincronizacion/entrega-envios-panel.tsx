@@ -180,10 +180,10 @@ export function EntregaEnviosPanel() {
 
       <Table aria-label="Lo que manda la APK de Entrega">
         <TableHeader>
-          <TableColumn>FOLIO QUE MANDA LA APK</TableColumn>
+          <TableColumn>FOLIO QUE MANDA ENTREGA</TableColumn>
           <TableColumn>QUÉ PASA</TableColumn>
-          <TableColumn>LO QUE TENEMOS NOSOTROS</TableColumn>
-          <TableColumn>VENDEDOR</TableColumn>
+          <TableColumn>EL PEDIDO NUESTRO</TableColumn>
+          <TableColumn>VENDEDOR (EL NUESTRO)</TableColumn>
           <TableColumn>CLIENTE QUE MANDA</TableColumn>
           <TableColumn>CAMPOS QUE LLEGAN</TableColumn>
           <TableColumn>INTENTOS</TableColumn>
@@ -221,6 +221,8 @@ export function EntregaEnviosPanel() {
               <TableCell className="text-xs">
                 <div className="flex flex-col">
                   <span>
+                    {/* NUESTRO vendedor, el del pedido. En las filas sin pedido sale «—»,
+                        que es la señal de que esta columna no viene de Entrega. */}
                     {i.nuestro?.vendedor ?? "—"}
                     {i.nuestro?.sucursal && (
                       <span className="text-default-400"> · {i.nuestro.sucursal}</span>
