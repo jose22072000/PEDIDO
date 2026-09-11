@@ -109,7 +109,8 @@ router.post('/ping', async (req, res) => {
 
 /**
  * POST /webhooks/domicilio
- * Body: { entregas: [{ pedidoId?, folio?, clienteId?, clienteCodigo?, clienteNombre?, vendedorCodigo?,
+ * Body: { entregas: [{ pedidoId?, folio?, clienteId?, clienteCodigo?, clienteNombre?,
+ *                       vendedorId?, vendedorCodigo?, vendedorNombre?,
  *                       costo, distanciaKm?, distanciaDesde? }] }
  *
  * En LOTE e idempotente: mandar dos veces lo mismo deja lo mismo, así que ante la duda
@@ -154,6 +155,7 @@ router.post('/domicilio', async (req, res) => {
    * vino ningún cliente.
    */
   const identificados = new Map<string, string>();
+  const vendedores = new Map<string, string>();
 
   for (const e of entregas) {
     if (!e || typeof e !== 'object') {
@@ -164,13 +166,20 @@ router.post('/domicilio', async (req, res) => {
     const clave = String(e.folio ?? e.pedidoId ?? e.id ?? '');
     const quien = e.clienteId ?? e.idCliente ?? e.cliente_id ?? e.clienteCodigo ?? e.codigoCliente ??
       e.clienteNombre ?? e.nombreCliente ?? (typeof e.cliente === 'string' ? e.cliente : e.cliente?.nombre);
+    const deQuien = e.vendedorId ?? e.vendedorCodigo ?? e.codigoVendedor ?? e.vendedorNombre ??
+      e.nombreVendedor ?? (typeof e.vendedor === 'string' ? e.vendedor : e.vendedor?.nombre);
 
-    if (clave) identificados.set(clave, quien ? String(quien) : '(no mandaron cliente)');
+    if (clave) {
+      identificados.set(clave, quien ? String(quien) : '(no mandaron cliente)');
+      vendedores.set(clave, deQuien ? String(deQuien) : '(no mandaron vendedor)');
+    }
     try {
       const r = await aplicarCostoDomicilio({
         pedidoId: e.pedidoId ?? e.id ?? null,
         folio: e.folio ?? null,
-        vendedorCodigo: e.vendedorCodigo ?? e.vendedor ?? null,
+        vendedorId: e.vendedorId ?? e.idVendedor ?? e.vendedor_id ?? null,
+        vendedorCodigo: e.vendedorCodigo ?? e.codigoVendedor ?? (typeof e.vendedor === 'string' ? e.vendedor : null),
+        vendedorNombre: e.vendedorNombre ?? e.nombreVendedor ?? (typeof e.vendedor === 'object' ? e.vendedor?.nombre : null) ?? null,
         // Quién es el cliente de ese folio: es lo que deja usar el folio TAL COMO lo da
         // Parranda, sin que del otro lado tengan que conocer los sufijos que les ponemos
         // aquí cuando un mismo folio trae varios clientes. Ver `aplicarCostoDomicilio`.
@@ -268,10 +277,12 @@ router.post('/domicilio', async (req, res) => {
     ...aplicadas.map((a) => ({
       folio: a.folio ?? null, motivo: null, ok: true, pedidoId: a.pedidoId ?? null,
       cliente: identificados.get(a.folio ?? a.pedidoId ?? '') ?? null,
+      vendedor: vendedores.get(a.folio ?? a.pedidoId ?? '') ?? null,
     })),
     ...rechazadas.map((r) => ({
       folio: r.folio ?? null, motivo: r.motivo, ok: false, pedidoId: r.pedidoId ?? null,
       cliente: identificados.get(r.folio ?? r.pedidoId ?? '') ?? null,
+      vendedor: vendedores.get(r.folio ?? r.pedidoId ?? '') ?? null,
     })),
   ]);
 

@@ -26,6 +26,8 @@ export type IntentoDeEntrega = {
   ok: boolean;
   pedidoId?: string | null;
   cliente?: string | null;
+  /** Con qué identificaron al vendedor, o que no lo mandaron. */
+  vendedor?: string | null;
   costo?: number | null;
 };
 
@@ -43,6 +45,7 @@ export async function apuntarIntentos(entradas: IntentoDeEntrega[]): Promise<voi
           folio, motivo, ok: e.ok,
           pedidoId: e.pedidoId ?? null,
           cliente: e.cliente ?? null,
+          vendedor: e.vendedor ?? null,
           costo: e.costo ?? null,
         },
         update: {
@@ -52,6 +55,7 @@ export async function apuntarIntentos(entradas: IntentoDeEntrega[]): Promise<voi
           // ahora sí, interesa lo de ahora.
           ...(e.pedidoId ? { pedidoId: e.pedidoId } : {}),
           ...(e.cliente ? { cliente: e.cliente } : {}),
+          ...(e.vendedor ? { vendedor: e.vendedor } : {}),
           ...(e.costo != null ? { costo: e.costo } : {}),
         },
       });

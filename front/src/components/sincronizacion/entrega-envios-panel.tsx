@@ -38,6 +38,7 @@ interface Intento {
   clase: Clase;
   intentos: number;
   cliente: string | null;
+  vendedorMandado: string | null;
   primeroAt: string;
   ultimoAt: string;
   nuestro: {
@@ -213,11 +214,24 @@ export function EntregaEnviosPanel() {
                   <span className="text-xs text-default-400">no está en PEDIDO</span>
                 )}
               </TableCell>
+              {/* El nuestro arriba y, debajo, lo que mandaron ellos. Verlos juntos es lo
+                  que deja decir si el vendedor cuadra o si ni siquiera lo mandan. */}
               <TableCell className="text-xs">
-                {i.nuestro?.vendedor ?? "—"}
-                {i.nuestro?.sucursal && (
-                  <span className="text-default-400"> · {i.nuestro.sucursal}</span>
-                )}
+                <div className="flex flex-col">
+                  <span>
+                    {i.nuestro?.vendedor ?? "—"}
+                    {i.nuestro?.sucursal && (
+                      <span className="text-default-400"> · {i.nuestro.sucursal}</span>
+                    )}
+                  </span>
+                  {i.vendedorMandado === "(no mandaron vendedor)" ? (
+                    <span className="text-warning-600">no mandan vendedor</span>
+                  ) : (
+                    i.vendedorMandado && (
+                      <span className="text-default-400">mandan: {i.vendedorMandado}</span>
+                    )
+                  )}
+                </div>
               </TableCell>
               {/* Lo que mandaron para decir de qué cliente es. Cuando pone «no mandaron
                   cliente» y al lado el motivo es «ese folio es de N clientes», la fila se

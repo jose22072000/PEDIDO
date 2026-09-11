@@ -99,7 +99,25 @@ async function sinDomicilio(pedidoId: string): Promise<string | null> {
 export async function aplicarCostoDomicilio(u: {
   pedidoId?: string | null;
   folio?: string | null;
+  /**
+   * Quién lo vendió. Los tres valen y se prueban en ese orden.
+   *
+   * Es el otro desempate, y el bueno cuando dos vendedores repiten folio: las iniciales
+   * del vendedor van DENTRO del folio (`PDG26` es `P`+`DG`+`26`) y hay seis prefijos
+   * compartidos por dos personas con las mismas iniciales —Dayana González y Diango Gola
+   * bajo `PDG26`, Adrián Pupo y Alexander Padrón bajo `PAP25`—. Hoy no llega a chocar
+   * ningún folio entero (0 de 27.046), pero el día que choque esto lo separa.
+   *
+   * No sustituye al cliente: cuando un folio trae 23 clientes, los 23 son del MISMO
+   * vendedor —uno usa un folio para toda su jornada—, así que el vendedor los agrupa y
+   * sólo el cliente los separa.
+   *
+   * Los 100 vendedores tienen código y son todos distintos, así que `vendedorCodigo`
+   * (`yanisleydis.garcia`) basta; `vendedorId` es el de `/integration/vendedores`.
+   */
+  vendedorId?: string | null;
   vendedorCodigo?: string | null;
+  vendedorNombre?: string | null;
   /**
    * Quién es el cliente de ese folio. Es lo que desambigua el sufijo.
    *
@@ -316,9 +334,12 @@ export async function aplicarCostoDomicilio(u: {
         where: {
           OR: [{ folio }, { folio: { startsWith: `${folio}-` } }],
           ...alcance,
-          ...(u.vendedorCodigo ? { vendedor: { codigo: String(u.vendedorCodigo) } } : {}),
         },
-        select: { id: true, folio: true, cliente: { select: { id: true, codigo: true, nombre: true } } },
+        select: {
+          id: true, folio: true,
+          cliente: { select: { id: true, codigo: true, nombre: true } },
+          vendedor: { select: { id: true, codigo: true, nombre: true } },
+        },
         take: 40,
       })
     ).filter((p) => p.folio === folio || /^-\d{1,2}$/.test(p.folio.slice(folio.length)));
@@ -333,6 +354,30 @@ export async function aplicarCostoDomicilio(u: {
      * reserva se quedarían fuera Granma y Moa enteras, que no tienen ni un código.
      */
     let elegidos = candidatos;
+
+    /**
+     * El vendedor primero, que es el filtro grueso, y luego el cliente.
+     *
+     * Va como ESTRECHADOR y no dentro de la consulta a propósito. Cuando iba en el
+     * `where`, un `vendedorCodigo` que no casara dejaba la búsqueda en cero y se
+     * contestaba «folio no encontrado», que es mentira: el folio estaba, lo que no cuadró
+     * fue el vendedor. Así, si no casa con nadie no descarta, y el motivo que sale es el
+     * de verdad.
+     */
+    if (elegidos.length > 1 && (u.vendedorId || u.vendedorCodigo || u.vendedorNombre)) {
+      const porVendedor = elegidos.filter((p) => {
+        const v = p.vendedor;
+
+        if (!v) return false;
+        if (u.vendedorId && v.id === String(u.vendedorId).trim()) return true;
+        if (u.vendedorCodigo && (v.codigo ?? '').trim() === String(u.vendedorCodigo).trim()) return true;
+        if (u.vendedorNombre && claveDeCliente(v.nombre) === claveDeCliente(u.vendedorNombre)) return true;
+
+        return false;
+      });
+
+      if (porVendedor.length > 0) elegidos = porVendedor;
+    }
 
     // Por orden de fiabilidad: nuestro id, el código, y el nombre como último recurso.
     if (elegidos.length > 1 && u.clienteId) {
@@ -375,8 +420,8 @@ export async function aplicarCostoDomicilio(u: {
         folio,
         motivo:
           `ese folio es de ${elegidos.length} clientes distintos: manda clienteId ` +
-          `(el de /integration/clients), clienteCodigo o clienteNombre para señalar cuál. ` +
-          `Son: ${quienes}`,
+          `(el de /integration/clients), clienteCodigo o clienteNombre para señalar cuál ` +
+          `—y vendedorCodigo si además lo repiten dos vendedores—. Son: ${quienes}`,
       };
     }
 

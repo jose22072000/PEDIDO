@@ -543,6 +543,9 @@ model EntregaIntento {
   pedidoId String?
   /// Lo que mandaron para identificar al cliente, para poder ver si viene o no.
   cliente  String?
+  /// Y lo que mandaron para identificar al vendedor. Mismo motivo: ver de un vistazo si
+  /// viene o no, que es la mitad de lo que hace falta para saber por qué falla un folio.
+  vendedor String?
   costo    Float?
 
   primeroAt DateTime @default(now())

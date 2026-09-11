@@ -101,6 +101,7 @@ router.get('/intentos', async (req, res) => {
       clase,
       intentos: f.intentos,
       cliente: f.cliente,
+      vendedorMandado: f.vendedor,
       primeroAt: f.primeroAt,
       ultimoAt: f.ultimoAt,
       // Lo que tenemos nosotros de ese folio, para poder comparar de un vistazo.
