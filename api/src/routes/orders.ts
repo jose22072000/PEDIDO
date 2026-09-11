@@ -1115,6 +1115,9 @@ router.post('/bulk', ingestaAuth, async (req, res) => {
         creados: outcome.results.created,
         actualizados: outcome.results.updated,
         fallidos: outcome.results.failed,
+        // Desde que entró la petición hasta ahora: incluye leer, cruzar vendedores y
+        // escribir, que es lo que tarda de verdad.
+        ms: Date.now() - base.desdeAt,
         at: Date.now(),
       });
 

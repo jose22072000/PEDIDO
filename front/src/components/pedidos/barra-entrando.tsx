@@ -72,8 +72,19 @@ interface Cola {
     creados: number;
     actualizados: number;
     fallidos: number;
+    /** Cuánto tardó en procesarse, en milisegundos. */
+    ms?: number;
     at: number;
   }>;
+}
+
+/** «1,2 s» / «3 min». Lo que tardó en procesarse un archivo. */
+function tardo(ms: number | undefined): string {
+  if (ms == null) return "";
+  if (ms < 1000) return `${ms} ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1).replace(".", ",")} s`;
+
+  return `${Math.round(ms / 60_000)} min`;
 }
 
 /** «hace 40 s» / «hace 3 min» / «hace 2 h». Es lo que calma a quien está esperando. */
@@ -259,7 +270,10 @@ export function BarraEntrando({ conectado }: { conectado: boolean }) {
           {archivos[0].archivo ?? (archivos[0].origen === "n8n" ? "de la ingesta" : "subido a mano")} (
           {archivos[0].sucursal}) con{" "}
           <span className="tabular-nums">{(archivos[0].creados + archivos[0].actualizados).toLocaleString("es")}</span>{" "}
-          pedidos{archivos[0].fallidos > 0 && <span className="text-warning-600">, {archivos[0].fallidos} con problema</span>},{" "}
+          pedidos{archivos[0].fallidos > 0 && <span className="text-warning-600">, {archivos[0].fallidos} con problema</span>}
+          {/* Cuánto tardó: es lo que deja ver si algo se está poniendo lento, y no se
+              sabía por ningún lado. */}
+          {archivos[0].ms != null && <> en {tardo(archivos[0].ms)}</>},{" "}
           <span className="text-default-400">{hace(archivos[0].at, ahora)}</span>
         </span>
       )}

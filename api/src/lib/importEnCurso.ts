@@ -127,6 +127,8 @@ export type Hecha = {
   creados: number;
   actualizados: number;
   fallidos: number;
+  /** Cuánto tardó, en milisegundos. Es lo que deja ver si algo va lento y desde cuándo. */
+  ms: number;
   at: number;
 };
 
