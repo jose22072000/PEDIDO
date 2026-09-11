@@ -382,7 +382,10 @@ export async function aplicarCostoDomicilio(u: {
 
     const noVa = await sinDomicilio(elegidos[0].id);
 
-    if (noVa) return { ok: false, folio, pedidoId: elegidos[0].id, motivo: noVa };
+    // Se devuelve el folio NUESTRO, no el que mandaron: ya sabemos a qué pedido señalaba,
+    // y decírselo es lo que deja comprobar del otro lado que la identificación acertó y
+    // que el rechazo es por el domicilio, no por haber cogido el pedido equivocado.
+    if (noVa) return { ok: false, folio: elegidos[0].folio, pedidoId: elegidos[0].id, motivo: noVa };
 
     await prisma.pedido.update({
       where: { id: elegidos[0].id },
