@@ -336,7 +336,20 @@ export default function CrearPedidoForm() {
             headers: {
               "Content-Type": "application/json",
             },
-            body: JSON.stringify({ records: batches[i] }),
+            /**
+             * Va el NOMBRE DEL ARCHIVO y el lote, no sólo las filas.
+             *
+             * Sin esto, quien mira la cola ve «procesando 350 de 500 filas» y no sabe de
+             * qué archivo son ni cuántos faltan. Con el nombre y el lote, el que subió
+             * reconoce lo suyo y ve que va por el 2 de 5 — que es lo que contesta a
+             * «¿entró ya mi pedido?» sin preguntarle a nadie.
+             */
+            body: JSON.stringify({
+              records: batches[i],
+              archivo: file.name,
+              lote: i + 1,
+              deLotes: batches.length,
+            }),
           });
 
           if (!response.ok) {

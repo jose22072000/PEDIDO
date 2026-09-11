@@ -29,8 +29,14 @@ const api = getApiBaseUrl;
 
 interface Trabajo {
   jobId: string;
+  archivo: string | null;
+  lote: number | null;
+  deLotes: number | null;
   filas: number;
   hechos: number;
+  creados: number;
+  actualizados: number;
+  fallidos: number;
   desdeAt: number | null;
 }
 
@@ -40,6 +46,7 @@ interface EnSucursal {
   activos: Trabajo[];
   enEspera: number;
   filasEnEspera: number;
+  archivosEnEspera: string[];
 }
 
 interface Cola {
@@ -120,19 +127,34 @@ export function ColaSubidas() {
                   <span className="font-medium">{s.sucursal}</span>
                   {s.enEspera > 0 && (
                     <span className="text-xs text-default-500">
-                      {s.enEspera} {s.enEspera === 1 ? "archivo" : "archivos"} esperando ·{" "}
+                      {s.enEspera} {s.enEspera === 1 ? "trozo" : "trozos"} esperando ·{" "}
                       {s.filasEnEspera.toLocaleString("es")} filas
+                      {s.archivosEnEspera?.length > 0 && ` · ${s.archivosEnEspera.slice(0, 3).join(", ")}`}
                     </span>
                   )}
                 </div>
 
                 {s.activos.map((t) => {
                   const pct = t.filas > 0 ? Math.min(Math.round((t.hechos / t.filas) * 100), 100) : 0;
+                  const entrados = t.creados + t.actualizados;
 
                   return (
                     <div key={t.jobId} className="flex flex-col gap-1">
+                      {/* QUÉ archivo. Es lo primero que busca quien acaba de subir: sin
+                          el nombre, una barra es de cualquiera. */}
+                      <div className="flex flex-wrap items-baseline gap-x-2 text-xs">
+                        <span className="font-medium text-default-700">
+                          {t.archivo ?? "archivo sin nombre"}
+                        </span>
+                        {t.deLotes && t.deLotes > 1 && (
+                          <span className="text-default-500">
+                            trozo {t.lote} de {t.deLotes}
+                          </span>
+                        )}
+                      </div>
+
                       <Progress
-                        aria-label={`Progreso de la subida en ${s.sucursal}`}
+                        aria-label={`Progreso de ${t.archivo ?? "la subida"} en ${s.sucursal}`}
                         // Hasta que llega el primer aviso de progreso no se sabe nada:
                         // una barra en cero parece parada, y la indeterminada dice la
                         // verdad — está trabajando y todavía no hay cifra.
@@ -140,13 +162,30 @@ export function ColaSubidas() {
                         size="sm"
                         value={pct}
                       />
-                      <div className="flex flex-wrap gap-x-3 text-xs text-default-500">
+
+                      <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-default-500">
                         {t.filas > 0 ? (
-                          <span className="tabular-nums">
-                            {t.hechos.toLocaleString("es")} de {t.filas.toLocaleString("es")} filas ({pct}%)
-                          </span>
+                          <>
+                            {/* Por QUÉ LÍNEA va. «350 de 500» se entiende sin explicar. */}
+                            <span className="tabular-nums">
+                              línea <strong>{t.hechos.toLocaleString("es")}</strong> de{" "}
+                              {t.filas.toLocaleString("es")} ({pct}%)
+                            </span>
+                            {/* Y QUÉ está entrando: sin esto no se distingue avanzar de
+                                fallar fila por fila. */}
+                            <span className="tabular-nums">
+                              {entrados.toLocaleString("es")} entrados
+                              {t.creados > 0 && ` · ${t.creados.toLocaleString("es")} nuevos`}
+                              {t.actualizados > 0 && ` · ${t.actualizados.toLocaleString("es")} actualizados`}
+                            </span>
+                            {t.fallidos > 0 && (
+                              <span className="tabular-nums text-warning-600">
+                                {t.fallidos.toLocaleString("es")} con problema
+                              </span>
+                            )}
+                          </>
                         ) : (
-                          <span>preparando el archivo</span>
+                          <span>leyendo el archivo y buscando los vendedores</span>
                         )}
                         <span>{llevando(t.desdeAt, ahora)}</span>
                       </div>

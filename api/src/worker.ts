@@ -66,8 +66,10 @@ async function main() {
       records as any[],
       uploaderSucursalId,
       restrictToGestorId ?? null,
-      (hechos, total) => {
-        void job.progress({ hechos, total }).catch(() => {});
+      (hechos, total, parcial) => {
+        // Lo que va entrando, no sólo por dónde va: «320 de 500» no dice si está
+        // creando pedidos o fallando todos.
+        void job.progress({ hechos, total, ...parcial, at: Date.now() }).catch(() => {});
       },
     );
     if (!outcome.ok) {

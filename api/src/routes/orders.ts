@@ -995,6 +995,17 @@ router.post('/bulk', ingestaAuth, async (req, res) => {
     }
 
     const { records } = req.body;
+    /**
+     * De qué archivo son estas filas, y qué trozo es.
+     *
+     * La pantalla parte los archivos grandes en lotes, así que un archivo son varios
+     * trabajos en la cola. Sin esto, quien mira la cola ve filas sueltas sin saber de qué
+     * archivo vienen ni cuánto falta. Es información, así que si no viene no pasa nada:
+     * la ingesta automática de n8n no la manda.
+     */
+    const archivo = typeof req.body?.archivo === 'string' ? req.body.archivo.slice(0, 200) : null;
+    const lote = Number(req.body?.lote) || null;
+    const deLotes = Number(req.body?.deLotes) || null;
 
     if (!records || !Array.isArray(records)) {
       return res.status(400).json({ error: 'Invalid records data' });
@@ -1027,7 +1038,15 @@ router.post('/bulk', ingestaAuth, async (req, res) => {
     const forceInline = req.query.sync === '1' || req.query.sync === 'true';
     const queue = (!forceInline && process.env.IMPORT_USE_QUEUE === 'true') ? importQueue() : null;
     if (queue) {
-      const job = await queue.add({ records, uploaderSucursalId: uploaderSucursalId ?? null, restrictToGestorId });
+      const job = await queue.add({
+        records,
+        uploaderSucursalId: uploaderSucursalId ?? null,
+        restrictToGestorId,
+        archivo, lote, deLotes,
+        // Cuántas filas trae, aparte de las filas: para contar lo que espera sin tener
+        // que sacar de Redis el CSV entero de cada trabajo.
+        totalFilas: records.length,
+      });
       return res.status(202).json({ enqueued: true, jobId: String(job.id) });
     }
 
@@ -1104,8 +1123,15 @@ router.get('/cola', async (req, res) => {
   const sucursales = await prisma.sucursal.findMany({ select: { id: true, codigo: true, nombre: true } });
   const nombre = new Map(sucursales.map((s) => [s.id, s.codigo || s.nombre]));
 
-  type Trabajo = { jobId: string; filas: number; hechos: number; desdeAt: number | null };
-  const porSucursal = new Map<string, { sucursalId: string | null; sucursal: string; activos: Trabajo[]; enEspera: number; filasEnEspera: number }>();
+  type Trabajo = {
+    jobId: string; archivo: string | null; lote: number | null; deLotes: number | null;
+    filas: number; hechos: number; creados: number; actualizados: number; fallidos: number;
+    desdeAt: number | null;
+  };
+  const porSucursal = new Map<string, {
+    sucursalId: string | null; sucursal: string; activos: Trabajo[];
+    enEspera: number; filasEnEspera: number; archivosEnEspera: string[];
+  }>();
 
   const cajon = (sid: string | null) => {
     const clave = sid ?? '(sin sucursal)';
@@ -1114,7 +1140,7 @@ router.get('/cola', async (req, res) => {
       porSucursal.set(clave, {
         sucursalId: sid,
         sucursal: (sid && nombre.get(sid)) || 'Sin sucursal',
-        activos: [], enEspera: 0, filasEnEspera: 0,
+        activos: [], enEspera: 0, filasEnEspera: 0, archivosEnEspera: [],
       });
     }
 
@@ -1124,18 +1150,30 @@ router.get('/cola', async (req, res) => {
   const mio = (sid: string | null) => isGlobalAdmin || sid === sucursalId;
 
   for (const j of activos) {
-    const d = j.data as { records?: unknown[]; uploaderSucursalId?: string | null };
+    const d = j.data as {
+      records?: unknown[]; uploaderSucursalId?: string | null; totalFilas?: number;
+      archivo?: string | null; lote?: number | null; deLotes?: number | null;
+    };
     const sid = d.uploaderSucursalId ?? null;
 
     if (!mio(sid)) continue;
 
-    const p = j.progress() as { hechos?: number; total?: number } | number | null;
-    const filas = (typeof p === 'object' && p?.total) || d.records?.length || 0;
+    const p = j.progress() as
+      | { hechos?: number; total?: number; creados?: number; actualizados?: number; fallidos?: number }
+      | number
+      | null;
+    const prog = typeof p === 'object' && p ? p : {};
 
     cajon(sid).activos.push({
       jobId: String(j.id),
-      filas,
-      hechos: typeof p === 'object' ? (p?.hechos ?? 0) : 0,
+      archivo: d.archivo ?? null,
+      lote: d.lote ?? null,
+      deLotes: d.deLotes ?? null,
+      filas: prog.total || d.totalFilas || d.records?.length || 0,
+      hechos: prog.hechos ?? 0,
+      creados: prog.creados ?? 0,
+      actualizados: prog.actualizados ?? 0,
+      fallidos: prog.fallidos ?? 0,
       // `processedOn` es cuándo lo cogió el worker: con eso se dice «lleva 40 s», que es
       // lo que calma a quien está esperando.
       desdeAt: j.processedOn ?? null,
@@ -1143,7 +1181,9 @@ router.get('/cola', async (req, res) => {
   }
 
   for (const j of esperando) {
-    const d = j.data as { records?: unknown[]; uploaderSucursalId?: string | null };
+    const d = j.data as {
+      records?: unknown[]; uploaderSucursalId?: string | null; totalFilas?: number; archivo?: string | null;
+    };
     const sid = d.uploaderSucursalId ?? null;
 
     if (!mio(sid)) continue;
@@ -1151,7 +1191,8 @@ router.get('/cola', async (req, res) => {
     const c = cajon(sid);
 
     c.enEspera++;
-    c.filasEnEspera += d.records?.length ?? 0;
+    c.filasEnEspera += d.totalFilas ?? d.records?.length ?? 0;
+    if (d.archivo && !c.archivosEnEspera.includes(d.archivo)) c.archivosEnEspera.push(d.archivo);
   }
 
   const lista = [...porSucursal.values()].sort((a, b) => a.sucursal.localeCompare(b.sucursal));
@@ -1332,7 +1373,7 @@ export async function processBulkImport(
    * Es opcional: la importación en línea —la de n8n, que espera el resultado— no lo pasa
    * y se comporta exactamente igual que antes.
    */
-  avisar?: (hechos: number, total: number) => void,
+  avisar?: (hechos: number, total: number, parcial: { creados: number; actualizados: number; fallidos: number }) => void,
 ): Promise<BulkImportOutcome> {
   /**
    * Antes de repartir los folios, se mira QUÉ FOLIO TIENE YA CADA CLIENTE.
@@ -1417,12 +1458,14 @@ export async function processBulkImport(
   const CADA = 25;
   let hechos = 0;
 
-  avisar?.(0, mappedRecords.length);
+  const parcial = () => ({ creados: results.created, actualizados: results.updated, fallidos: results.failed });
+
+  avisar?.(0, mappedRecords.length, parcial());
 
   for (const record of mappedRecords) {
     hechos++;
 
-    if (hechos % CADA === 0) avisar?.(hechos, mappedRecords.length);
+    if (hechos % CADA === 0) avisar?.(hechos, mappedRecords.length, parcial());
 
     const key = record.seller.code || record.seller.name.toUpperCase().trim();
     const rechazo = vendedoresRechazados.get(key);
@@ -1466,7 +1509,7 @@ export async function processBulkImport(
   }
 
   // Se importaron pedidos: los que pidan domicilio entran en la cola de cotización.
-  avisar?.(mappedRecords.length, mappedRecords.length);
+  avisar?.(mappedRecords.length, mappedRecords.length, parcial());
 
   if (results.created > 0 || results.updated > 0) {
     emitEvent('pedido', { sucursalId: uploaderSucursalId ?? null, accion: 'bulk' });
