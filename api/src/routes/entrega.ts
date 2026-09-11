@@ -49,13 +49,25 @@ router.use(authenticateToken, requireAdmin);
  */
 router.get('/intentos', async (req, res) => {
   const desde = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+  /**
+   * Se traen TODAS las filas de la ventana y se pagina después de clasificar.
+   *
+   * Paginar en la consulta sería lo natural, pero la clase de cada fila no está guardada:
+   * se calcula cruzando con el pedido, porque cambia sola —un folio «no subido» deja de
+   * serlo en cuanto el vendedor sube su archivo—. Paginando antes, los contadores de
+   * arriba contarían sólo la página que se está mirando, y el filtro por clase se saltaría
+   * filas que están en otra página.
+   *
+   * El tope de 2.000 es de sobra: son filas agrupadas por (folio, código), no una por
+   * llamada. Con 25 folios fallando al día, siete días son unas 200.
+   */
   const filas = await prisma.entregaIntento.findMany({
     where: { ultimoAt: { gte: desde } },
-    orderBy: [{ ok: 'asc' }, { intentos: 'desc' }],
-    take: 300,
+    take: 2000,
   });
 
-  // Una sola consulta para todos los folios, no una por fila: son hasta 300.
+  // Una sola consulta para todos los folios, no una por fila.
   const folios = [...new Set(filas.map((f) => f.folio))].filter((f) => f !== '(sin folio)');
   const pedidos = folios.length
     ? await prisma.pedido.findMany({
@@ -84,7 +96,7 @@ router.get('/intentos', async (req, res) => {
     }
   }
 
-  const salida = filas.map((f) => {
+  const todos = filas.map((f) => {
     const p = porFolio.get(f.folio) ?? null;
     /**
      * La clase que se enseña sale de CRUZAR el código con lo que hay ahora en la base.
@@ -125,23 +137,62 @@ router.get('/intentos', async (req, res) => {
     };
   });
 
-  const cuenta = (c: string) => salida.filter((s) => s.clase === c).length;
+  const cuenta = (c: string) => todos.filter((s) => s.clase === c).length;
+
+  /**
+   * El resumen se calcula sobre TODO, nunca sobre la página ni sobre el filtro.
+   *
+   * Son las tarjetas con las que se filtra: si contaran lo filtrado, al pulsar una se
+   * quedaría en uno y las demás en cero, y ya no se podría volver.
+   */
+  const resumen = {
+    folios: todos.length,
+    aplicadas: cuenta('aplicada'),
+    no_subido: cuenta('no_subido'),
+    sin_domicilio: cuenta('sin_domicilio'),
+    ambiguo: cuenta('ambiguo'),
+    otro: cuenta('otro'),
+    // Lo que de verdad duele: cuántas veces se ha reintentado en balde.
+    reintentos_en_balde: todos.filter((s) => !s.ok).reduce((n, s) => n + s.intentos, 0),
+  };
+
+  // --- filtro, orden y página
+  const clase = typeof req.query.clase === 'string' ? req.query.clase.trim() : '';
+  const q = (typeof req.query.q === 'string' ? req.query.q : '').trim().toLowerCase();
+  const orden = req.query.orden === 'reciente' ? 'reciente' : 'intentos';
+  const porPagina = Math.min(Math.max(Number(req.query.porPagina) || 20, 5), 100);
+  const pagina = Math.max(Number(req.query.pagina) || 1, 1);
+
+  let lista = clase ? todos.filter((t) => t.clase === clase) : todos;
+
+  if (q) {
+    // Se busca por lo que uno tiene delante cuando pregunta: el folio que le dio el
+    // repartidor, o el nombre del cliente o del vendedor.
+    lista = lista.filter((t) =>
+      [t.folio, t.nuestro?.folio, t.nuestro?.cliente, t.nuestro?.vendedor, t.nuestro?.sucursal, t.cliente]
+        .some((v) => (v ?? '').toString().toLowerCase().includes(q)),
+    );
+  }
+
+  lista = [...lista].sort((a, b) =>
+    orden === 'reciente'
+      ? new Date(b.ultimoAt).getTime() - new Date(a.ultimoAt).getTime()
+      // Por defecto, lo que más está machacando: primero lo que no entra, y dentro de eso
+      // lo que más veces se ha reintentado.
+      : Number(a.ok) - Number(b.ok) || b.intentos - a.intentos,
+  );
+
+  const total = lista.length;
+  const paginas = Math.max(Math.ceil(total / porPagina), 1);
+  const actual = Math.min(pagina, paginas);
 
   res.json({
     desde,
-    resumen: {
-      folios: salida.length,
-      aplicadas: cuenta('aplicada'),
-      no_subido: cuenta('no_subido'),
-      sin_domicilio: cuenta('sin_domicilio'),
-      ambiguo: cuenta('ambiguo'),
-      otro: cuenta('otro'),
-      // Lo que de verdad duele: cuántas veces se ha reintentado en balde.
-      reintentos_en_balde: salida.filter((s) => !s.ok).reduce((n, s) => n + s.intentos, 0),
-    },
-    intentos: salida,
+    resumen,
+    filtro: { clase, q, orden },
+    pagina: { actual, paginas, porPagina, total },
+    intentos: lista.slice((actual - 1) * porPagina, actual * porPagina),
   });
 });
-
 
 export default router;

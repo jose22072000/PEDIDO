@@ -1,4 +1,4 @@
-import { Button, Card, CardBody, Chip, Spinner } from "@heroui/react";
+import { Button, Card, CardBody, Chip, Input, Pagination, Select, SelectItem, Spinner } from "@heroui/react";
 import { useCallback, useEffect, useState } from "react";
 
 import { getApiBaseUrl } from "@/config";
@@ -65,6 +65,7 @@ interface Respuesta {
     otro: number;
     reintentos_en_balde: number;
   };
+  pagina: { actual: number; paginas: number; porPagina: number; total: number };
   intentos: Intento[];
 }
 
@@ -128,15 +129,48 @@ export function EntregaEnviosPanel() {
   const [cargando, setCargando] = useState(true);
   const [filtro, setFiltro] = useState<Clase | "todo">("todo");
   const [abierto, setAbierto] = useState<string | null>(null);
+  const [busqueda, setBusqueda] = useState("");
+  const [orden, setOrden] = useState<"intentos" | "reciente">("intentos");
+  const [pagina, setPagina] = useState(1);
+  const [porPagina, setPorPagina] = useState(20);
+
+  /**
+   * Lo que se teclea NO dispara una consulta por letra.
+   *
+   * Son unos cientos de folios: buscar en cada pulsación es machacar la API para nada y
+   * hace que la lista parpadee mientras se escribe. Medio segundo de calma y se busca.
+   */
+  const [buscado, setBuscado] = useState("");
+
+  useEffect(() => {
+    const t = setTimeout(() => setBuscado(busqueda), 500);
+
+    return () => clearTimeout(t);
+  }, [busqueda]);
+
+  // Cambiar el filtro, la búsqueda o el orden deja la página en la 1: seguir en la 4 de
+  // una lista que ahora tiene dos páginas enseña una pantalla vacía.
+  useEffect(() => {
+    setPagina(1);
+  }, [filtro, buscado, orden, porPagina]);
 
   const cargar = useCallback(async () => {
     setCargando(true);
     try {
-      setDatos(await fetch(`${api()}/entrega/intentos`).then((r) => r.json()));
+      const p = new URLSearchParams({
+        pagina: String(pagina),
+        porPagina: String(porPagina),
+        orden,
+      });
+
+      if (filtro !== "todo") p.set("clase", filtro);
+      if (buscado) p.set("q", buscado);
+
+      setDatos(await fetch(`${api()}/entrega/intentos?${p.toString()}`).then((r) => r.json()));
     } finally {
       setCargando(false);
     }
-  }, []);
+  }, [pagina, porPagina, orden, filtro, buscado]);
 
   useEffect(() => {
     cargar();
@@ -151,7 +185,9 @@ export function EntregaEnviosPanel() {
   if (!datos) return null;
 
   const r = datos.resumen;
-  const filas = filtro === "todo" ? datos.intentos : datos.intentos.filter((i) => i.clase === filtro);
+  // Ya vienen filtradas, ordenadas y paginadas del servidor: aquí no se vuelve a filtrar.
+  const filas = datos.intentos;
+  const pag = datos.pagina;
 
   const tarjetas: Array<{ clase: Clase | "todo"; titulo: string; valor: number; pie: string }> = [
     { clase: "todo", titulo: "Folios", valor: r.folios, pie: "en 7 días" },
@@ -204,6 +240,47 @@ export function EntregaEnviosPanel() {
         </p>
       )}
 
+      {/* Buscar, ordenar y cuántas por página. Se busca por folio, cliente, vendedor o
+          sucursal, que es lo que uno tiene delante cuando viene a preguntar por un caso. */}
+      <div className="flex flex-wrap items-end gap-3">
+        <Input
+          className="max-w-xs"
+          isClearable
+          label="Buscar"
+          placeholder="Folio, cliente, vendedor o sucursal"
+          size="sm"
+          value={busqueda}
+          onClear={() => setBusqueda("")}
+          onValueChange={setBusqueda}
+        />
+        <Select
+          className="max-w-[13rem]"
+          label="Ordenar por"
+          selectedKeys={[orden]}
+          size="sm"
+          onChange={(e) => setOrden(e.target.value === "reciente" ? "reciente" : "intentos")}
+        >
+          <SelectItem key="intentos">Lo que más machaca</SelectItem>
+          <SelectItem key="reciente">Lo más reciente</SelectItem>
+        </Select>
+        <Select
+          className="max-w-[9rem]"
+          label="Por página"
+          selectedKeys={[String(porPagina)]}
+          size="sm"
+          onChange={(e) => setPorPagina(Number(e.target.value) || 20)}
+        >
+          {["10", "20", "50", "100"].map((n) => (
+            <SelectItem key={n}>{n}</SelectItem>
+          ))}
+        </Select>
+        <p className="ml-auto text-sm text-default-500">
+          {pag.total === 0
+            ? "sin resultados"
+            : `${(pag.actual - 1) * pag.porPagina + 1}–${Math.min(pag.actual * pag.porPagina, pag.total)} de ${pag.total}`}
+        </p>
+      </div>
+
       {/* UNA FILA POR FOLIO, Y EL DETALLE DEBAJO.
 
           Antes era una tabla de siete columnas con el motivo entero dentro de una celda.
@@ -215,7 +292,11 @@ export function EntregaEnviosPanel() {
           un párrafo— la tabla reparte mal el ancho y se rompe en cuanto se estrecha. */}
       <div className="flex flex-col gap-2">
         {filas.length === 0 && (
-          <p className="text-sm text-default-500">No ha llegado nada de Entrega en los últimos 7 días.</p>
+          <p className="text-sm text-default-500">
+            {buscado || filtro !== "todo"
+              ? "Nada que cuadre con eso. Prueba a quitar el filtro o la búsqueda."
+              : "No ha llegado nada de Entrega en los últimos 7 días."}
+          </p>
         )}
         {filas.map((i) => {
           const clave = `${i.folio}|${i.codigo}`;
@@ -294,6 +375,17 @@ export function EntregaEnviosPanel() {
           );
         })}
       </div>
+
+      {pag.paginas > 1 && (
+        <div className="flex justify-center">
+          <Pagination
+            showControls
+            page={pag.actual}
+            total={pag.paginas}
+            onChange={setPagina}
+          />
+        </div>
+      )}
     </div>
   );
 }
