@@ -1216,7 +1216,9 @@ router.get('/cola', async (req, res) => {
      * Sin cola, pero la ingesta de n8n SÍ deja rastro: se enseña igual. Es justo la
      * instalación donde más falta hace, porque ahí todo entra por ese camino.
      */
-    const enLinea = (await leerEnCurso()).filter((e) => isGlobalAdmin || e.sucursalId === sucursalId);
+    // Ver todas es no tener ninguna elegida. Ver `mio` en la rama con cola.
+    const verTodas = isGlobalAdmin && !sucursalId;
+    const enLinea = (await leerEnCurso()).filter((e) => verTodas || e.sucursalId === sucursalId);
     const porSuc = new Map<string, { sucursal: string; activos: unknown[]; enEspera: number; filasEnEspera: number; archivosEnEspera: string[] }>();
 
     for (const e of enLinea) {
@@ -1237,7 +1239,7 @@ router.get('/cola', async (req, res) => {
     }
 
     const hechasSinCola = (await leerHechas(Date.now() - 60 * 60 * 1000))
-      .filter((h) => isGlobalAdmin || h.sucursalId === sucursalId)
+      .filter((h) => verTodas || h.sucursalId === sucursalId)
       .map((h) => ({ ...h, sucursal: (h.sucursalId && nom.get(h.sucursalId)) || 'Sin sucursal' }));
 
     return res.json({
@@ -1282,7 +1284,16 @@ router.get('/cola', async (req, res) => {
     return porSucursal.get(clave)!;
   };
 
-  const mio = (sid: string | null) => isGlobalAdmin || sid === sucursalId;
+  /**
+   * ¿Esto es de lo que estoy mirando?
+   *
+   * `isGlobalAdmin ||` a secas estaba mal: el admin global ve TODAS aunque tenga una
+   * elegida, y entonces estando en Camagüey salían archivos de La Habana. Ver todas es
+   * no tener ninguna elegida, no ser admin. Con sucursal elegida manda la sucursal, seas
+   * quien seas.
+   */
+  const todas = isGlobalAdmin && !sucursalId;
+  const mio = (sid: string | null) => todas || sid === sucursalId;
 
   for (const j of activos) {
     const d = j.data as {
@@ -1457,7 +1468,7 @@ router.get('/cola', async (req, res) => {
    * pequeñas y terminan antes de que la pantalla se refresque.
    */
   const hechas = (await leerHechas(Date.now() - VENTANA_MIN * 60 * 1000))
-    .filter((h) => isGlobalAdmin || h.sucursalId === sucursalId)
+    .filter((h) => mio(h.sucursalId))
     .map((h) => ({ ...h, sucursal: (h.sucursalId && nombre.get(h.sucursalId)) || 'Sin sucursal' }));
 
   res.json({
