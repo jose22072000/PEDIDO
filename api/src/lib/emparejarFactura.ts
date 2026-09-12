@@ -84,31 +84,6 @@ export function folioDeLaNota(nota: string | null | undefined): string | null {
   return m ? m[1] : null;
 }
 
-/**
- * El CÓDIGO DE CLIENTE que la nota lleva escrito, en la etiqueta `C-`.
- *
- *     P-PMR25-260910-1810-5; V-MAYLEN REMON DIAZ; C-CM01TCP0649;
- *                                                   ^^^^^^^^^^^
- *
- * Es NUESTRO código —el que PEDIDO guarda en `cliente.codigo`—, no el de Ventra. Ventra
- * usa el suyo propio y numérico: ese mismo cliente es el `2608` para él. Buscar en las
- * ventas por `customerCode` con nuestro código no encuentra nunca nada, y el silencio se
- * lee como «ese cliente no compró», que es falso.
- *
- * Lo escribe PEDIDO al mandar el pedido, así que está en 1.030 de las 1.095 líneas del
- * mes. Sirve para lo que el folio solo no puede: preguntar «¿qué se le facturó a ESTE
- * cliente estos días?» cuando su pedido se quedó sin factura.
- */
-const CLIENTE_EN_LA_NOTA = /(?:^|;)\s*C-([A-Z0-9][A-Z0-9\-]*)/i;
-
-export function clienteDeLaNota(nota: string | null | undefined): string | null {
-  if (!nota) return null;
-
-  const m = String(nota).toUpperCase().match(CLIENTE_EN_LA_NOTA);
-
-  return m ? m[1] : null;
-}
-
 export interface LineaConNota {
   operNumber: string;
   nota: string | null;

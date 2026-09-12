@@ -18,7 +18,6 @@ import { emitEvent } from '../lib/events';
 import { pedidoParaLista } from './orders';
 import { ventasDeSucursal, databases } from '../lib/ventra';
 import { folioDeLaNota } from '../lib/emparejarFactura';
-import { buscarFacturaEnOtroFolio } from '../lib/facturaEnOtroFolio';
 
 const router = Router();
 router.use(serviceAuth);
@@ -1180,108 +1179,6 @@ router.get('/ventra/sales', async (req, res) => {
         cantidad: v.cantidad,
         nota: v.nota,
         folioQueSeSaca: folioDeLaNota(v.nota),
-      })),
-    });
-  } catch (e) {
-    res.status(502).json({ error: `No se pudo preguntar a Ventra: ${(e as Error).message}` });
-  }
-});
-
-/**
- * GET /integration/facturas/en-otro-folio?database=&desde=&hasta=&dias=3
- *
- * Los pedidos que se quedaron sin factura y a cuyo cliente SÍ se le facturó esos días,
- * con la factura que probablemente sea suya y el folio al que fue a parar.
- *
- * **Sólo lee.** No toca ningún pedido, no escribe ningún estado. Es a propósito: ver
- * `facturaEnOtroFolio` — emparejar por cliente es el fallo de julio, cuando una factura
- * acabó pegada a los dos pedidos de CAFETERIA POLO. Aquí decide una persona.
- */
-router.get('/facturas/en-otro-folio', async (req, res) => {
-  try {
-    const database = String(req.query.database || '').trim();
-    const desde = String(req.query.desde || '').trim();
-    const hasta = String(req.query.hasta || desde).trim();
-    const dias = Math.min(Math.max(Number(req.query.dias) || 3, 1), 15);
-
-    if (!database) {
-      const bases = await databases();
-
-      return res.json({
-        error: 'Falta `database`. Estas son las que hay:',
-        bases: bases.map((b) => ({ database: b.database, sucursal: b.branchName })),
-      });
-    }
-
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(desde)) {
-      return res.status(400).json({ error: 'Falta `desde` (AAAA-MM-DD).' });
-    }
-
-    const sucursal = await prisma.sucursal.findFirst({
-      where: { nombre: { contains: database, mode: 'insensitive' } },
-      select: { id: true, nombre: true },
-    });
-
-    if (!sucursal) return res.status(404).json({ error: `Sin sucursal que cuadre con "${database}".` });
-
-    const pedidos = await prisma.pedido.findMany({
-      where: {
-        sucursalId: sucursal.id,
-        fecha: { gte: new Date(`${desde}T00:00:00`), lte: new Date(`${hasta}T23:59:59`) },
-        OR: [{ facturaEstado: null }, { facturaEstado: 'sin_factura' }],
-      },
-      select: {
-        folio: true,
-        fecha: true,
-        estado: true,
-        completadoPor: true,
-        cliente: { select: { codigo: true, nombre: true } },
-        vendedor: { select: { nombre: true } },
-        items: { select: { codigo: true, producto: true, packs: true } },
-      },
-    });
-
-    // La ventana de Ventra se estira `dias` por el final: la factura que buscamos es
-    // POSTERIOR al pedido, y si se pide sólo hasta `hasta` no se la ve.
-    const finVentra = new Date(new Date(`${hasta}T00:00:00Z`).getTime() + dias * 86400000)
-      .toISOString()
-      .slice(0, 10);
-    const ventas = await ventasDeSucursal(database, desde, finVentra, 100000);
-
-    const avisos = buscarFacturaEnOtroFolio(
-      pedidos.map((p) => ({
-        folio: p.folio,
-        fecha: p.fecha,
-        clienteCodigo: p.cliente?.codigo ?? null,
-        clienteNombre: p.cliente?.nombre ?? null,
-        vendedor: p.vendedor?.nombre ?? null,
-        items: p.items.map((i) => ({ codigo: i.codigo, producto: i.producto, packs: i.packs ?? 0 })),
-      })),
-      ventas.map((v) => ({
-        operNumber: v.operNumber,
-        fecha: v.fecha,
-        nota: v.nota,
-        productoCodigo: v.productoCodigo,
-        productoNombre: v.productoNombre,
-        cantidad: v.cantidad,
-      })),
-      dias,
-    );
-
-    const porFolio = new Map(pedidos.map((p) => [p.folio, p]));
-
-    res.json({
-      sucursal: sucursal.nombre,
-      desde,
-      hasta,
-      dias,
-      pedidosSinFactura: pedidos.length,
-      conCandidata: avisos.length,
-      cuadranEnteras: avisos.filter((a) => a.candidatas.some((c) => c.cuadraEntera)).length,
-      avisos: avisos.map((a) => ({
-        ...a,
-        estado: porFolio.get(a.folio)?.estado ?? null,
-        cerradoPor: porFolio.get(a.folio)?.completadoPor ?? null,
       })),
     });
   } catch (e) {

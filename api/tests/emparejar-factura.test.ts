@@ -11,7 +11,7 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { clienteDeLaNota, facturasPorFolio, folioDeLaNota } from '../src/lib/emparejarFactura.ts'
+import { facturasPorFolio, folioDeLaNota } from '../src/lib/emparejarFactura.ts'
 
 test('LA NOTA REAL de Ventra: se lee el folio de la etiqueta P-', () => {
   // Tal cual llega en producción, con sus tres partes etiquetadas.
@@ -54,22 +54,6 @@ test('aceptar el folio pegado NO rompe el sufijo de dos clientes', () => {
   assert.equal(folioDeLaNota('P-PAA26-260907-1828;'), 'PAA26-260907-1828')
   assert.equal(folioDeLaNota('P-PAA26-260907-1828-1;'), 'PAA26-260907-1828-1')
   assert.notEqual(folioDeLaNota('P-PAA26-260907-1828-1;'), 'PAA26-260907-1828')
-})
-
-test('EL CLIENTE de la nota es NUESTRO código, no el de Ventra', () => {
-  assert.equal(
-    clienteDeLaNota('P-PMR25-260910-1810-5; V-MAYLEN REMON DIAZ; C-CM01TCP0649;'),
-    'CM01TCP0649',
-  )
-  // El folio va delante y no se confunde con el cliente.
-  assert.notEqual(
-    clienteDeLaNota('P-PMR25-260910-1810-5; C-CM01TCP0649;'),
-    'PMR25-260910-1810-5',
-  )
-  // Sin etiqueta `C-` no hay cliente que sacar.
-  assert.equal(clienteDeLaNota('VENTA ALMACEN'), null)
-  assert.equal(clienteDeLaNota('P-PJR25-260910-1486; V-JEAN MICHEL RAMOS CUZA;'), null)
-  assert.equal(clienteDeLaNota(null), null)
 })
 
 test('una nota sin folio no empareja nada', () => {
