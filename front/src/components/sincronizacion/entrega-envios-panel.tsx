@@ -139,7 +139,7 @@ function FolioCopiable({ folio, fuerte = false }: { folio: string; fuerte?: bool
           copiar(folio);
         }}
       >
-        copiar
+        Copiar
       </button>
     </span>
   );
@@ -376,7 +376,7 @@ export function EntregaEnviosPanel() {
                   {i.vendedorMandado === "(no mandaron vendedor)" && (
                     <span className="text-warning-600">sin vendedor</span>
                   )}
-                  <span className="ml-auto underline">{esta ? "menos" : "ver detalle"}</span>
+                  <span className="ml-auto underline">{esta ? "Ocultar detalle" : "Ver detalle"}</span>
                 </div>
 
                 {esta && (

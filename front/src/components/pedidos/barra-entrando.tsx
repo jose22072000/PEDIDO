@@ -284,7 +284,7 @@ export function BarraEntrando({ conectado }: { conectado: boolean }) {
             type="button"
             onClick={() => setAbierto(true)}
           >
-            ver detalle
+            Ver detalle
           </button>
 
           <Envase
