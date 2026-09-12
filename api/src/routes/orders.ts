@@ -729,12 +729,19 @@ router.delete('/:id', async (req, res) => {
      * comparando luego, un despiste deja el borrado hecho. Con el filtro dentro, el pedido
      * de otro sencillamente no aparece — contesta «no encontrado», que además es lo que
      * tiene que ver alguien que no debería saber que ese pedido existe.
+     *
+     * **El gestor cuelga del VENDEDOR, no del pedido.** `soloLoSuyo` devuelve
+     * `{ gestorId }` y esparcirlo tal cual en un `where` de Pedido no filtra nada: ese
+     * campo no existe ahí y Prisma tumba la consulta entera. Así estuvo desde el 11/09 y
+     * ningún gestor pudo borrar un pedido — 500 en cada intento, doce seguidos el 12/09
+     * con el mismo pedido. La relación buena es `vendedor.gestorId`, igual que en
+     * `clientes.ts`.
      */
     const suyo = soloLoSuyo(req);
 
     // Check if order exists
     const existingOrder = await prisma.pedido.findFirst({
-      where: { ...where, ...(suyo || {}) },
+      where: { ...where, ...(suyo ? { vendedor: { gestorId: suyo.gestorId } } : {}) },
       include: { items: true },
     });
 
