@@ -46,7 +46,31 @@ export interface FacturaAtada {
  * `PAA26-260907-1828-1` son DOS pedidos, de dos clientes distintos, y cada uno tiene su
  * factura. El sufijo NUNCA se quita al cruzar.
  */
-const CUERPO = String.raw`[A-Z]{2,5}\d{2}-\d{6}-\d{1,6}(?:-\d{1,2})?`;
+/**
+ * El guion entre la fecha y el número es OPCIONAL.
+ *
+ * Hay dos formas del folio en producción y sólo se aceptaba una:
+ *
+ *     PJR25-260910-1486     la normal
+ *     PAH25-2609111134      la de ALFREDO HERNANDEZ OLIVA: fecha y número pegados
+ *
+ * Con el guion obligatorio, la segunda no casaba y `folioDeLaNota` devolvía `null`: la
+ * factura llevaba el folio escrito en su nota y se quedaba sin dueño. En septiembre,
+ * CERO de 22 folios pegados cotejados contra 369 de 650 normales. Los 22 eran de
+ * Alfredo, y Alfredo no tiene ni uno con el formato normal.
+ *
+ * El caso concreto: el pedido `PAH25-2609111134` de CAFETERIA KORYNTO, 60 packs de
+ * Parranda, tiene su factura en Ventra —la 18201, 60 packs, nota
+ * `P-PAH25-2609111134; V-ALFREDO HERNANDEZ OLIVA;`—. PEDIDO lo dio por `sin_factura` y
+ * luego alguien lo cerró a mano. La pantalla decía «no apareció», y era verdad: la
+ * buscaba con un patrón que no la podía ver.
+ *
+ * No se normaliza nada al comparar, y es a propósito. El folio guardado y el de la nota
+ * son la MISMA cadena —los dos pegados, o los dos con guion—, así que basta con dejarlos
+ * pasar. Quitar guiones para comparar sería peligroso: `PAA26-260907-1828` y
+ * `PAA26-260907-1828-1` son dos pedidos de dos clientes distintos.
+ */
+const CUERPO = String.raw`[A-Z]{2,5}\d{2}-\d{6}-?\d{1,6}(?:-\d{1,2})?`;
 const CON_ETIQUETA = new RegExp(String.raw`\bP-(${CUERPO})\b`, 'i');
 /** Sin la etiqueta, por si algún día la nota viene escrita de otra forma. */
 const SUELTO = new RegExp(String.raw`\b(${CUERPO})\b`, 'i');

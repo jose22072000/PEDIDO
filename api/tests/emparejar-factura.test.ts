@@ -36,6 +36,26 @@ test('el folio se saca de la nota, venga solo o con texto alrededor', () => {
   assert.equal(folioDeLaNota('PGD26-260831-2531-1'), 'PGD26-260831-2531-1')
 })
 
+test('EL FOLIO PEGADO de Alfredo: fecha y número sin guion en medio', () => {
+  // Caso real de producción. La factura 18201 lleva este folio en su nota y se quedaba
+  // sin emparejar porque el patrón exigía un guion que este folio no tiene.
+  assert.equal(
+    folioDeLaNota('P-PAH25-2609111134; V-ALFREDO HERNANDEZ OLIVA; C-CM11TCP0034;'),
+    'PAH25-2609111134',
+  )
+  // Con el sufijo de cliente repetido, que también los tiene.
+  assert.equal(folioDeLaNota('P-PAH25-2609101131-9;'), 'PAH25-2609101131-9')
+  assert.equal(folioDeLaNota('PAH25-2609101131'), 'PAH25-2609101131')
+})
+
+test('aceptar el folio pegado NO rompe el sufijo de dos clientes', () => {
+  // `-1828` es el número del pedido y `-1` el sufijo del segundo cliente. Son DOS
+  // pedidos distintos y el sufijo no se puede perder por el camino.
+  assert.equal(folioDeLaNota('P-PAA26-260907-1828;'), 'PAA26-260907-1828')
+  assert.equal(folioDeLaNota('P-PAA26-260907-1828-1;'), 'PAA26-260907-1828-1')
+  assert.notEqual(folioDeLaNota('P-PAA26-260907-1828-1;'), 'PAA26-260907-1828')
+})
+
 test('una nota sin folio no empareja nada', () => {
   assert.equal(folioDeLaNota('recoger en el almacén'), null)
   assert.equal(folioDeLaNota(''), null)
