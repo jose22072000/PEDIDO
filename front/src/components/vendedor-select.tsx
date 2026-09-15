@@ -1,5 +1,5 @@
 import { Autocomplete, AutocompleteItem } from "@heroui/react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import Icons from "./icons/iconify";
 
@@ -86,9 +86,32 @@ export function VendedorSelect({
    * teclear — y mientras no lo borras, la lista sale filtrada por ese texto.
    */
   const [texto, setTexto] = useState("");
+  const [abierto, setAbierto] = useState(false);
 
   const nombreDe = (id: string) =>
     opciones.find((o) => o.id === id)?.nombre ?? "";
+
+  /**
+   * El texto SIGUE al valor cuando el valor cambia desde fuera.
+   *
+   * El texto sólo se reescribía al elegir o al cerrar la lista, o sea únicamente cuando
+   * lo movía el propio componente. Si quien manda cambiaba `value` por su cuenta —«quitar
+   * todos los filtros», volver a una vista guardada, cargar la pantalla con un vendedor
+   * ya puesto— la caja se quedaba con el nombre anterior escrito. Y entonces la lista
+   * enseña los pedidos de todos mientras el filtro dice «leisy.besada»: se lee como que
+   * ese vendedor tiene pedidos que no son suyos.
+   *
+   * También arregla la carga: los vendedores llegan por red DESPUÉS del primer pintado,
+   * así que al entrar con un vendedor ya seleccionado `nombreDe` todavía devolvía vacío.
+   * Por eso `opciones` está en las dependencias.
+   *
+   * Mientras la lista está ABIERTA no se toca: ahí el texto es lo que la persona está
+   * tecleando para buscar, y pisárselo sería borrarle la búsqueda a media palabra.
+   */
+  useEffect(() => {
+    if (abierto) return;
+    setTexto(opciones.find((o) => o.id === value)?.nombre ?? "");
+  }, [value, opciones, abierto]);
 
   /**
    * El filtrado se hace AQUÍ, no con `defaultFilter`.
@@ -133,11 +156,13 @@ export function VendedorSelect({
       startContent={<Icons.workers className="size-5 text-default-400" />}
       variant="bordered"
       onInputChange={setTexto}
-      onOpenChange={(abierto) => {
-        // Al abrir, la caja se queda limpia para escribir directamente. Al cerrar
-        // vuelve a enseñar quién está elegido: si se quedara el texto a medio escribir,
-        // parecería que el filtro es ése cuando el que manda es el de antes.
-        setTexto(abierto ? "" : nombreDe(value));
+      onOpenChange={(a) => {
+        // Al abrir, la caja se queda limpia para escribir directamente. Del cerrar se
+        // encarga el efecto de arriba, que vuelve a enseñar quién está elegido: si se
+        // quedara el texto a medio escribir, parecería que el filtro es ése cuando el
+        // que manda es el de antes.
+        setAbierto(a);
+        if (a) setTexto("");
       }}
       onSelectionChange={(k) => {
         // Un null aquí NO es «quitar el filtro»: es el componente avisando de que la
