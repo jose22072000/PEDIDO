@@ -15,6 +15,8 @@
 // lo que permite cambiar la URL o rotar el secret sin volver a desplegar.
 import crypto from 'crypto';
 import prisma from '../prismaClient';
+import { aplicarCostoDomicilio } from './domicilio';
+import { emitEvent } from './events';
 
 export type Destino = 'parranda' | 'domicilio';
 
@@ -67,10 +69,20 @@ export function firmaValida(esperada: string, recibida: string): boolean {
 /**
  * POST del payload al destino. LANZA si no se pudo entregar: es lo que hace que Bull
  * lo reintente. Para el camino best-effort (el de Parranda) está `enviarWebhook`.
+ *
+ * DEVUELVE EL CUERPO DE LA RESPUESTA, que antes se tiraba entero.
+ *
+ * Se leía sólo cuando fallaba, para el mensaje de error. Y resulta que el otro lado
+ * contesta cosas: Entrega devuelve `{ status, costoRecalculado }` al aviso de factura
+ * cambiada, o sea el precio nuevo del reparto. Descartándolo, el dato llegaba y se
+ * perdía en el mismo instante.
+ *
+ * `null` si la respuesta no trae JSON: un 200 con el cuerpo vacío es una entrega
+ * correcta, no un fallo.
  */
-export async function entregarWebhook(destino: Destino, payload: unknown): Promise<void> {
+export async function entregarWebhook(destino: Destino, payload: unknown): Promise<unknown> {
   const { url, key, secret, activo } = await getConfig(destino);
-  if (!url || !activo) return; // sin configurar todavía: no es un fallo, es que no aplica
+  if (!url || !activo) return null; // sin configurar todavía: no es un fallo, es que no aplica
 
   const body = JSON.stringify(payload);
   const headers: Record<string, string> = { 'content-type': 'application/json' };
@@ -85,6 +97,8 @@ export async function entregarWebhook(destino: Destino, payload: unknown): Promi
     const detalle = (await res.text().catch(() => '')).slice(0, 200);
     throw new Error(`${url} -> ${res.status} ${detalle}`);
   }
+
+  return await res.json().catch(() => null);
 }
 
 /** Igual, pero best-effort: nunca rompe el request que lo dispara. */
@@ -174,6 +188,8 @@ export async function avisarPedidoCambiado(pedidoId: string): Promise<void> {
     select: {
       id: true,
       folio: true,
+      estado: true,
+      estadoEntrega: true,
       costoDomicilio: true,
       requiere_domicilio: true,
       facturaNumero: true,
@@ -204,11 +220,26 @@ export async function avisarPedidoCambiado(pedidoId: string): Promise<void> {
     }
   }
 
-  await entregarWebhook('domicilio', {
+  const respuesta = await entregarWebhook('domicilio', {
     evento: 'pedido.cambiado',
     pedidoId: p.id,
     folio: p.folio,
     facturaNumero: p.facturaNumero,
+    /**
+     * LOS DOS estados, porque en PEDIDO son dos cosas y Entrega pidió «el estado».
+     *
+     *   estado        — el cierre en PEDIDO: `completada` o vacío. Manda sobre el
+     *                   archivado, sobre el expirado y sobre los filtros de la lista.
+     *   estadoEntrega — en qué punto del REPARTO va: despachado · en_transito ·
+     *                   entregado · devuelto · cancelado. Lo escribe delivery.
+     *
+     * El ejemplo de Amado dice `"estado": "Entregada"`, que es el SEGUNDO. Mandar uno
+     * solo con el nombre que él espera sería elegir por él y guardarle en `estado_pedido`
+     * una cosa creyendo que es la otra — y un pedido puede estar completado aquí y
+     * todavía dando vueltas en el camión. Van los dos y que coja el que necesite.
+     */
+    estado: p.estado,
+    estadoEntrega: p.estadoEntrega,
     motivo: 'la factura cambió lo pedido',
     // Lo que Entrega ya había cobrado. Es lo que tiene que rehacer.
     costoDomicilioActual: p.costoDomicilio,
@@ -222,6 +253,72 @@ export async function avisarPedidoCambiado(pedidoId: string): Promise<void> {
     itemsAnteriores,
     diferencias: p.facturaDiferencias ? JSON.parse(p.facturaDiferencias) : [],
   });
+
+  await guardarRecalculo(p.id, p.costoDomicilio, respuesta);
+}
+
+/**
+ * El precio nuevo que nos devuelve Entrega en la MISMA respuesta al aviso.
+ *
+ * Entrega contesta `{ "status": "ok", "costoRecalculado": 16.82 }`. Es el reparto
+ * recotizado con el peso de lo que de verdad va en el camión, y es el motivo entero por
+ * el que existe el aviso: sin esto mandábamos «oye, esto cambió», nos contestaban con el
+ * precio bueno, y lo tirábamos.
+ *
+ * Se escribe por `aplicarCostoDomicilio`, la MISMA puerta por la que entra su webhook, y
+ * no con un update suelto. Así valen todas las reglas —que el pedido lleve domicilio, que
+ * sea de esta sucursal, y que se estampe la tasa CUP/USD del momento— en vez de tener dos
+ * caminos que escriben el mismo campo con reglas distintas.
+ *
+ * Es idempotente y no compite con su envío normal: si Entrega además nos empuja ese mismo
+ * importe por `/webhooks/domicilio`, es el mismo número y no cambia nada. La diferencia es
+ * que por aquí llega YA, y no en la próxima corrida de su scheduler — que es justo lo que
+ * hace falta cuando el cliente está delante esperando el precio.
+ *
+ * Nada de esto puede tumbar el aviso: si viene mal, se apunta y se sigue.
+ */
+async function guardarRecalculo(
+  pedidoId: string,
+  costoAnterior: number | null,
+  respuesta: unknown,
+): Promise<void> {
+  if (!respuesta || typeof respuesta !== 'object') return;
+
+  const crudo = (respuesta as Record<string, unknown>).costoRecalculado;
+  if (crudo == null || crudo === '') return;
+
+  const nuevo = Number(crudo);
+  if (!Number.isFinite(nuevo) || nuevo < 0) {
+    console.warn(`[webhook:domicilio] costoRecalculado inválido para ${pedidoId}: ${String(crudo)}`);
+    return;
+  }
+
+  // El mismo precio no es un cambio. Sin esto, cada aviso reescribiría la tasa del
+  // domicilio sin que el importe se moviera.
+  if (costoAnterior != null && Number(costoAnterior.toFixed(2)) === Number(nuevo.toFixed(2))) return;
+
+  try {
+    const r = await aplicarCostoDomicilio({ pedidoId, costo: nuevo });
+
+    if (!r.ok) {
+      console.warn(`[webhook:domicilio] no se pudo guardar el recálculo de ${pedidoId}: ${r.motivo}`);
+      return;
+    }
+
+    console.log(
+      `[webhook:domicilio] recálculo guardado en ${pedidoId}: ${costoAnterior ?? '—'} -> ${nuevo}`,
+    );
+
+    // Que la pantalla lo enseñe sin recargar: el precio nuevo es lo que hay que decirle
+    // al cliente, y llega mientras está delante.
+    const tocado = await prisma.pedido.findUnique({
+      where: { id: pedidoId },
+      select: { sucursalId: true },
+    });
+    emitEvent('pedido', { id: pedidoId, sucursalId: tocado?.sucursalId ?? null, accion: 'update' });
+  } catch (e) {
+    console.error(`[webhook:domicilio] recálculo de ${pedidoId} falló:`, (e as Error).message);
+  }
 }
 
 /**
