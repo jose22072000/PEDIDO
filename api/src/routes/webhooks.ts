@@ -277,6 +277,8 @@ router.post('/domicilio', async (req, res) => {
         const guardado: string[] = [];
         if (c?.costo) guardado.push('costo');
         if (c?.grupos) guardado.push('grupos');
+        // Que se sepa que ese pedido no estaba marcado como de domicilio y ahora sí.
+        if (c?.domicilioActivado) guardado.push('domicilioActivado');
         if (c?.tasa) guardado.push('tasa');
         if (c?.distancia) guardado.push('distancia');
         if (c?.ubicacionCliente) guardado.push('ubicacionCliente');

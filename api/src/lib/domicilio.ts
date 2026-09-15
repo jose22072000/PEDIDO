@@ -43,6 +43,8 @@ export type CambiosDomicilio = {
   ubicacionCliente: boolean;
   /** El desglose por grupo. Falso también cuando venía igual al que ya había. */
   grupos: boolean;
+  /** Se marcó el pedido como que SÍ va a domicilio, porque no lo estaba. */
+  domicilioActivado: boolean;
 };
 
 export type ResultadoCosto = {
@@ -70,23 +72,6 @@ function redondear(v: number | null | undefined): number | null {
 }
 
 /**
- * ¿Este pedido NO va a domicilio? Devuelve el motivo, o null si se puede cobrar.
- *
- * Un costo de domicilio sobre un pedido que no lleva domicilio es dinero cobrado por un
- * reparto que nadie pidió. Entraban por la APK de Entrega: alguien registra la entrega de
- * un pedido que en PEDIDO está marcado como «sin domicilio» y aquí se escribía sin
- * mirar. El 10/09/2026 había ONCE así —de 966 con costo, un 1%—, y el más reciente con un
- * minuto de diferencia entre crearse el pedido y ponerle el precio.
- *
- * Se rechaza SOLO cuando la bandera está en `false`, o sea cuando alguien dijo
- * explícitamente que ese pedido no va a domicilio. Con `null` se deja pasar: hay 14.647
- * pedidos sin la bandera puesta —«no se sabe»— y bloquearlos sería romper repartos
- * buenos por un dato que nunca se rellenó.
- *
- * Y se devuelve el MOTIVO, no un silencio: la APK recibe el rechazo por entrega, con su
- * folio, y puede corregirlo. Un rechazo mudo se repite cada minuto para siempre.
- */
-/**
  * Y DE PASO EL FOLIO, que hace falta aunque no se haya casado por él.
  *
  * Desde que la APK casa por `pedidoId` ya no manda folio, así que el recibo salía sin él
@@ -97,22 +82,13 @@ function redondear(v: number | null | undefined): number | null {
  *
  * El folio lo sabemos: lo tiene el pedido que acabamos de mirar. Se devuelve y ya.
  */
-async function datosDelPedido(pedidoId: string): Promise<{ folio: string | null; motivo: string | null }> {
+async function datosDelPedido(pedidoId: string): Promise<{ folio: string | null; marcado: boolean }> {
   const p = await prisma.pedido.findUnique({
     where: { id: pedidoId },
     select: { folio: true, requiere_domicilio: true },
   });
 
-  // Sin fila no hay motivo: que no exista lo dice después el update, con su propio texto.
-  if (!p) return { folio: null, motivo: null };
-
-  return {
-    folio: p.folio,
-    motivo:
-      p.requiere_domicilio === false
-        ? 'ese pedido no va a domicilio (requiere_domicilio = false): no se le pone costo'
-        : null,
-  };
+  return { folio: p?.folio ?? null, marcado: p?.requiere_domicilio === true };
 }
 
 export async function aplicarCostoDomicilio(u: {
@@ -250,6 +226,7 @@ export async function aplicarCostoDomicilio(u: {
    */
   const cambios: CambiosDomicilio = {
     costo: false, tasa: false, distancia: false, ubicacionCliente: false, grupos: false,
+    domicilioActivado: false,
   };
 
   const guardarUbicacion = async (pedidoId: string) => {
@@ -377,13 +354,35 @@ export async function aplicarCostoDomicilio(u: {
 
   if (u.pedidoId) {
     const id = String(u.pedidoId);
-    const { folio: suFolio, motivo: noVa } = await datosDelPedido(id);
+    const { folio: suFolio, marcado } = await datosDelPedido(id);
 
-    if (noVa) return { ok: false, pedidoId: id, folio: suFolio ?? undefined, motivo: noVa };
-
+  /**
+   * UN COSTO QUE LLEGA ES UN DOMICILIO QUE EXISTE, lo dijera la bandera o no.
+   *
+   * Antes se rechazaba cuando `requiere_domicilio` era `false`, para que no se cobrara un
+   * reparto que nadie pidió. La idea era buena y el efecto fue el contrario: quien pone el
+   * domicilio es el repartidor, en la calle, y puede llevarle el pedido a alguien que aquí
+   * estaba marcado como que lo recoge. Cuando eso pasa, el reparto SE HIZO — negarlo no lo
+   * deshace, sólo deja el importe sin cobrar y a la APK reintentando para siempre contra un
+   * motivo que no va a cambiar nunca (`PRM25-260915-1935`: 151 intentos en 20 minutos, y
+   * 47.715 repartidos entre 27 pedidos desde el 11/09).
+   *
+   * Así que se acepta, y se MARCA la bandera. Guardar el costo dejando el pedido en
+   * «no va a domicilio» sería lo peor de las dos opciones: un importe cobrado sobre un
+   * pedido que dice que no se reparte, que es justo la incoherencia que el rechazo venía a
+   * evitar. Si entra el dinero, entra también el hecho.
+   *
+   * Queda en `cambios.domicilioActivado`, así que el recibo lo dice y en el panel se ve
+   * cuáles se activaron por esta vía — que es como se sabrá si la bandera llega mal desde
+   * el CSV o si de verdad se decide sobre la marcha.
+   */
     const r = await prisma.pedido.updateMany({
       where: { id, ...alcance },
-      data: { costoDomicilio: costo, tasaDomicilio: tasaValida },
+      data: {
+        costoDomicilio: costo,
+        tasaDomicilio: tasaValida,
+        ...(marcado ? {} : { requiere_domicilio: true }),
+      },
     });
     if (r.count > 0) {
       await guardarUbicacion(String(u.pedidoId));
@@ -393,6 +392,7 @@ export async function aplicarCostoDomicilio(u: {
     if (r.count > 0) {
       cambios.costo = true;
       cambios.tasa = tasaValida != null;
+      cambios.domicilioActivado = !marcado;
     }
     return r.count > 0
       ? { ok: true, pedidoId: id, folio: suFolio ?? undefined, cambios }
@@ -510,22 +510,23 @@ export async function aplicarCostoDomicilio(u: {
       };
     }
 
-    const { motivo: noVa } = await datosDelPedido(elegidos[0].id);
-
-    // Se devuelve el folio NUESTRO, no el que mandaron: ya sabemos a qué pedido señalaba,
-    // y decírselo es lo que deja comprobar del otro lado que la identificación acertó y
-    // que el rechazo es por el domicilio, no por haber cogido el pedido equivocado.
-    if (noVa) return { ok: false, folio: elegidos[0].folio, pedidoId: elegidos[0].id, motivo: noVa };
+    // Mismo criterio que arriba: si llega el costo, el domicilio existe. Ver la nota.
+    const { marcado } = await datosDelPedido(elegidos[0].id);
 
     await prisma.pedido.update({
       where: { id: elegidos[0].id },
-      data: { costoDomicilio: costo, tasaDomicilio: tasaValida },
+      data: {
+        costoDomicilio: costo,
+        tasaDomicilio: tasaValida,
+        ...(marcado ? {} : { requiere_domicilio: true }),
+      },
     });
     await guardarUbicacion(elegidos[0].id);
     await guardarDistancia(elegidos[0].id);
     await guardarGrupos(elegidos[0].id);
     cambios.costo = true;
     cambios.tasa = tasaValida != null;
+    cambios.domicilioActivado = !marcado;
 
     // Se devuelve el folio NUESTRO, con su sufijo si lo lleva: es el que hay que usar
     // para hablar de ese pedido, y quien lo mandó se entera de cuál le tocó.
