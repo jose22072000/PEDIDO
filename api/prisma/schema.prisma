@@ -225,14 +225,14 @@ model Pedido {
   /// Por qué volvió o se canceló, si alguien lo escribió. Un pedido devuelto sin motivo
   /// es un número en un informe que nadie puede explicar tres semanas después.
   estadoEntregaNota  String?
-  createdAt          DateTime            @default(now())
+  createdAt          DateTime               @default(now())
   // Cuándo se tocó por última vez. Es lo que hace posible la sincronización
   // INCREMENTAL de las tablets: piden "lo que cambió desde tal hora" en vez del
   // histórico entero, que por datos móviles son megas y minutos que no tienen.
   //
   // Con `@default(now())` las filas que ya existen quedan con una fecha razonable en
   // vez de nula, así que la primera sync de cada tablet no se las salta.
-  updatedAt          DateTime            @default(now()) @updatedAt
+  updatedAt          DateTime               @default(now()) @updatedAt
   // Archivado (soft-delete): completados y expirados-viejos se ocultan de la lista pero
   // se conservan para reportes. null = activo (en proceso).
   archivedAt         DateTime?
@@ -250,6 +250,7 @@ model Pedido {
   completadoPor      String?
   items              PedidoItem[]
   copias             CopiaPortapapeles[]
+  domicilioGrupos    PedidoDomicilioGrupo[]
 
   @@unique([sucursalId, folio, vendedorId])
   @@index([fecha])
@@ -294,6 +295,51 @@ model PedidoItem {
   // el codigo que incluyen los items.
   @@index([pedidoId])
   @@map("OrderItem")
+}
+
+/// El domicilio DESGLOSADO por grupo de productos (Procovar, Ces...).
+///
+/// `costoDomicilio` es UN número y sigue siendo la suma: nada de lo que ya lee ese campo
+/// se entera de que esto existe. Pero la factura no se emite una: Procovar factura lo
+/// suyo y Ces lo suyo, **cada una con su propia línea de domicilio**, y con un solo total
+/// no hay forma de decir cuánto le toca a cada una. Ese reparto lo hace la APK, que es
+/// quien conoce la tarifa, y llega en `grupos[]` del webhook.
+///
+/// Decimal y no Float por lo mismo que en PedidoItem: es dinero, y un Float redondea en
+/// binario. Aquí además se suman dos o tres filas para comprobar que cuadran con el
+/// total, y esa comprobación con Float fallaría por un céntimo fantasma.
+///
+/// La clave (pedidoId, grupo) es lo que hace que el reintento sea inofensivo: la APK
+/// reenvía cada 60 s hasta que confirmamos, y sin unicidad cada vuelta duplicaría el
+/// desglose del mismo pedido hasta llenar la tabla.
+model PedidoDomicilioGrupo {
+  id       String  @id @default(cuid())
+  pedidoId String  @map("orderId")
+  /// Si se borra el pedido, su desglose se va con él: suelto no significa nada.
+  pedido   Pedido  @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  /// El nombre tal como lo manda la APK: "Procovar", "Ces...", "Sin grupo" para lo que
+  /// viene sin etiqueta. Texto libre a propósito: no tenemos catálogo de grupos y
+  /// inventarlo aquí sería un segundo catálogo que se desincroniza del suyo.
+  grupo    String
+  /// Lo que cuesta el domicilio DE ESE GRUPO, en USD. No lleva los productos.
+  entrega  Decimal @db.Decimal(14, 2)
+  /// Lo que valen los PRODUCTOS de ese grupo, en USD. Lo manda la APK.
+  ///
+  /// Nulo mientras no lo mande: es «no lo sabemos», que no es lo mismo que cero.
+  ///
+  /// Viene de fuera porque aquí no se puede calcular —PEDIDO no sabe qué línea es de
+  /// Procovar y cuál de Ces—, pero no se da por bueno a ciegas: cuando el grupo trae su
+  /// propio pedido, esto tiene que cuadrar con la suma de las líneas de ESE pedido, y
+  /// eso sí lo sabemos. Guardarlo en una columna y no en un JSON es justo para poder
+  /// comprobarlo: un blob no se suma, no se filtra y no se contrasta con nada.
+  productos Decimal? @db.Decimal(14, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@unique([pedidoId, grupo])
+  @@index([pedidoId])
+  @@map("OrderDeliveryGroup")
 }
 
 /// Cada vez que alguien pulsa "copiar al portapapeles".
@@ -562,8 +608,8 @@ model EntregaIntento {
   /// con un nombre que no contemplamos: entonces el dato SÍ viene y aquí parece que no.
   /// Guardando las claves se ve en la pantalla qué manda de verdad la APK y se deja de
   /// discutir sobre ello.
-  campos   String?
-  costo    Float?
+  campos String?
+  costo  Float?
 
   primeroAt DateTime @default(now())
   ultimoAt  DateTime @default(now())

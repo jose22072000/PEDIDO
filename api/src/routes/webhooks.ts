@@ -8,6 +8,7 @@
 import { Router } from 'express';
 import { getConfig, firmar, firmaValida } from '../lib/webhook';
 import { aplicarCostoDomicilio } from '../lib/domicilio';
+import { normalizarGrupos, repartoDeGrupos } from '../lib/domicilioGrupos';
 import { emitEvent } from '../lib/events';
 import prisma from '../prismaClient';
 import { apuntarIntentos } from '../lib/entregaIntentos';
@@ -125,12 +126,12 @@ router.post('/domicilio', async (req, res) => {
   const cuerpo = req.body || {};
   const entregas = Array.isArray(cuerpo.entregas)
     ? cuerpo.entregas
-    : cuerpo.costo != null
+    : cuerpo.costo != null || cuerpo.total != null || Array.isArray(cuerpo.grupos)
         ? [cuerpo]                    // una sola, sin envolver
         : [];
 
   if (entregas.length === 0) {
-    return res.status(400).json({ error: 'No vino ninguna entrega. Se espera { entregas: [{ folio, costo }] }.' });
+    return res.status(400).json({ error: 'No vino ninguna entrega. Se espera { entregas: [{ pedidoId, total, grupos }] }.' });
   }
   if (entregas.length > 500) {
     return res.status(413).json({ error: 'Máximo 500 entregas por llamada.' });
@@ -158,7 +159,59 @@ router.post('/domicilio', async (req, res) => {
   const vendedores = new Map<string, string>();
   const campos = new Map<string, string>();
 
+  /**
+   * UN DOMICILIO PUEDE SER DE DOS PEDIDOS. Se parte antes de escribir nada.
+   *
+   * En la APK, dos pedidos del mismo cliente que van en el mismo viaje comparten
+   * domicilio y la tarifa se reparte entre ellos por grupo de productos. Visto el
+   * 15/09/2026: CES en `Ped56434` por $0.40 y PROCOVAR en `Ped67545` por $0.07, total
+   * $0.47. Escribiendo los $0.47 en el pedido de la cabecera —que es lo que haría el
+   * contrato leído en plano— uno cobra de más y el otro se queda sin domicilio, y
+   * ninguno de los dos lo enseña como error.
+   *
+   * Así que cuando cada grupo trae su pedido, esto se convierte en una entrada por
+   * grupo, cada una con SU parte y con el pedido al que va. Cuando no lo trae, no se
+   * toca nada: el domicilio entero es del pedido de la cabecera, como siempre.
+   */
+  const porEscribir: any[] = [];
+
   for (const e of entregas) {
+    if (!e || typeof e !== 'object') { porEscribir.push(e); continue; }
+
+    const limpios = normalizarGrupos(e.grupos);
+    // Un desglose mal formado no se reparte aquí: sigue su camino y lo rechaza
+    // `aplicarCostoDomicilio` con el motivo exacto, que es donde se explica.
+    if (limpios === 'invalido') { porEscribir.push(e); continue; }
+
+    const reparto = repartoDeGrupos(limpios);
+
+    if (reparto === 'mezclado') {
+      rechazadas.push({
+        pedidoId: e.pedidoId,
+        folio: e.folio,
+        motivo: 'grupos: unos traen pedido y otros no; no se reparte el domicilio a ojo',
+      });
+      continue;
+    }
+
+    if (reparto === 'porGrupo' && limpios) {
+      for (const uno of limpios) {
+        porEscribir.push({
+          ...e,
+          pedidoId: uno.pedidoId ?? null,
+          folio: uno.folio ?? null,
+          // SU parte de la tarifa, no el total del viaje.
+          costo: uno.entrega,
+          grupos: [uno],
+        });
+      }
+      continue;
+    }
+
+    porEscribir.push(e);
+  }
+
+  for (const e of porEscribir) {
     if (!e || typeof e !== 'object') {
       rechazadas.push({ motivo: 'entrada no es un objeto' });
       continue;
@@ -190,7 +243,26 @@ router.post('/domicilio', async (req, res) => {
         clienteCodigo: e.clienteCodigo ?? e.codigoCliente ?? e.cliente_codigo ?? e.parrandaId ?? null,
         clienteNombre: e.clienteNombre ?? e.nombreCliente ?? e.cliente_nombre ??
           (typeof e.cliente === 'string' ? e.cliente : e.cliente?.nombre) ?? null,
-        costo: e.costo ?? e.costoDomicilio ?? e.precio,
+        /**
+         * `total` es el `costo` de siempre con el nombre nuevo — confirmado por Amado el
+         * 15/09/2026, misma cifra.
+         *
+         * Se aceptan los dos a la vez y durante todo el tiempo que haga falta: el corte
+         * no lo damos nosotros. Mientras su backend siga mandando `costo` plano esto
+         * entra igual, y el día que cambie tampoco hay que desplegar nada aquí.
+         */
+        costo: e.costo ?? e.total ?? e.costoDomicilio ?? e.precio,
+        /**
+         * El domicilio repartido por grupo de productos.
+         *
+         * Procovar factura lo suyo y Ces lo suyo, cada una con SU línea de domicilio, y
+         * ese reparto sólo lo sabe quien pone la tarifa. `total` sigue siendo la suma.
+         *
+         * `totalPedido` llega en el mismo payload y NO se toca: es domicilio + productos,
+         * y el importe de los productos lo calculamos nosotros. Guardar el suyo encima
+         * sería tener dos totales que se separan el día que uno de los dos se equivoque.
+         */
+        grupos: e.grupos ?? null,
         distanciaKm: e.distanciaKm ?? e.distancia_km ?? null,
         // Desde qué punto se midió. Si no lo mandan, se apunta la sucursal, que es lo
         // único que se sabe con certeza.
@@ -204,6 +276,7 @@ router.post('/domicilio', async (req, res) => {
         const c = r.cambios;
         const guardado: string[] = [];
         if (c?.costo) guardado.push('costo');
+        if (c?.grupos) guardado.push('grupos');
         if (c?.tasa) guardado.push('tasa');
         if (c?.distancia) guardado.push('distancia');
         if (c?.ubicacionCliente) guardado.push('ubicacionCliente');
@@ -295,6 +368,9 @@ router.post('/domicilio', async (req, res) => {
 
   res.status(ninguna ? 422 : 200).json({
     ok: rechazadas.length === 0,
+    // Lo que ELLOS mandaron, no en cuántas se partió aquí dentro: si un domicilio cubría
+    // dos pedidos, mandaron uno y se responden dos aplicadas. Contar las de después le
+    // diría que mandó más de lo que mandó.
     recibidas: entregas.length,
     // El detalle de cada una, no sólo el número: es lo que deja ver que la ubicación
     // que mandó el repartidor entró de verdad, y no sólo que el costo se guardó.

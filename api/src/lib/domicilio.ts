@@ -8,6 +8,7 @@ import prisma from '../prismaClient';
 import { tasaActual } from './tasaCambio';
 import { normalizarProducto, variantesProducto, porContenido } from './nombreProducto';
 import { readConfiguredSucursalId } from './sucursalLocal';
+import { resolverTotalDomicilio, type GrupoEntrega } from './domicilioGrupos';
 import { encolarWebhook } from './queues';
 import { claveDeCliente } from '../dto/orderRecord.dto';
 
@@ -40,6 +41,8 @@ export type CambiosDomicilio = {
   tasa: boolean;
   distancia: boolean;
   ubicacionCliente: boolean;
+  /** El desglose por grupo. Falso también cuando venía igual al que ya había. */
+  grupos: boolean;
 };
 
 export type ResultadoCosto = {
@@ -147,7 +150,21 @@ export async function aplicarCostoDomicilio(u: {
   clienteId?: string | null;
   clienteCodigo?: string | null;
   clienteNombre?: string | null;
-  costo: number;
+  /**
+   * El total del domicilio, en USD. En el contrato nuevo llega como `total`; quien
+   * llama lo traduce, aquí sigue llamándose costo porque es lo que se guarda.
+   *
+   * Opcional desde que existe `grupos`: si no viene, es la suma del desglose. Lo que no
+   * se hace nunca es dar por bueno un cero que en realidad es un campo que falta.
+   */
+  costo?: number | null;
+  /**
+   * El domicilio repartido por grupo de productos (Procovar, Ces...).
+   *
+   * No es informativo: cada grupo se factura por separado y necesita SU línea de
+   * domicilio. `costo` sigue siendo la suma, para que nada de lo que ya lo lee cambie.
+   */
+  grupos?: unknown;
   distanciaKm?: number | null;
   /** Desde dónde se midió la distancia. Ej: "almacen:HAB". */
   distanciaDesde?: string | null;
@@ -162,10 +179,11 @@ export async function aplicarCostoDomicilio(u: {
   longitud?: number | null;
 }): Promise<ResultadoCosto> {
   const local = readConfiguredSucursalId();
-  const costo = Number(u.costo);
-  if (!Number.isFinite(costo) || costo < 0) {
-    return { ok: false, motivo: 'costo no es un número válido' };
-  }
+
+  const cuadre = resolverTotalDomicilio(u.costo, u.grupos);
+  if (cuadre.motivo) return { ok: false, motivo: cuadre.motivo };
+  const costo = cuadre.costo as number;
+  const grupos = cuadre.grupos;
 
 
 
@@ -215,7 +233,7 @@ export async function aplicarCostoDomicilio(u: {
    * cliente "se mudó" tres veces en una semana, que es como se nota que algo va mal.
    */
   const cambios: CambiosDomicilio = {
-    costo: false, tasa: false, distancia: false, ubicacionCliente: false,
+    costo: false, tasa: false, distancia: false, ubicacionCliente: false, grupos: false,
   };
 
   const guardarUbicacion = async (pedidoId: string) => {
@@ -292,6 +310,55 @@ export async function aplicarCostoDomicilio(u: {
     cambios.distancia = true;
   };
 
+  /**
+   * Escribe el desglose por grupo, y sólo si cambió algo.
+   *
+   * La APK reenvía cada 60 s hasta que le confirmamos, así que lo normal es recibir
+   * veinte veces el mismo desglose. Comparando antes, esas veinte vueltas no escriben
+   * nada y `cambios.grupos` dice la verdad: que no cambió nada, no que no se guardó.
+   *
+   * Se REEMPLAZA el desglose entero, no se fusiona. Si una recotización deja el pedido
+   * con un grupo menos, fusionar dejaría el grupo viejo ahí para siempre y su domicilio
+   * se seguiría facturando. Un desglose es una foto completa o no vale.
+   *
+   * Todo dentro de una transacción: a mitad de camino la suma de los grupos no
+   * cuadraría con `costoDomicilio`, y eso es justo lo que alguien podría leer para
+   * emitir una factura.
+   */
+  const guardarGrupos = async (pedidoId: string) => {
+    if (!grupos) return;
+
+    const antes = await prisma.pedidoDomicilioGrupo.findMany({
+      where: { pedidoId },
+      select: { grupo: true, entrega: true, productos: true },
+    });
+
+    const igual =
+      antes.length === grupos.length &&
+      grupos.every((g) =>
+        antes.some(
+          (a) =>
+            a.grupo === g.grupo &&
+            Number(a.entrega) === g.entrega &&
+            (a.productos == null ? null : Number(a.productos)) === (g.productos ?? null),
+        ),
+      );
+    if (igual) return;
+
+    await prisma.$transaction([
+      prisma.pedidoDomicilioGrupo.deleteMany({ where: { pedidoId } }),
+      prisma.pedidoDomicilioGrupo.createMany({
+        data: grupos.map((g) => ({
+          pedidoId,
+          grupo: g.grupo,
+          entrega: g.entrega.toFixed(2),
+          productos: g.productos == null ? null : g.productos.toFixed(2),
+        })),
+      }),
+    ]);
+    cambios.grupos = true;
+  };
+
   if (u.pedidoId) {
     const noVa = await sinDomicilio(String(u.pedidoId));
 
@@ -304,6 +371,7 @@ export async function aplicarCostoDomicilio(u: {
     if (r.count > 0) {
       await guardarUbicacion(String(u.pedidoId));
       await guardarDistancia(String(u.pedidoId));
+      await guardarGrupos(String(u.pedidoId));
     }
     if (r.count > 0) {
       cambios.costo = true;
@@ -438,6 +506,7 @@ export async function aplicarCostoDomicilio(u: {
     });
     await guardarUbicacion(elegidos[0].id);
     await guardarDistancia(elegidos[0].id);
+    await guardarGrupos(elegidos[0].id);
     cambios.costo = true;
     cambios.tasa = tasaValida != null;
 
