@@ -174,6 +174,11 @@ export async function aplicarCostoDomicilio(u: {
 
   const cuadre = resolverTotalDomicilio(u.costo, u.grupos);
   if (cuadre.motivo) return { ok: false, motivo: cuadre.motivo };
+  // No rompe nada, pero hay que poder verlo: si esto sale a menudo, es su cálculo.
+  if (cuadre.aviso) {
+    // eslint-disable-next-line no-console
+    console.warn(`[domicilio] ${u.pedidoId ?? u.folio ?? '?'}: ${cuadre.aviso}`);
+  }
   const costo = cuadre.costo as number;
   const grupos = cuadre.grupos;
 

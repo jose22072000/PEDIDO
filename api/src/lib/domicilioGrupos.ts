@@ -78,69 +78,69 @@ export function normalizarGrupos(crudos: unknown): GrupoEntrega[] | null | 'inva
 }
 
 /**
- * Cuánto se cobra de domicilio, y si el desglose cuadra con ello.
+ * Cuánto se cobra de domicilio. **Casi nada se rechaza, y es a propósito.**
  *
- * Aparte y sin base de datos porque es lo único aquí que decide DINERO a partir de lo que
- * manda un tercero, y se puede equivocar en silencio: un total que no cuadra con sus
- * grupos no rompe nada, sólo hace que una factura salga con un domicilio que no es.
+ * El backend de Domicilios es el origen de verdad de estos importes: recalcula en
+ * servidor con su catálogo y sus coeficientes (`SyncService::calcularGruposServidor`) y
+ * no se fía ni de su propio teléfono. Volver a validarle la aritmética aquí es repetir un
+ * trabajo que ya está hecho — y cuando esa validación RECHAZA, el daño es peor que el
+ * problema que buscaba: su scheduler reintenta cada 60 s contra un motivo que no va a
+ * cambiar solo. Eso ya costó 47.715 reintentos con la bandera de domicilio y 5.887 por
+ * entrega desde el 11/09.
  *
- * Las reglas:
+ * Así que la regla es: **nunca se tira el dinero por un problema en el desglose.**
  *
- *   - Sin total pero con grupos, el total es la suma. Es la definición, no una suposición.
- *   - Con los dos y sin cuadrar, se RECHAZA en vez de elegir uno. Elegir sería inventar:
- *     o se cobra un total que no se corresponde con lo que se factura por grupo, o se
- *     publica un desglose que no suma lo cobrado. Rechazando, el motivo queda escrito en
- *     EntregaIntento y se ve desde el panel.
- *   - El margen es de un céntimo: las dos partes redondean a dos decimales por su cuenta,
- *     y un céntimo de diferencia es aritmética, no el error de nadie.
- *   - Un total que falta NO es un cero. Un domicilio en cero parece un domicilio gratis y
- *     nadie lo mira; un rechazo se ve.
+ *   - Los grupos mal formados NO tumban la entrega: se ignora el desglose, entra el
+ *     importe, y queda un aviso. El desglose se puede rehacer; un domicilio sin cobrar
+ *     con el repartidor ya de vuelta, no.
+ *   - Si `total` no cuadra con la suma de los grupos, manda `total` y queda el aviso. Los
+ *     dos salen del mismo cálculo suyo; si discrepan es cosa de su lado, y descubrirlo no
+ *     vale lo que cuesta dejar la entrega en el limbo.
+ *   - Lo ÚNICO que se rechaza es no tener importe: sin número no hay nada que guardar, y
+ *     un campo que falta no es un cero — un domicilio en cero parece gratis y nadie lo mira.
  */
 // Un objeto plano y no un union discriminado: este proyecto compila sin
 // strictNullChecks y ahí el union no estrecha. Mismo motivo que en `routes/webhooks.ts`.
 export type TotalDomicilio = {
   /** El importe a cobrar, o null si no se pudo resolver. */
   costo: number | null;
-  /** El desglose limpio, null cuando no vino ninguno (formato viejo). */
+  /** El desglose limpio. null = no vino, o vino mal y se ignoró (ver `aviso`). */
   grupos: GrupoEntrega[] | null;
-  /** Por qué no vale. null = vale. */
+  /** Por qué NO entra. null = entra. */
   motivo: string | null;
+  /** Algo que mirar, pero que no impide guardar. */
+  aviso: string | null;
 };
 
 export function resolverTotalDomicilio(
   declaradoCrudo: unknown,
   gruposCrudos: unknown,
 ): TotalDomicilio {
-  const grupos = normalizarGrupos(gruposCrudos);
-  if (grupos === 'invalido') {
-    return { costo: null, grupos: null, motivo: 'grupos: cada uno necesita un nombre distinto y una entrega >= 0' };
-  }
+  const limpios = normalizarGrupos(gruposCrudos);
+  const malFormado = limpios === 'invalido';
+  const grupos: GrupoEntrega[] | null = malFormado ? null : (limpios as GrupoEntrega[] | null);
+
+  let aviso: string | null = malFormado
+    ? 'el desglose por grupo venía mal formado y se ignoró; el importe entró igual'
+    : null;
 
   const suma = grupos ? Number(grupos.reduce((s, g) => s + g.entrega, 0).toFixed(2)) : null;
   const declarado = declaradoCrudo == null || declaradoCrudo === '' ? NaN : Number(declaradoCrudo);
   const costo = Number.isFinite(declarado) ? declarado : (suma ?? NaN);
 
   if (!Number.isFinite(costo) || costo < 0) {
-    return { costo: null, grupos: null, motivo: 'costo no es un número válido' };
-  }
-  /**
-   * El margen se compara en CÉNTIMOS ENTEROS, no con `Math.abs(a - b) > 0.01`.
-   *
-   * Esa resta en coma flotante da 0.010000000000005 para 65.01 contra 65.00, que es
-   * mayor que 0.01: el céntimo de redondeo que esto venía a perdonar quedaba rechazado
-   * siempre. Y un rechazo aquí no es un error visible — es una entrega que se reintenta
-   * cada 60 s durante 24 h y acaba marcada Fallida. Lo cazó la prueba, no el despliegue.
-   */
-  const centimos = (v: number) => Math.round(v * 100);
-  if (suma != null && Number.isFinite(declarado) && Math.abs(centimos(suma) - centimos(declarado)) > 1) {
-    return {
-      costo: null,
-      grupos: null,
-      motivo: `el total (${declarado.toFixed(2)}) no cuadra con la suma de los grupos (${suma.toFixed(2)})`,
-    };
+    return { costo: null, grupos: null, motivo: 'costo no es un número válido', aviso };
   }
 
-  return { costo, grupos, motivo: null };
+  // En céntimos ENTEROS: `Math.abs(65.01 - 65.00) > 0.01` da true en coma flotante, así
+  // que el céntimo de redondeo que esto perdona se marcaba como descuadre siempre.
+  const centimos = (v: number) => Math.round(v * 100);
+
+  if (suma != null && Number.isFinite(declarado) && Math.abs(centimos(suma) - centimos(declarado)) > 1) {
+    aviso = `el total (${declarado.toFixed(2)}) no cuadra con la suma de los grupos (${suma.toFixed(2)}); mandó el total`;
+  }
+
+  return { costo, grupos, motivo: null, aviso };
 }
 
 /**
@@ -148,12 +148,10 @@ export function resolverTotalDomicilio(
  *
  * Un domicilio de la APK puede cubrir dos pedidos que van en el mismo viaje, y entonces
  * cada grupo trae el suyo con SU parte de la tarifa. Mandarlo todo al pedido de la
- * cabecera dejaría al otro sin domicilio y a éste cobrando de más: visto el 15/09/2026,
- * `Ped56434` (CES, $0.40) y `Ped67545` (PROCOVAR, $0.07) en la misma pantalla.
+ * cabecera dejaría al otro sin domicilio y a éste cobrando de más.
  *
- * `mezclado` —unos grupos con pedido y otros sin él— NO se adivina. Sin saber a cuál va
- * la parte huérfana, cualquier reparto es inventado, y lo que se inventa es dinero. Se
- * rechaza y queda el motivo escrito.
+ * `mezclado` —unos grupos con pedido y otros sin él— no se adivina: sin saber a cuál va
+ * la parte huérfana, cualquier reparto es inventado, y lo que se inventa es dinero.
  */
 export function repartoDeGrupos(grupos: GrupoEntrega[] | null): 'entero' | 'porGrupo' | 'mezclado' {
   if (!grupos || grupos.length === 0) return 'entero';

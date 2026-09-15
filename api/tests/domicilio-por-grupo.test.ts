@@ -34,22 +34,26 @@ test('sin total, el total es la suma de los grupos', () => {
   assert.equal(r.costo, 65.0);
 });
 
-test('si el total NO cuadra con los grupos, no se elige: se rechaza', () => {
-  // Cobrar 99 y publicar un desglose que suma 65 es dinero mal puesto de las dos formas.
+test('si el total NO cuadra con los grupos, entra igual y queda el aviso', () => {
+  // NO se rechaza: su backend es el origen de verdad de estos importes y rechazar deja la
+  // entrega reintentandose cada 60 s contra algo que no va a cambiar solo.
   const r = resolverTotalDomicilio(99.0, PROCOVAR_Y_CES);
-  assert.equal(r.costo, null);
-  assert.match(r.motivo!, /no cuadra/);
-  // El motivo lleva las dos cifras: sin ellas no se puede decir cuál de los dos lados falla.
-  assert.match(r.motivo!, /99\.00/);
-  assert.match(r.motivo!, /65\.00/);
+  assert.equal(r.motivo, null);
+  assert.equal(r.costo, 99.0);
+  assert.match(r.aviso!, /no cuadra/);
+  // El aviso lleva las dos cifras: sin ellas no se puede decir cual de los dos lados falla.
+  assert.match(r.aviso!, /99\.00/);
+  assert.match(r.aviso!, /65\.00/);
 });
 
-test('un céntimo de diferencia es redondeo, no un error', () => {
+test('un céntimo de diferencia no es ni un aviso', () => {
   // Los dos lados redondean a dos decimales por su cuenta.
-  assert.equal(resolverTotalDomicilio(65.01, PROCOVAR_Y_CES).motivo, null);
-  assert.equal(resolverTotalDomicilio(64.99, PROCOVAR_Y_CES).motivo, null);
-  // Dos céntimos ya no.
-  assert.match(resolverTotalDomicilio(65.02, PROCOVAR_Y_CES).motivo!, /no cuadra/);
+  assert.equal(resolverTotalDomicilio(65.01, PROCOVAR_Y_CES).aviso, null);
+  assert.equal(resolverTotalDomicilio(64.99, PROCOVAR_Y_CES).aviso, null);
+  // Dos céntimos ya sí, pero sigue entrando.
+  const r = resolverTotalDomicilio(65.02, PROCOVAR_Y_CES);
+  assert.equal(r.motivo, null);
+  assert.match(r.aviso!, /no cuadra/);
 });
 
 test('el formato viejo sigue entrando: costo suelto y sin grupos', () => {
@@ -69,19 +73,26 @@ test('un total que falta NO es un cero', () => {
   assert.equal(resolverTotalDomicilio(0, null).motivo, null);
 });
 
-test('dos grupos con el mismo nombre se rechazan: uno pisaría al otro', () => {
-  // La clave de la tabla es (pedido, grupo). Sin esto, el segundo borra al primero y el
-  // desglose acabaría sumando menos que el total, en silencio.
+test('dos grupos con el mismo nombre: se tira el desglose, NO el importe', () => {
+  // La clave de la tabla es (pedido, grupo) y uno pisaria al otro. Pero eso no es razon
+  // para dejar sin cobrar un reparto que ya se hizo: entra el total y se pierde el detalle.
   const r = resolverTotalDomicilio(30, [
     { grupo: 'Procovar', entrega: 15 },
     { grupo: 'Procovar', entrega: 15 },
   ]);
-  assert.match(r.motivo!, /nombre distinto/);
+  assert.equal(r.motivo, null);
+  assert.equal(r.costo, 30);
+  assert.equal(r.grupos, null);
+  assert.match(r.aviso!, /desglose/);
 });
 
-test('un grupo sin nombre, o con entrega negativa, no entra', () => {
-  assert.match(resolverTotalDomicilio(15, [{ grupo: '  ', entrega: 15 }]).motivo!, /grupos/);
-  assert.match(resolverTotalDomicilio(-5, [{ grupo: 'Procovar', entrega: -5 }]).motivo!, /grupos/);
+test('un grupo sin nombre tira el desglose; un total negativo si tumba la entrada', () => {
+  const sinNombre = resolverTotalDomicilio(15, [{ grupo: '  ', entrega: 15 }]);
+  assert.equal(sinNombre.motivo, null);
+  assert.equal(sinNombre.costo, 15);
+  assert.match(sinNombre.aviso!, /desglose/);
+  // Un importe negativo no es un dato dudoso: es falso, y no hay nada que guardar.
+  assert.match(resolverTotalDomicilio(-5, null).motivo!, /no es un número válido/);
 });
 
 test('"Sin grupo" es un grupo como otro cualquiera', () => {
@@ -162,6 +173,8 @@ test('el subtotal de productos del grupo se guarda, y no entra en el cuadre del 
 test('no mandar el subtotal de productos no es mandarlo en cero', () => {
   const r = resolverTotalDomicilio(15, [{ grupo: 'Procovar', entrega: 15 }]);
   assert.equal(r.grupos![0].productos, null);
-  // Y un importe negativo no es un dato dudoso: es falso.
-  assert.match(resolverTotalDomicilio(15, [{ grupo: 'P', entrega: 15, productos: -1 }]).motivo!, /grupos/);
+  // Un subtotal negativo tira el desglose, pero el importe entra.
+  const malo = resolverTotalDomicilio(15, [{ grupo: 'P', entrega: 15, productos: -1 }]);
+  assert.equal(malo.motivo, null);
+  assert.equal(malo.grupos, null);
 });
