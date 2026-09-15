@@ -25,6 +25,7 @@ router.use(serviceAuth);
 
 /**
  * GET /integration/orders?onlyPending=1&desde=YYYY-MM-DD&hasta=YYYY-MM-DD&since=<ISO>&limit=500
+ *                         &vendedor=andy.almanza&estado=no_completada
  *
  * Lista pedidos para cotizar el domicilio. Con onlyPending=1 solo los que aún no
  * tienen costo y cuyo cliente TIENE geolocalización (calculables).
@@ -38,9 +39,18 @@ router.use(serviceAuth);
  *
  *   desde / hasta  → por FECHA DEL PEDIDO. "Dame los de hoy" o "los de ayer", que es
  *                    lo que el repartidor necesita tener encima antes de salir.
- *   estado         → en_proceso | completada | expirada. Con "en_proceso" se lleva
+ *   estado         → en_proceso | completada | expirada | no_completada. Con "en_proceso" se lleva
  *                    justo lo que va a repartir: lo completado ya se entregó y lo
  *                    expirado no lo va a llevar hoy.
+ *   conGeo         → sólo los que tienen coordenadas. NO es el comportamiento por
+ *                    defecto: antes se exigía siempre, y eso escondía justo los pedidos
+ *                    que había que cotizar. Lo pide quien cotiza por distancia.
+ *   vendedor       → el código del vendedor (`andy.almanza`) o su id, igual que en
+ *                    `/integration/clients`. Una tablet por repartidor, cada uno con su
+ *                    cartera: sin esto se llevaba la sucursal entera para usar su parte.
+ *   estado         → ver abajo. `no_completada` es lo que pide la APK de domicilio y NO
+ *                    es lo mismo que `en_proceso`: éste deja fuera las expiradas, que
+ *                    siguen sin completarse y su domicilio hay que cobrarlo igual.
  *   since          → por CUÁNDO ENTRÓ O CAMBIÓ (updatedAt). Es el sincronizado
  *                    incremental: se guarda la hora de la última sync y en la
  *                    siguiente solo llega lo que se movió desde entonces. Suele ser
@@ -174,6 +184,17 @@ router.get('/orders', async (req, res) => {
   // Por estado. El repartidor sale a la calle con los EN PROCESO: los completados ya
   // se entregaron y los expirados no los va a llevar hoy.
   const estado = typeof req.query.estado === 'string' ? req.query.estado.trim() : '';
+  /**
+   * De QUIÉN son los pedidos. Mismo parámetro y mismo valor que en `/integration/clients`:
+   * el código del vendedor (`andy.almanza`), que es único global, o su id.
+   *
+   * Lo pide la APK de domicilio, que sincroniza por vendedor: una tablet por repartidor y
+   * cada uno con su cartera. Sin esto se llevaba la sucursal entera en cada arranque para
+   * quedarse con su parte, por datos móviles.
+   */
+  const vendedor = typeof req.query.vendedor === 'string' ? req.query.vendedor.trim() : '';
+  /** Sólo los pedidos cuyo cliente TIENE coordenadas. Ver la nota larga en `where`. */
+  const conGeo = req.query.conGeo === '1' || req.query.conGeo === 'true';
   const askedCodigo = typeof req.query.sucursalCodigo === 'string' ? req.query.sucursalCodigo.trim() : '';
   /**
    * Archivados: por defecto vienen TODOS.
@@ -206,9 +227,26 @@ router.get('/orders', async (req, res) => {
 
   const where = {
     ...sucursalScope,
-    // SIN GEOLOCALIZACIÓN no se manda a delivery: sin lat/lng no hay forma de medir la
-    // distancia ni de rutear el pedido. (Antes solo se exigía para los pendientes.)
-    cliente: { latitud: { not: null }, longitud: { not: null } },
+    /**
+     * La geolocalización YA NO se exige. La pide con `conGeo=1` quien la necesite.
+     *
+     * Era un filtro fijo —«sin lat/lng no se puede medir la distancia ni rutear»— y la
+     * intención era buena, pero el efecto era el contrario: un cliente sin coordenadas
+     * desaparecía de este endpoint con CUALQUIER parámetro. La APK de domicilio no podía
+     * conseguir su `pedidoId`, así que ese domicilio no se enviaba nunca y, por su regla
+     * de «sin match no cuenta intentos», se quedaba pendiente para siempre: sin expirar,
+     * sin marcarse Fallida y sin avisar a nadie.
+     *
+     * Y la premisa era falsa. Confirmado por Amado el 15/09/2026: un domicilio SÍ se
+     * puede crear sin coordenadas, porque el vendedor geolocaliza al cliente en el
+     * momento con la tablet o con MapsMe — y esa ubicación nos vuelve por el webhook, que
+     * es de donde salen las correcciones que guarda `ClienteGeoCambio`. O sea que el
+     * filtro escondía justo los pedidos que más falta hacía que salieran.
+     *
+     * Quien de verdad no sabe qué hacer sin coordenadas —la recotización en lote de
+     * delivery, que cotiza por distancia— pide `conGeo=1` y sigue igual que siempre.
+     */
+    ...(conGeo ? { cliente: { latitud: { not: null }, longitud: { not: null } } } : {}),
     // Pendientes de cotizar = los que REQUIEREN domicilio (requiere_domicilio=true) y aún no
     // tienen costo. Un pedido sin domicilio NO lleva costo: no se encola ni se cotiza.
     ...(onlyPending ? { requiere_domicilio: true, costoDomicilio: null } : {}),
@@ -238,7 +276,19 @@ router.get('/orders', async (req, res) => {
     // 'completada', y expirado se deduce de que la fecha comprometida ya pasó. Así que
     // aquí se traducen a lo que sí se puede consultar, en vez de pedirle a quien llama
     // que sepa esa interioridad.
+    // Por vendedor: los suyos y sólo los suyos.
+    ...(vendedor ? { vendedor: { OR: [{ codigo: vendedor }, { id: vendedor }] } } : {}),
     ...(estado === 'completada' ? { estado: 'completada' } : {}),
+    /**
+     * NO COMPLETADAS, que no es lo mismo que `en_proceso`.
+     *
+     * `en_proceso` deja fuera las expiradas, y una expirada sigue sin completarse: el
+     * pedido existe, no se ha entregado y su domicilio hay que cobrarlo igual. Quien
+     * pregunta «dame lo que no está cerrado» —la APK de domicilio— con `en_proceso` no
+     * vería esos pedidos, no conseguiría su id, y su entrega se quedaría pendiente para
+     * siempre sin que nadie se entere.
+     */
+    ...(estado === 'no_completada' ? { NOT: { estado: 'completada' } } : {}),
     ...(estado === 'en_proceso'
       ? {
           NOT: { estado: 'completada' },
@@ -307,6 +357,24 @@ router.get('/orders', async (req, res) => {
   const orders = pedidos.map((p) => ({
     id: p.id,
     folio: p.folio,
+    /**
+     * El cliente y el vendedor TAMBIÉN planos, además de dentro de sus objetos.
+     *
+     * Es lo que hace falta para desempatar un folio repetido, y quien lo necesita no
+     * puede ir a buscarlo anidado: la APK de domicilio casa su `numero_pedido` con un
+     * LIKE —el sufijo `-1`, `-2` lo ponemos nosotros y ella no lo ve— así que un folio
+     * le devuelve varios pedidos, de CLIENTES DISTINTOS y con facturas distintas. Son
+     * 2.560 desde agosto.
+     *
+     * Sin estos dos campos a mano, elegir entre esos hermanos es una moneda al aire, y
+     * lo que se elige mal es a quién se le cobra el domicilio. Ver `folioDeLaNota` y el
+     * error de julio.
+     *
+     * Van duplicados a propósito: `cliente` y `vendedor` completos siguen ahí y nadie
+     * tiene que cambiar nada.
+     */
+    clienteCodigo: p.cliente?.codigo ?? null,
+    vendedorCodigo: p.vendedor?.codigo ?? null,
     sucursalId: p.sucursalId,
     sucursalCodigo: p.sucursal?.codigo || null,
     sucursalNombre: p.sucursal?.nombre || null,
