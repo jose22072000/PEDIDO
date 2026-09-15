@@ -86,17 +86,33 @@ function redondear(v: number | null | undefined): number | null {
  * Y se devuelve el MOTIVO, no un silencio: la APK recibe el rechazo por entrega, con su
  * folio, y puede corregirlo. Un rechazo mudo se repite cada minuto para siempre.
  */
-async function sinDomicilio(pedidoId: string): Promise<string | null> {
+/**
+ * Y DE PASO EL FOLIO, que hace falta aunque no se haya casado por él.
+ *
+ * Desde que la APK casa por `pedidoId` ya no manda folio, así que el recibo salía sin él
+ * y el registro de intentos apuntaba «(sin folio)». El panel de Entrega resuelve cada
+ * fila POR FOLIO, o sea que todas esas entradas salían como «no está en PEDIDO» —cuando
+ * el costo se había guardado perfectamente— y encima se amontonaban todas en una sola
+ * fila, porque la clave del registro es (folio, motivo).
+ *
+ * El folio lo sabemos: lo tiene el pedido que acabamos de mirar. Se devuelve y ya.
+ */
+async function datosDelPedido(pedidoId: string): Promise<{ folio: string | null; motivo: string | null }> {
   const p = await prisma.pedido.findUnique({
     where: { id: pedidoId },
-    select: { requiere_domicilio: true },
+    select: { folio: true, requiere_domicilio: true },
   });
 
-  if (p && p.requiere_domicilio === false) {
-    return 'ese pedido no va a domicilio (requiere_domicilio = false): no se le pone costo';
-  }
+  // Sin fila no hay motivo: que no exista lo dice después el update, con su propio texto.
+  if (!p) return { folio: null, motivo: null };
 
-  return null;
+  return {
+    folio: p.folio,
+    motivo:
+      p.requiere_domicilio === false
+        ? 'ese pedido no va a domicilio (requiere_domicilio = false): no se le pone costo'
+        : null,
+  };
 }
 
 export async function aplicarCostoDomicilio(u: {
@@ -360,12 +376,13 @@ export async function aplicarCostoDomicilio(u: {
   };
 
   if (u.pedidoId) {
-    const noVa = await sinDomicilio(String(u.pedidoId));
+    const id = String(u.pedidoId);
+    const { folio: suFolio, motivo: noVa } = await datosDelPedido(id);
 
-    if (noVa) return { ok: false, pedidoId: String(u.pedidoId), motivo: noVa };
+    if (noVa) return { ok: false, pedidoId: id, folio: suFolio ?? undefined, motivo: noVa };
 
     const r = await prisma.pedido.updateMany({
-      where: { id: String(u.pedidoId), ...alcance },
+      where: { id, ...alcance },
       data: { costoDomicilio: costo, tasaDomicilio: tasaValida },
     });
     if (r.count > 0) {
@@ -378,8 +395,8 @@ export async function aplicarCostoDomicilio(u: {
       cambios.tasa = tasaValida != null;
     }
     return r.count > 0
-      ? { ok: true, pedidoId: String(u.pedidoId), cambios }
-      : { ok: false, pedidoId: String(u.pedidoId), motivo: 'no existe o es de otra sucursal' };
+      ? { ok: true, pedidoId: id, folio: suFolio ?? undefined, cambios }
+      : { ok: false, pedidoId: id, folio: suFolio ?? undefined, motivo: 'no existe o es de otra sucursal' };
   }
 
   if (u.folio) {
@@ -493,7 +510,7 @@ export async function aplicarCostoDomicilio(u: {
       };
     }
 
-    const noVa = await sinDomicilio(elegidos[0].id);
+    const { motivo: noVa } = await datosDelPedido(elegidos[0].id);
 
     // Se devuelve el folio NUESTRO, no el que mandaron: ya sabemos a qué pedido señalaba,
     // y decírselo es lo que deja comprobar del otro lado que la identificación acertó y

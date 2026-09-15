@@ -96,8 +96,41 @@ router.get('/intentos', async (req, res) => {
     }
   }
 
+  /**
+   * Y las que NO traen folio, buscadas por su `pedidoId`.
+   *
+   * La APK casa por `pedidoId` y ya no manda folio, así que estas filas salían como «no
+   * está en PEDIDO» aunque el costo se hubiera guardado bien. Decir que un pedido no
+   * existe cuando acabamos de escribirle el domicilio es la peor mentira que puede contar
+   * esta pantalla: manda a buscar un problema que no está.
+   *
+   * Se busca POR ID y no por el folio del pedido encontrado: un folio se repite entre
+   * clientes —para eso está el sufijo— y cruzar por ahí volvería a elegir un hermano al
+   * azar, que es exactamente lo que el `pedidoId` viene a evitar.
+   */
+  const idsSueltos = [
+    ...new Set(
+      filas.filter((f) => !porFolio.has(f.folio) && f.pedidoId).map((f) => f.pedidoId as string),
+    ),
+  ];
+
+  const porId = new Map(
+    (idsSueltos.length
+      ? await prisma.pedido.findMany({
+          where: { id: { in: idsSueltos } },
+          select: {
+            id: true, folio: true, requiere_domicilio: true, fecha: true, createdAt: true,
+            cliente: { select: { nombre: true } },
+            vendedor: { select: { nombre: true, codigo: true } },
+            sucursal: { select: { codigo: true } },
+          },
+        })
+      : []
+    ).map((x) => [x.id, x] as const),
+  );
+
   const todos = filas.map((f) => {
-    const p = porFolio.get(f.folio) ?? null;
+    const p = porFolio.get(f.folio) ?? (f.pedidoId ? porId.get(f.pedidoId) ?? null : null);
     /**
      * La clase que se enseña sale de CRUZAR el código con lo que hay ahora en la base.
      *
