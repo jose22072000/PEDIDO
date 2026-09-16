@@ -175,6 +175,35 @@ router.get('/orders', async (req, res) => {
   const TOPE = 2000;
   const pedido = req.query.limit ? Number(req.query.limit) : TOPE;
   const limit = Number.isFinite(pedido) ? Math.min(Math.max(1, pedido), 5000) : TOPE;
+  /**
+   * EL CURSOR, que es lo que convierte el tope en una molestia en vez de en una pérdida.
+   *
+   * El tope de arriba está bien y se queda: protege la memoria del servicio. Lo que
+   * estaba mal es que NO HABÍA FORMA DE SEGUIR. Quien pedía un mes se llevaba 2.000
+   * pedidos, la respuesta decía `count: 2000` tan tranquila, y los que faltaban no
+   * existían para él. Sin error, sin aviso y sin nada que mirar.
+   *
+   * Ese fallo exacto ya costó **2.284 pedidos perdidos en una sola ventana** en el espejo
+   * del reparto, con 200 OK. Es el que más caro sale en esta casa porque no se ve.
+   *
+   * `/integration/clients`, aquí al lado, lleva cursor desde hace tiempo y hace justo
+   * esto. Se copia el mismo patrón: mismo nombre de parámetro, misma forma de respuesta.
+   */
+  const cursor = typeof req.query.cursor === 'string' && req.query.cursor ? req.query.cursor : null;
+  /**
+   * PAGINAR ES OPT-IN, y tiene que serlo desde la PRIMERA página.
+   *
+   * Si la página 1 saliera ordenada por fecha y la 2 por id, unos pedidos se repetirían
+   * y otros no saldrían nunca: paginar por un campo que no es único es el fallo clásico
+   * de esto. Y el cursor sólo aparece a partir de la página 2, así que no sirve para
+   * decidir el orden de la primera.
+   *
+   * Por eso hay un interruptor propio: `paginar=1`. Con él, todo el recorrido va por id
+   * ascendente de principio a fin. Sin él, no cambia absolutamente nada para quien ya
+   * está llamando a esto —mismo orden, lo más nuevo primero—, que es lo que no se puede
+   * romper.
+   */
+  const paginar = req.query.paginar === '1' || req.query.paginar === 'true' || !!cursor;
   const desde = typeof req.query.desde === 'string' ? req.query.desde : '';
   const hasta = typeof req.query.hasta === 'string' ? req.query.hasta : '';
   const since = typeof req.query.since === 'string' ? req.query.since : '';
@@ -303,6 +332,7 @@ router.get('/orders', async (req, res) => {
   const pedidos = await prisma.pedido.findMany({
     where,
     take: limit,
+    ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
     include: {
       cliente: true,
       sucursal: true,
@@ -327,7 +357,17 @@ router.get('/orders', async (req, res) => {
         },
       },
     },
-    orderBy: { fecha: 'desc' },
+    /**
+     * AL PAGINAR SE ORDENA POR ID, que es único y estable.
+     *
+     * Con `fecha: 'desc'` y cursor, dos pedidos de la misma fecha pueden salir en
+     * cualquier orden entre una llamada y la siguiente: unos se repetirían y otros no
+     * saldrían nunca. Es el fallo clásico de paginar por un campo que no es único.
+     *
+     * Sin `paginar` se conserva el orden de siempre —lo más nuevo primero—, porque eso
+     * es lo que espera quien ya está llamando a esto y no pagina.
+     */
+    orderBy: paginar ? { id: 'asc' } : { fecha: 'desc' },
   });
 
   /**
@@ -520,7 +560,21 @@ router.get('/orders', async (req, res) => {
     }),
   }));
 
-  res.json({ count: orders.length, orders });
+  /**
+   * `nextCursor` y `hayMas`: LO QUE FALTA SE DICE.
+   *
+   * Si la página vino LLENA, hay que dar por hecho que queda más. `nextCursor` es el id
+   * del último, y se vuelve a llamar con `&cursor=<ese id>` hasta que `hayMas` sea false.
+   *
+   * `hayMas` va además de `nextCursor` porque un `null` se lee mal: quien no lo mire
+   * nunca se entera. Un booleano con nombre en la respuesta es la única forma de que un
+   * truncamiento deje de ser invisible, que es la regla de la casa —si pides un tope,
+   * comprueba si lo alcanzaste—.
+   */
+  const hayMas = pedidos.length === limit;
+  const nextCursor = hayMas ? pedidos[pedidos.length - 1].id : null;
+
+  res.json({ count: orders.length, orders, hayMas, nextCursor });
 });
 
 /**
@@ -625,6 +679,20 @@ router.get('/clients', async (req, res) => {
     ? Math.min(Math.floor(limitRaw), 2000)
     : null;
   const cursor = typeof req.query.cursor === 'string' && req.query.cursor ? req.query.cursor : null;
+  /**
+   * PAGINAR ES OPT-IN, y tiene que serlo desde la PRIMERA página.
+   *
+   * Si la página 1 saliera ordenada por fecha y la 2 por id, unos pedidos se repetirían
+   * y otros no saldrían nunca: paginar por un campo que no es único es el fallo clásico
+   * de esto. Y el cursor sólo aparece a partir de la página 2, así que no sirve para
+   * decidir el orden de la primera.
+   *
+   * Por eso hay un interruptor propio: `paginar=1`. Con él, todo el recorrido va por id
+   * ascendente de principio a fin. Sin él, no cambia absolutamente nada para quien ya
+   * está llamando a esto —mismo orden, lo más nuevo primero—, que es lo que no se puede
+   * romper.
+   */
+  const paginar = req.query.paginar === '1' || req.query.paginar === 'true' || !!cursor;
 
   // TODOS los clientes, no sólo los geolocalizados.
   //
