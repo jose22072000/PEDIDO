@@ -112,23 +112,34 @@ model Vendedor {
 }
 
 model Pedido {
-  id                 String    @id @default(cuid())
-  folio              String
-  sucursalId         String?
-  sucursal           Sucursal? @relation(fields: [sucursalId], references: [id])
-  vendedorId         String?   @map("sellerId")
-  vendedor           Vendedor? @relation(fields: [vendedorId], references: [id])
-  clienteId          String?   @map("clientId")
-  cliente            Cliente?  @relation(fields: [clienteId], references: [id])
-  direccion          String?
-  encargado          String?
-  telefono           String?
-  fecha              DateTime
-  fecha_comprometida DateTime?
-  estado             String?   @map("status")
-  pedido_cobrado     String?   @map("paymentStatus")
-  requiere_domicilio Boolean?  @map("requiresDelivery")
-  costoDomicilio     Float?    @map("deliveryCost") // en USD, lo escribe la APK de domicilio
+  id                  String    @id @default(cuid())
+  folio               String
+  sucursalId          String?
+  sucursal            Sucursal? @relation(fields: [sucursalId], references: [id])
+  vendedorId          String?   @map("sellerId")
+  vendedor            Vendedor? @relation(fields: [vendedorId], references: [id])
+  clienteId           String?   @map("clientId")
+  cliente             Cliente?  @relation(fields: [clienteId], references: [id])
+  direccion           String?
+  encargado           String?
+  telefono            String?
+  fecha               DateTime
+  fecha_comprometida  DateTime?
+  estado              String?   @map("status")
+  pedido_cobrado      String?   @map("paymentStatus")
+  requiere_domicilio  Boolean?  @map("requiresDelivery")
+  costoDomicilio      Float?    @map("deliveryCost") // en USD, lo escribe la APK de domicilio
+  /// QUIÉN puso `requiere_domicilio` en true: nosotros, al entrar un costo de la APK.
+  ///
+  /// Desde el 15/09/2026 un costo que llega marca el pedido como de domicilio, porque
+  /// quien lo decide es el repartidor en la calle. Eso deja una pregunta sin respuesta
+  /// cuando esa entrega se CANCELA: ¿el pedido vuelve a «sin domicilio», o es que siempre
+  /// lo llevó y sólo se cayó este reparto?
+  ///
+  /// Sin este dato las dos cosas se ven igual, y elegir mal miente en los dos sentidos: o
+  /// deja un pedido de domicilio marcado como que se recoge, o al revés. Con él, la
+  /// cancelación revierte la bandera **sólo si la habíamos puesto nosotros**.
+  domicilioPorEntrega Boolean?  @map("deliveryFlagFromApk")
   /// La tasa CUP/USD del momento en que se guardó ESE domicilio.
   ///
   /// La pone PEDIDO de su propia fuente: delivery-apk manda el costo en USD y nada
@@ -136,7 +147,7 @@ model Pedido {
   /// importes habría dos verdades que se separan en cuanto cambie la tasa, y ninguna
   /// forma de saber cuál es la buena. Con la tasa, el CUP se reproduce exacto —el
   /// mismo que vio quien cobró— y queda registrado a cómo estaba el cambio ese día.
-  tasaDomicilio      Float?
+  tasaDomicilio       Float?
 
   /// Cómo quedó este pedido frente a su FACTURA en Ventra:
   ///   `igual`       — se facturó exactamente lo que se pidió.
@@ -313,16 +324,16 @@ model PedidoItem {
 /// reenvía cada 60 s hasta que confirmamos, y sin unicidad cada vuelta duplicaría el
 /// desglose del mismo pedido hasta llenar la tabla.
 model PedidoDomicilioGrupo {
-  id       String  @id @default(cuid())
-  pedidoId String  @map("orderId")
+  id        String   @id @default(cuid())
+  pedidoId  String   @map("orderId")
   /// Si se borra el pedido, su desglose se va con él: suelto no significa nada.
-  pedido   Pedido  @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  pedido    Pedido   @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
   /// El nombre tal como lo manda la APK: "Procovar", "Ces...", "Sin grupo" para lo que
   /// viene sin etiqueta. Texto libre a propósito: no tenemos catálogo de grupos y
   /// inventarlo aquí sería un segundo catálogo que se desincroniza del suyo.
-  grupo    String
+  grupo     String
   /// Lo que cuesta el domicilio DE ESE GRUPO, en USD. No lleva los productos.
-  entrega  Decimal @db.Decimal(14, 2)
+  entrega   Decimal  @db.Decimal(14, 2)
   /// Lo que valen los PRODUCTOS de ese grupo, en USD. Lo manda la APK.
   ///
   /// Nulo mientras no lo mande: es «no lo sabemos», que no es lo mismo que cero.

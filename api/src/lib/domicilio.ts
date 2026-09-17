@@ -386,7 +386,8 @@ export async function aplicarCostoDomicilio(u: {
       data: {
         costoDomicilio: costo,
         tasaDomicilio: tasaValida,
-        ...(marcado ? {} : { requiere_domicilio: true }),
+        // Y quién la puso, que es lo que deja deshacerlo bien si se cancela.
+        ...(marcado ? {} : { requiere_domicilio: true, domicilioPorEntrega: true }),
       },
     });
     if (r.count > 0) {
@@ -523,7 +524,8 @@ export async function aplicarCostoDomicilio(u: {
       data: {
         costoDomicilio: costo,
         tasaDomicilio: tasaValida,
-        ...(marcado ? {} : { requiere_domicilio: true }),
+        // Y quién la puso, que es lo que deja deshacerlo bien si se cancela.
+        ...(marcado ? {} : { requiere_domicilio: true, domicilioPorEntrega: true }),
       },
     });
     await guardarUbicacion(elegidos[0].id);
@@ -539,4 +541,112 @@ export async function aplicarCostoDomicilio(u: {
   }
 
   return { ok: false, motivo: 'falta pedidoId o folio' };
+}
+
+/** Lo que se deshizo al cancelar un domicilio. */
+export type CancelacionDomicilio = {
+  ok: boolean;
+  pedidoId?: string;
+  folio?: string;
+  motivo?: string;
+  /** Qué se limpió de verdad. Vacío = no había nada, y eso NO es un fallo. */
+  deshecho: string[];
+};
+
+/**
+ * El repartidor canceló el domicilio: se deshace lo que dejó puesto.
+ *
+ * Pasa en la calle —el cliente no estaba, no lo quiso, no se pudo llegar— y hasta ahora no
+ * teníamos por dónde recibirlo: el pedido se quedaba con un costo cobrado por un reparto
+ * que no ocurrió.
+ *
+ * Se deshace TODO lo que escribe `aplicarCostoDomicilio`, y nada más:
+ *
+ *   - el costo y la tasa a la que se estampó,
+ *   - el desglose por grupo (`OrderDeliveryGroup`),
+ *   - y la bandera de domicilio **sólo si la habíamos puesto nosotros** al entrar el costo.
+ *     Un pedido que ya venía marcado desde el CSV sigue siendo de domicilio: que se caiga
+ *     un reparto no cambia lo que el cliente pidió.
+ *
+ * Lo que NO se toca: la ubicación del cliente y su distancia. Eso lo averiguó alguien que
+ * fue hasta allí, es verdad aunque la entrega se cancele, y borrarlo obligaría a volver a
+ * medirlo. Queda en la ficha del cliente, que es de donde salió.
+ *
+ * **Un pedido que no existe NO es un rechazo.** Si no hay nada que cancelar, la
+ * cancelación está cumplida: contestar «rechazada» dejaría a su scheduler reintentando
+ * cada 60 s contra algo que no va a aparecer. Ver `no-revalidar-al-origen-de-verdad`.
+ *
+ * Idempotente: cancelar dos veces deja lo mismo y la segunda contesta con `deshecho`
+ * vacío, que es la verdad — no había nada que quitar.
+ */
+export async function cancelarDomicilio(u: {
+  pedidoId?: string | null;
+  folio?: string | null;
+  motivo?: string | null;
+}): Promise<CancelacionDomicilio> {
+  // Mismo alcance que al escribir: esta instalación sólo toca SUS pedidos.
+  const local = readConfiguredSucursalId();
+  const alcance = local ? { sucursalId: local } : {};
+  let pedido: { id: string; folio: string; costoDomicilio: number | null; domicilioPorEntrega: boolean | null } | null = null;
+
+  if (u.pedidoId) {
+    pedido = await prisma.pedido.findFirst({
+      where: { id: String(u.pedidoId), ...alcance },
+      select: { id: true, folio: true, costoDomicilio: true, domicilioPorEntrega: true },
+    });
+  }
+
+  // Por folio sólo si no vino id, y sólo cuando señala a UNO: el sufijo es nuestro y un
+  // folio puede tener hermanos de clientes distintos. Cancelar el que no era sería peor
+  // que no cancelar nada.
+  if (!pedido && u.folio) {
+    const folio = String(u.folio).trim();
+    const candidatos = await prisma.pedido.findMany({
+      where: { folio: { startsWith: folio }, ...alcance },
+      select: { id: true, folio: true, costoDomicilio: true, domicilioPorEntrega: true },
+      take: 5,
+    });
+    const exactos = candidatos.filter((c) => c.folio === folio);
+    const elegidos = exactos.length ? exactos : candidatos;
+
+    if (elegidos.length > 1) {
+      return { ok: false, folio, motivo: 'ese folio es de varios pedidos: manda el pedidoId', deshecho: [] };
+    }
+    pedido = elegidos[0] ?? null;
+  }
+
+  if (!pedido) {
+    // No hay nada que cancelar, así que la cancelación está hecha. Ver la nota de arriba.
+    return { ok: true, pedidoId: u.pedidoId ?? undefined, folio: u.folio ?? undefined, deshecho: [] };
+  }
+
+  const deshecho: string[] = [];
+  const data: Record<string, unknown> = {};
+
+  if (pedido.costoDomicilio != null) {
+    data.costoDomicilio = null;
+    data.tasaDomicilio = null;
+    deshecho.push('costo');
+  }
+
+  if (pedido.domicilioPorEntrega === true) {
+    data.requiere_domicilio = false;
+    data.domicilioPorEntrega = null;
+    deshecho.push('requiereDomicilio');
+  }
+
+  const grupos = await prisma.pedidoDomicilioGrupo.deleteMany({ where: { pedidoId: pedido.id } });
+  if (grupos.count > 0) deshecho.push('grupos');
+
+  if (Object.keys(data).length) await prisma.pedido.update({ where: { id: pedido.id }, data });
+
+  if (deshecho.length) {
+    // eslint-disable-next-line no-console
+    console.log(
+      `[domicilio] cancelado ${pedido.folio} (${pedido.id}): ${deshecho.join(', ')}` +
+        (u.motivo ? ` · motivo: ${String(u.motivo).slice(0, 120)}` : ''),
+    );
+  }
+
+  return { ok: true, pedidoId: pedido.id, folio: pedido.folio, deshecho };
 }

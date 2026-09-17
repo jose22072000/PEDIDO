@@ -7,7 +7,7 @@
 // por una clave que viaja en claro en cada petición.
 import { Router } from 'express';
 import { getConfig, firmar, firmaValida } from '../lib/webhook';
-import { aplicarCostoDomicilio } from '../lib/domicilio';
+import { aplicarCostoDomicilio, cancelarDomicilio } from '../lib/domicilio';
 import { normalizarGrupos, repartoDeGrupos } from '../lib/domicilioGrupos';
 import { emitEvent } from '../lib/events';
 import prisma from '../prismaClient';
@@ -376,6 +376,98 @@ router.post('/domicilio', async (req, res) => {
     recibidas: entregas.length,
     // El detalle de cada una, no sólo el número: es lo que deja ver que la ubicación
     // que mandó el repartidor entró de verdad, y no sólo que el costo se guardó.
+    aplicadas,
+    rechazadas,
+  });
+});
+
+/**
+ * POST /webhooks/domicilio/cancelar
+ * Body: { cancelaciones: [{ pedidoId?, folio?, motivo? }] }
+ *
+ * El repartidor canceló el domicilio en la calle —el cliente no estaba, no lo quiso, no se
+ * pudo llegar—. Hasta ahora no había por dónde recibirlo y el pedido se quedaba con un
+ * costo cobrado por un reparto que no ocurrió.
+ *
+ * Va aparte de `/domicilio` y no como una bandera dentro de las entregas: son operaciones
+ * opuestas y mezclarlas hace que un campo mal puesto BORRE un importe en vez de guardarlo.
+ * Con dos puertas, para deshacer hay que llamar a la que dice deshacer.
+ *
+ * Misma clave, misma firma y mismo recibo que la otra. En lote e idempotente.
+ */
+router.post('/domicilio/cancelar', async (req, res) => {
+  const mal = await verificar(req);
+  if (mal) return res.status(mal.status).json({ error: mal.error });
+
+  const cuerpo = req.body || {};
+  const lista = Array.isArray(cuerpo.cancelaciones)
+    ? cuerpo.cancelaciones
+    // `entregas` también, por si reutiliza el nombre de la otra llamada.
+    : Array.isArray(cuerpo.entregas)
+        ? cuerpo.entregas
+        : cuerpo.pedidoId != null || cuerpo.folio != null
+            ? [cuerpo]
+            : [];
+
+  if (lista.length === 0) {
+    return res.status(400).json({ error: 'No vino ninguna cancelación. Se espera { cancelaciones: [{ pedidoId }] }.' });
+  }
+  if (lista.length > 500) {
+    return res.status(413).json({ error: 'Máximo 500 cancelaciones por llamada.' });
+  }
+
+  const aplicadas: Array<{ pedidoId?: string; folio?: string; deshecho: string[] }> = [];
+  const rechazadas: Array<{ pedidoId?: string; folio?: string; motivo: string }> = [];
+
+  for (const c of lista) {
+    if (!c || typeof c !== 'object') {
+      rechazadas.push({ motivo: 'entrada no es un objeto' });
+      continue;
+    }
+    try {
+      const r = await cancelarDomicilio({
+        pedidoId: c.pedidoId ?? c.id ?? null,
+        folio: c.folio ?? c.numeroPedido ?? null,
+        motivo: c.motivo ?? c.razon ?? null,
+      });
+
+      if (r.ok) aplicadas.push({ pedidoId: r.pedidoId, folio: r.folio, deshecho: r.deshecho });
+      else rechazadas.push({ pedidoId: r.pedidoId, folio: r.folio, motivo: r.motivo || 'no cancelada' });
+    } catch (err) {
+      rechazadas.push({ pedidoId: c.pedidoId, folio: c.folio, motivo: (err as Error).message });
+    }
+  }
+
+  // Que la pantalla lo enseñe sin recargar: el costo desaparece de la línea de entrega.
+  const ids = aplicadas.map((a) => a.pedidoId).filter((x): x is string => !!x);
+  if (ids.length) {
+    const tocados = await prisma.pedido.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, sucursalId: true },
+    });
+    for (const t of tocados) emitEvent('pedido', { id: t.id, sucursalId: t.sucursalId, accion: 'update' });
+  }
+
+  console.log(
+    `[webhook:domicilio] cancelar: ${aplicadas.length} aplicadas, ${rechazadas.length} rechazadas`,
+  );
+
+  /**
+   * 200 aunque no hubiera nada que deshacer.
+   *
+   * Una cancelación de un pedido que no tenemos ya está cumplida: no hay costo que quitar.
+   * Contestar 422 dejaría a su scheduler reintentando cada 60 s contra algo que no va a
+   * aparecer nunca — que es el bucle que nos costó 128.958 reintentos en septiembre.
+   *
+   * `deshecho` dice lo que se tocó de verdad, y vacío es una respuesta honesta: no había
+   * nada. El 422 se guarda para cuando NINGUNA se pudo resolver por un motivo que sí
+   * tiene arreglo, como un folio que señala a varios pedidos.
+   */
+  const ninguna = aplicadas.length === 0 && rechazadas.length > 0;
+
+  res.status(ninguna ? 422 : 200).json({
+    ok: rechazadas.length === 0,
+    recibidas: lista.length,
     aplicadas,
     rechazadas,
   });
