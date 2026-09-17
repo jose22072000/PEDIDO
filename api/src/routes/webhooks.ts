@@ -416,25 +416,82 @@ router.post('/domicilio/cancelar', async (req, res) => {
     return res.status(413).json({ error: 'Máximo 500 cancelaciones por llamada.' });
   }
 
-  const aplicadas: Array<{ pedidoId?: string; folio?: string; deshecho: string[] }> = [];
+  const aplicadas: Array<{ pedidoId?: string; folio?: string; guardado: string[]; deshecho: string[] }> = [];
   const rechazadas: Array<{ pedidoId?: string; folio?: string; motivo: string }> = [];
+
+  /**
+   * UN DOMICILIO PUEDE CUBRIR VARIOS PEDIDOS, también al cancelar.
+   *
+   * Su payload trae `grupos[]` y cada grupo puede llevar SU `pedidoId` — el mismo caso que
+   * al mandar el costo. Cancelando sólo el de la cabecera, el otro pedido se quedaría con
+   * el importe puesto de un reparto que no ocurrió, y nadie lo vería.
+   *
+   * Se juntan el de la cabecera y los de los grupos, sin repetir.
+   */
+  const pedidosDe = (c: any): Array<{ pedidoId: string | null; folio: string | null }> => {
+    const salida = new Map<string, { pedidoId: string | null; folio: string | null }>();
+    const meter = (id: unknown, folio: unknown) => {
+      const pid = id == null || id === '' ? null : String(id);
+      const fol = folio == null || folio === '' ? null : String(folio);
+      if (!pid && !fol) return;
+      salida.set(pid ?? `folio:${fol}`, { pedidoId: pid, folio: fol });
+    };
+
+    meter(c.pedidoId ?? c.id, c.folio ?? c.numeroPedido);
+    if (Array.isArray(c.grupos)) {
+      for (const g of c.grupos) {
+        if (g && typeof g === 'object') meter((g as any).pedidoId, (g as any).folio);
+      }
+    }
+    return [...salida.values()];
+  };
 
   for (const c of lista) {
     if (!c || typeof c !== 'object') {
       rechazadas.push({ motivo: 'entrada no es un objeto' });
       continue;
     }
-    try {
-      const r = await cancelarDomicilio({
-        pedidoId: c.pedidoId ?? c.id ?? null,
-        folio: c.folio ?? c.numeroPedido ?? null,
-        motivo: c.motivo ?? c.razon ?? null,
-      });
 
-      if (r.ok) aplicadas.push({ pedidoId: r.pedidoId, folio: r.folio, deshecho: r.deshecho });
-      else rechazadas.push({ pedidoId: r.pedidoId, folio: r.folio, motivo: r.motivo || 'no cancelada' });
-    } catch (err) {
-      rechazadas.push({ pedidoId: c.pedidoId, folio: c.folio, motivo: (err as Error).message });
+    const objetivos = pedidosDe(c);
+    if (objetivos.length === 0) {
+      rechazadas.push({ motivo: 'la entrada no dice qué pedido cancelar: falta pedidoId o folio' });
+      continue;
+    }
+
+    for (const o of objetivos) {
+      try {
+        const r = await cancelarDomicilio({
+          pedidoId: o.pedidoId,
+          folio: o.folio,
+          motivo: c.motivo ?? c.razon ?? null,
+        });
+
+        if (!r.ok) {
+          rechazadas.push({ pedidoId: r.pedidoId, folio: r.folio, motivo: r.motivo || 'no cancelada' });
+          continue;
+        }
+
+        /**
+         * `guardado` con el nombre que él espera, además de `deshecho`.
+         *
+         * Su backend confirma la cancelación **sólo si `guardado` trae `cancelacion`**. Sin
+         * eso la daría por no confirmada y la reintentaría cada 60 s para siempre — que es
+         * exactamente el bucle que llevamos toda la semana desmontando.
+         *
+         * `cancelacion` va SIEMPRE que la entrada se resolvió, aunque no hubiera nada que
+         * quitar: que ya estuviera cancelada no la hace menos cancelada, y es lo que cierra
+         * su pendiente. `costoCancelado` sólo cuando de verdad se retiró un importe.
+         *
+         * `deshecho` se queda, que es el detalle de qué se tocó y no lo dice ningún otro
+         * campo.
+         */
+        const guardado = ['cancelacion'];
+        if (r.deshecho.includes('costo')) guardado.push('costoCancelado');
+
+        aplicadas.push({ pedidoId: r.pedidoId, folio: r.folio, guardado, deshecho: r.deshecho });
+      } catch (err) {
+        rechazadas.push({ pedidoId: o.pedidoId ?? undefined, folio: o.folio ?? undefined, motivo: (err as Error).message });
+      }
     }
   }
 
