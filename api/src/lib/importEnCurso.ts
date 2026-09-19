@@ -127,6 +127,14 @@ export type Hecha = {
   creados: number;
   actualizados: number;
   fallidos: number;
+  /**
+   * Los que NO entraron porque alguien los había borrado a mano.
+   *
+   * Se enseña aparte de los fallidos: no es que el archivo esté mal, es que se está
+   * respetando una decisión. Sin este número, quien sube el archivo ve «20 filas, 18
+   * creados» y se queda buscando qué pasó con las otras dos.
+   */
+  omitidos?: number;
   /** Cuánto tardó, en milisegundos. Es lo que deja ver si algo va lento y desde cuándo. */
   ms: number;
   at: number;

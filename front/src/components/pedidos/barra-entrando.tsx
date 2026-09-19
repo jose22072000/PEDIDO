@@ -72,6 +72,8 @@ interface Cola {
     creados: number;
     actualizados: number;
     fallidos: number;
+    /** Los que no entraron porque estaban borrados a mano. Puede no venir (archivos viejos). */
+    omitidos?: number;
     /** Cuánto tardó en procesarse, en milisegundos. */
     ms?: number;
     at: number;
@@ -319,6 +321,15 @@ export function BarraEntrando({ conectado }: { conectado: boolean }) {
                           pedidos
                           {a.fallidos > 0 && (
                             <span className="text-warning-600"> · {a.fallidos} con problema</span>
+                          )}
+                          {/* Aparte de los fallidos: el archivo no está mal, es que esos
+                              pedidos se borraron a mano y se está respetando. Sin decirlo,
+                              quien sube el archivo ve un número que no le cuadra y se pone
+                              a buscar dónde se perdieron. */}
+                          {(a.omitidos ?? 0) > 0 && (
+                            <span className="text-default-500">
+                              {" "}· {a.omitidos} borrados, no entraron
+                            </span>
                           )}
                           {a.ms != null && <> · {tardo(a.ms)}</>} · {hace(a.at, ahora)}
                         </span>

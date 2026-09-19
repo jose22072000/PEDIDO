@@ -50,6 +50,8 @@ import {
   guardarMoneda,
   type Moneda,
 } from "@/lib/moneda";
+import { PapeleraBorrados } from "./papelera-borrados";
+
 import { useAuthStore } from "@/stores/authStore";
 import { useLiveStatus, useLiveEvents } from "@/hooks/use-live-events";
 import { aplicarLote } from "@/hooks/aplicar-eventos";
@@ -742,6 +744,9 @@ export const OrdersList = () => {
     onClose: onReabrirConfirmClose,
   } = useDisclosure();
   const { session } = useAuthStore();
+
+  // La papelera: qué se borró y sigue sin poder volver a entrar con el archivo.
+  const [papeleraAbierta, setPapeleraAbierta] = useState(false);
 
   // Quién borra un pedido: los MISMOS que acepta el servidor
   // (`puedeBorrarPedidos` en api/src/lib/sucursalContext.ts): Super Admin,
@@ -1646,6 +1651,16 @@ export const OrdersList = () => {
           — y la pregunta que llega cada cinco segundos es la segunda, no la primera. */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <BarraEntrando conectado={live} />
+        {canDeleteOrders && (
+          <Button
+            size="sm"
+            startContent={<Icons.trash className="size-4" />}
+            variant="light"
+            onPress={() => setPapeleraAbierta(true)}
+          >
+            Borrados
+          </Button>
+        )}
         {nuevosPend > 0 && (
           <Button
             color="primary"
@@ -1965,6 +1980,8 @@ export const OrdersList = () => {
           </div>
         </>
       )}
+
+      <PapeleraBorrados isOpen={papeleraAbierta} onClose={() => setPapeleraAbierta(false)} />
 
       {/* Order Details Modal */}
       <Envase
@@ -2801,8 +2818,14 @@ export const OrdersList = () => {
                 </div>
               )}
               <p className="text-xs text-danger-600">
-                Esta acción no se puede deshacer. El pedido y todos sus items
-                serán eliminados permanentemente.
+                El pedido y todas sus líneas se borran de verdad. Y{" "}
+                <strong>no volverá a entrar aunque se suba otra vez el archivo</strong>:
+                queda apuntado que este folio, de este cliente, no debe volver.
+              </p>
+              <p className="text-xs text-default-500">
+                Si fue un error, se levanta desde «Borrados» y vuelve en la siguiente
+                importación, con su mismo folio. A los demás clientes de este folio no les
+                pasa nada.
               </p>
             </div>
           </ModalBody>

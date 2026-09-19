@@ -20,6 +20,7 @@ import { nombreComparable, codigoComparable } from '../lib/nombreVendedor';
 import { parsearFechaConsulta } from '../lib/fechaConsulta';
 import { notifyPedidoCompletado } from '../lib/webhook';
 import { emitEvent } from '../lib/events';
+import { claveDePedido, clavesDeBorrados, folioBaseDe, reservarFoliosBorrados } from '../lib/pedidoBorrado';
 import { redisEnabled, publishJSON, getSubscriber, CH_IMPORT_DONE, CH_IMPORT_FAILED } from '../lib/redis';
 import { importQueue } from '../lib/queues';
 import { anotarEnCurso, anotarHecha, borrarEnCurso, leerEnCurso, leerHechas } from '../lib/importEnCurso';
@@ -575,6 +576,22 @@ router.post('/', async (req, res) => {
       include: { items: true }
     });
 
+    /**
+     * Crearlo a mano levanta la nota de borrado.
+     *
+     * Si no, quedaría un pedido vivo y una nota diciendo que ese mismo no puede entrar:
+     * el archivo dejaría de actualizarlo el día que alguien lo borrara otra vez desde
+     * otra pantalla, y nadie ataría una cosa con la otra.
+     */
+    await prisma.pedidoBorrado.deleteMany({
+      where: {
+        sucursalId,
+        folioBase: folioBaseDe(order.folio),
+        vendedorId: order.vendedorId,
+        clienteId: order.clienteId,
+      },
+    });
+
     // Si hay que llevarlo a casa, la APK tiene que cotizarlo. Va por la cola: el aviso
     // no puede hacer esperar a quien está creando el pedido, ni fallar si la APK está
     // caída.
@@ -742,28 +759,154 @@ router.delete('/:id', async (req, res) => {
     // Check if order exists
     const existingOrder = await prisma.pedido.findFirst({
       where: { ...where, ...(suyo ? { vendedor: { gestorId: suyo.gestorId } } : {}) },
-      include: { items: true },
+      include: { items: true, cliente: true, vendedor: true },
     });
 
     if (!existingOrder) {
       return res.status(404).json({ error: 'Pedido no encontrado' });
     }
 
-    // Delete order items first (cascade might not be set up)
-    await prisma.pedidoItem.deleteMany({
-      where: { pedidoId: id },
-    });
+    /**
+     * BORRAR TIENE QUE DURAR.
+     *
+     * El archivo del vendedor se vuelve a leer cada pocos minutos —n8n lo relee y él lo
+     * resube cuando no ve pasar nada—, y la ingesta no sabía nada de lo borrado: el
+     * pedido volvía a entrar igual, con su cliente y sus líneas. Desde fuera parece que
+     * el botón de eliminar no hace nada, y se acaba borrando tres y cuatro veces.
+     *
+     * Queda la constancia con la MISMA llave que usa la ingesta para reconocer un
+     * pedido. No es una papelera de reciclaje —las líneas se borran de verdad—, es la
+     * nota de que este pedido no debe volver a entrar solo. Se puede levantar desde el
+     * panel, y crear el pedido a mano también la levanta.
+     */
+    const quien = getRequesterContext(req);
 
-    // Delete the order
-    await prisma.pedido.delete({
-      where: { id },
-    });
+    await prisma.$transaction([
+      // Si ya había una nota de este mismo pedido (se borró, se creó a mano, se volvió a
+      // borrar) se queda la última: dos filas para la misma llave no dicen nada nuevo.
+      prisma.pedidoBorrado.deleteMany({
+        where: {
+          sucursalId: existingOrder.sucursalId,
+          folioBase: folioBaseDe(existingOrder.folio),
+          vendedorId: existingOrder.vendedorId,
+          clienteId: existingOrder.clienteId,
+        },
+      }),
+      prisma.pedidoBorrado.create({
+        data: {
+          sucursalId: existingOrder.sucursalId,
+          folio: existingOrder.folio,
+          folioBase: folioBaseDe(existingOrder.folio),
+          vendedorId: existingOrder.vendedorId,
+          clienteId: existingOrder.clienteId,
+          clienteNombre: existingOrder.cliente?.nombre ?? null,
+          vendedorNombre: existingOrder.vendedor?.nombre ?? null,
+          vendedorCodigo: existingOrder.vendedor?.codigo ?? null,
+          lineas: existingOrder.items.length,
+          fecha: existingOrder.fecha,
+          borradoPorId: quien.userId ?? null,
+          borradoPor: quien.username ?? null,
+        },
+      }),
+      prisma.pedidoItem.deleteMany({ where: { pedidoId: id } }),
+      prisma.pedido.delete({ where: { id } }),
+    ]);
     emitEvent('pedido', { sucursalId: existingOrder.sucursalId, id, accion: 'delete' });
 
-    res.json({ success: true, message: 'Pedido eliminado correctamente' });
+    res.json({
+      success: true,
+      message: 'Pedido eliminado correctamente',
+      // Que la pantalla lo pueda decir con estas palabras: es la duda que trae todo el
+      // mundo cuando vuelve a subir el archivo.
+      noVuelveAEntrar: true,
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Error al eliminar el pedido' });
+  }
+});
+
+/**
+ * LA PAPELERA: qué pedidos se borraron y no volverán a entrar solos.
+ *
+ * No guarda el pedido —las líneas se borran de verdad—, guarda la NOTA de que ese folio,
+ * de ese cliente y ese vendedor, no debe volver a crearse cuando se reimporte el archivo.
+ * Existe para poder deshacerlo: un borrado por error, sin esto, deja al pedido sin
+ * ninguna forma de volver, ni subiendo el archivo otra vez.
+ *
+ * Dos segmentos (`/borrados/...`), así que no choca con `/:id`, que es de uno solo.
+ */
+router.get('/borrados', async (req, res) => {
+  try {
+    if (!getRequesterContext(req).puedeBorrarPedidos) {
+      return res.status(403).json({ error: 'Tu rol no puede ver los pedidos borrados.' });
+    }
+
+    const { sucursalId, error, status } = resolveSucursalFilter(req);
+
+    if (error) return res.status(status ?? 400).json({ error });
+
+    // El gestor ve lo suyo, igual que en la lista: sus vendedores y nadie más.
+    const suyo = soloLoSuyo(req);
+    let deSusVendedores: string[] | null = null;
+
+    if (suyo) {
+      const vendedores = await prisma.vendedor.findMany({
+        where: { gestorId: suyo.gestorId },
+        select: { id: true },
+      });
+
+      deSusVendedores = vendedores.map((v) => v.id);
+    }
+
+    const borrados = await prisma.pedidoBorrado.findMany({
+      where: {
+        ...(sucursalId ? { sucursalId } : {}),
+        ...(deSusVendedores ? { vendedorId: { in: deSusVendedores } } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    });
+
+    res.json({ borrados });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error al listar los pedidos borrados' });
+  }
+});
+
+/**
+ * Levantar la nota: ese pedido puede volver a entrar con el archivo.
+ *
+ * No lo resucita —lo borrado, borrado está—: quita el freno, y el pedido vuelve en la
+ * siguiente importación del archivo que lo trae. Si ese archivo ya no se va a subir, hay
+ * que crearlo a mano.
+ */
+router.delete('/borrados/:id', async (req, res) => {
+  try {
+    if (!getRequesterContext(req).puedeBorrarPedidos) {
+      return res.status(403).json({ error: 'Tu rol no puede tocar los pedidos borrados.' });
+    }
+
+    const { sucursalId, error, status } = resolveSucursalFilter(req);
+
+    if (error) return res.status(status ?? 400).json({ error });
+
+    const nota = await prisma.pedidoBorrado.findFirst({
+      where: { id: String(req.params.id), ...(sucursalId ? { sucursalId } : {}) },
+    });
+
+    if (!nota) return res.status(404).json({ error: 'Esa nota de borrado no existe' });
+
+    await prisma.pedidoBorrado.delete({ where: { id: nota.id } });
+
+    res.json({
+      success: true,
+      message: `${nota.folio} podrá volver a entrar la próxima vez que se suba su archivo.`,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error al quitar la nota de borrado' });
   }
 });
 
@@ -1122,6 +1265,7 @@ router.post('/bulk', ingestaAuth, async (req, res) => {
         creados: outcome.results.created,
         actualizados: outcome.results.updated,
         fallidos: outcome.results.failed,
+        omitidos: outcome.results.omitidos,
         // Desde que entró la petición hasta ahora: incluye leer, cruzar vendedores y
         // escribir, que es lo que tarda de verdad.
         ms: Date.now() - base.desdeAt,
@@ -1588,6 +1732,10 @@ router.get('/import-stream', async (req, res) => {
 
 export type BulkImportResults = {
   created: number; updated: number; failed: number; sinAsignar: number; errors: any[];
+  /// Los que NO entraron porque alguien los había borrado a mano. Van aparte de
+  /// `failed`: no es un fallo del archivo, es una decisión que alguien tomó.
+  omitidos: number;
+  omitidosDetalle: { folio: string; cliente: string }[];
 };
 export type BulkImportOutcome = {
   ok: boolean;
@@ -1645,7 +1793,22 @@ async function foliosYaAsignados(
     salida.get(clave)!.set(claveDeCliente(p.cliente.nombre), p.folio);
   }
 
-  return salida;
+  /**
+   * Y los BORRADOS también ocupan su sitio.
+   *
+   * Sus filas no van a entrar —la ingesta las salta—, pero su número no puede quedar
+   * suelto: si otro cliente se lo lleva, el día que se levante el borrado ese pedido
+   * vuelve con un folio distinto al que se copió a la factura. Ver `reservarFoliosBorrados`.
+   */
+  const notas = await prisma.pedidoBorrado.findMany({
+    where: { ...(sucursalId ? { sucursalId } : {}), folioBase: { in: bases } },
+    select: {
+      folio: true, folioBase: true, clienteNombre: true,
+      vendedorCodigo: true, vendedorNombre: true,
+    },
+  });
+
+  return reservarFoliosBorrados(salida, notas, bases);
 }
 
 // WORKER (cola Redis). Resuelve los vendedores (rechaza el archivo entero si hay
@@ -1743,13 +1906,27 @@ export async function processBulkImport(
     }
   }
 
-  const results: BulkImportResults = { created: 0, updated: 0, failed: 0, sinAsignar: 0, errors: [] };
+  const results: BulkImportResults = { created: 0, updated: 0, failed: 0, sinAsignar: 0, errors: [], omitidos: 0, omitidosDetalle: [] };
   /**
    * Cada 25 filas, no en cada una: avisar por fila serían miles de escrituras en Redis
    * para mover una barra que nadie ve moverse tan fino, y eso sí frenaría la importación.
    */
   const CADA = 25;
   let hechos = 0;
+
+  /**
+   * Lo que alguien borró a mano NO vuelve a entrar.
+   *
+   * Se pregunta UNA vez por archivo y no una por fila: son miles de filas y la mayoría
+   * no tiene nada borrado detrás. Se filtra por folio base —que es lo único que se sabe
+   * antes de resolver al cliente— y la comprobación fina, con vendedor y cliente, se
+   * hace ya dentro, con la llave completa.
+   */
+  const basesDelArchivo = [...new Set(mappedRecords.map((r) => folioBaseDe(r.order.folio)))];
+  const filasBorradas = basesDelArchivo.length
+    ? await prisma.pedidoBorrado.findMany({ where: { folioBase: { in: basesDelArchivo } } })
+    : [];
+  const borrados = clavesDeBorrados(filasBorradas);
 
   const parcial = () => ({ creados: results.created, actualizados: results.updated, fallidos: results.failed });
 
@@ -1789,7 +1966,7 @@ export async function processBulkImport(
     }
 
     try {
-      await processOrderRecord(record, results, resolved.seller.id, resolved.sucursalId);
+      await processOrderRecord(record, results, resolved.seller.id, resolved.sucursalId, borrados);
       if (resolved.sucursalId === null) results.sinAsignar++;
     } catch (error) {
       results.failed++;
@@ -1819,6 +1996,8 @@ async function processOrderRecord(
   results: any,
   sellerId: string,
   sucursalId: string | null,
+  // Las llaves de los pedidos borrados a mano. Vacío si nadie borró nada.
+  borrados: Set<string> = new Set(),
 ) {
   const seller = { id: sellerId };
 
@@ -1904,10 +2083,8 @@ async function processOrderRecord(
     }
   }
 
-  // Extract base folio (remove only small suffixes like -1, -2, NOT the folio number like -1130)
-  // Only match suffixes of 1-2 digits at the very end (our generated suffixes)
-  const baseFolioMatch = record.order.folio.match(/^(.+)-(\d{1,2})$/);
-  const baseFolio = baseFolioMatch ? baseFolioMatch[1] : record.order.folio;
+  // El folio sin nuestro sufijo `-1`/`-2`. El número del folio (cuatro cifras) no se toca.
+  const baseFolio = folioBaseDe(record.order.folio);
 
   // Check if order already exists for THIS client (with base folio or any suffix)
   const existingOrder = await prisma.pedido.findFirst({
@@ -1924,6 +2101,23 @@ async function processOrderRecord(
       items: true,
     },
   });
+
+  /**
+   * BORRADO A MANO: no se vuelve a crear.
+   *
+   * Va DESPUÉS de buscar el pedido y sólo cuando no existe. Un pedido vivo manda sobre
+   * la papelera: si alguien lo volvió a crear desde el panel, el archivo tiene que
+   * seguir actualizándolo como siempre — si no, el pedido se quedaría congelado sin que
+   * nadie entienda por qué.
+   */
+  if (!existingOrder && borrados.has(claveDePedido(sucursalId, record.order.folio, seller.id, client.id))) {
+    results.omitidos = (results.omitidos ?? 0) + 1;
+    if (Array.isArray(results.omitidosDetalle) && results.omitidosDetalle.length < 50) {
+      results.omitidosDetalle.push({ folio: baseFolio, cliente: client.nombre ?? '' });
+    }
+
+    return;
+  }
 
   // Generate unique folio if no existing order for this client
   let finalFolio = baseFolio;

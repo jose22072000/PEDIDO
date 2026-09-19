@@ -54,8 +54,17 @@ describe('completar un pedido', () => {
 });
 
 describe('borrar un pedido', () => {
-  test('el GESTOR no puede', () => {
-    assert.equal(getRequesterContext(peticion('Gestor')).puedeBorrarPedidos, false);
+  /**
+   * Esta prueba decía lo contrario y llevaba fallando desde `95ff166`, que le dio el
+   * permiso al Gestor «para sus propios pedidos y sólo los suyos». La prueba se quedó
+   * afirmando la política vieja, así que la suite venía en rojo y ya no avisaba de nada.
+   *
+   * El límite del Gestor NO está en este permiso, está en el `where` del endpoint
+   * (`vendedor.gestorId`). Aquí sólo se dice QUÉ puede hacer; sobre QUÉ, lo dice la
+   * consulta.
+   */
+  test('el GESTOR sí puede, y el endpoint lo acota a sus vendedores', () => {
+    assert.equal(getRequesterContext(peticion('Gestor')).puedeBorrarPedidos, true);
   });
 
   test('el OPERADOR tampoco: factura, y lo borrado no vuelve', () => {

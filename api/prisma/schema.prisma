@@ -111,6 +111,47 @@ model Vendedor {
   @@map("Seller")
 }
 
+/// Un pedido que alguien BORRÓ a mano, para que el archivo no lo vuelva a meter.
+///
+/// La ingesta entra el mismo archivo muchas veces —n8n lo relee cada pocos minutos y el
+/// vendedor lo resube cuando no ve pasar nada—, así que un pedido borrado desde el panel
+/// reaparecía en la siguiente pasada exactamente igual. Desde fuera parece que el botón
+/// de eliminar no hace nada.
+///
+/// La llave es la MISMA con la que la ingesta reconoce un pedido: sucursal + folio base
+/// (sin el sufijo `-1`/`-2` que ponemos nosotros) + vendedor + cliente. Si fuera sólo el
+/// folio, borrar el de un cliente dejaría fuera a sus hermanos, que son pedidos distintos
+/// de otras personas.
+///
+/// **Sólo frena la CREACIÓN.** Si el pedido existe —porque alguien lo volvió a crear a
+/// mano—, el archivo lo sigue actualizando como siempre: un pedido vivo manda sobre esta
+/// tabla. Y se puede deshacer desde la papelera, que para eso se guarda.
+model PedidoBorrado {
+  id             String   @id @default(cuid())
+  sucursalId     String?
+  folio          String
+  /// El folio sin nuestro sufijo. Es por donde se busca.
+  folioBase      String
+  vendedorId     String?
+  clienteId      String?
+  /// Copias del nombre, no relaciones: esto se mira semanas después y los clientes y
+  /// vendedores se renombran y se fusionan. Un id huérfano no le dice nada a nadie.
+  clienteNombre  String?
+  vendedorNombre String?
+  /// El codigo (`andy.almanza`) es con lo que se agrupan los folios al importar; el
+  /// nombre es para leerlo en la papelera. Hacen falta los dos.
+  vendedorCodigo String?
+  /// Cuántas líneas tenía y la fecha que traía, para reconocerlo en la lista.
+  lineas         Int?
+  fecha          DateTime?
+  borradoPorId   String?
+  borradoPor     String?
+  createdAt      DateTime @default(now())
+
+  @@index([folioBase])
+  @@index([sucursalId, createdAt])
+}
+
 model Pedido {
   id                  String    @id @default(cuid())
   folio               String
