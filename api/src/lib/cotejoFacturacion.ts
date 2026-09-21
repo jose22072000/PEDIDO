@@ -765,7 +765,7 @@ export function arrancarCotejoFacturacion(): void {
         const ahora = `${nuevos}/${cambiados}`;
 
         if (ahora !== ultimo) {
-          console.log(`[factura/rápido] hoy: ${nuevos} igual, ${cambiados} cambiados`);
+          console.log(`[factura/rápido] ${RAPIDO_DIAS} d: ${nuevos} igual, ${cambiados} cambiados`);
           ultimo = ahora;
         }
       })
@@ -782,6 +782,6 @@ export function arrancarCotejoFacturacion(): void {
   setInterval(correrRapido, RAPIDO_MS);
   console.log(
     `[factura] cotejo contra Ventra cada ${(CADA_MS / 60000).toFixed(0)} min · ` +
-      `carril rápido de hoy cada ${(RAPIDO_MS / 1000).toFixed(0)} s`,
+      `carril rápido (${RAPIDO_DIAS} días de pedidos, facturas de hoy) cada ${(RAPIDO_MS / 1000).toFixed(0)} s`,
   );
 }
