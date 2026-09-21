@@ -59,7 +59,7 @@ import {
   type LineaFactura,
   type LineaPedido,
 } from './cotejarFactura';
-import { facturasPorFolio, prefijoDeFolio } from './emparejarFactura';
+import { facturasPorFolio, prefijoDeNota } from './emparejarFactura';
 import { catalogoDeSucursal, type CatalogoSucursal } from './catalogoSucursal';
 import { emitEvent } from './events';
 import { guardarUltimaPasada } from './cotejoEstado';
@@ -69,6 +69,27 @@ import { avisarPedidoCambiado } from './webhook';
 const DIAS = Number(process.env.FACTURACION_DIAS || 3);
 /** Cada cuánto. La facturación del día se mueve todo el rato. */
 const CADA_MS = Number(process.env.FACTURACION_CADA_MS || 10 * 60 * 1000);
+/**
+ * Cuántos días de PEDIDOS mira el carril rápido.
+ *
+ * No es lo mismo que los días de FACTURAS. El carril rápido miraba sólo los pedidos de
+ * HOY, y en La Habana se factura por la mañana lo que se pidió ayer: esos pedidos no
+ * entraban en el carril rápido y se quedaban esperando a la pasada completa. Por eso el
+ * cartel de «Facturado» tardaba hasta diez minutos en salir — y los `facturaAt` caían
+ * clavados en :08 y :18, que son las pasadas de diez en diez.
+ *
+ * A Ventra se le sigue preguntando sólo por lo de HOY (o por los folios que esperan), así
+ * que esto no añade ni una vuelta más por la VPN: es una consulta a nuestra base.
+ */
+const RAPIDO_DIAS = Number(process.env.FACTURACION_RAPIDO_DIAS || DIAS);
+/**
+ * Cuántos folios se le piden a Ventra uno a uno antes de preferir el día entero.
+ *
+ * Cada prefijo es una llamada por la VPN. Para tres o cuatro sale a cuenta; para
+ * cuarenta, una sola consulta del día —aunque traiga de más— es más barata que cuarenta
+ * idas y vueltas cada treinta segundos.
+ */
+const TOPE_PREFIJOS = Number(process.env.FACTURACION_TOPE_PREFIJOS || 12);
 
 const soloFecha = (d: Date) => d.toISOString().slice(0, 10);
 
@@ -127,11 +148,21 @@ export async function cotejarUnaVez(
   } = {},
 ): Promise<ResultadoCotejo[]> {
   const hasta = hastaFijo ?? new Date();
+  // Lo que se le pide a VENTRA. En el carril rápido, sólo lo facturado hoy.
   const desde =
     desdeFijo ??
     (rapido
       ? new Date(hasta.getFullYear(), hasta.getMonth(), hasta.getDate())
       : new Date(hasta.getTime() - DIAS * 86400000));
+  /**
+   * Y los PEDIDOS que se miran, que es otra ventana y más ancha.
+   *
+   * Una factura de hoy puede ser de un pedido de ayer —en La Habana es lo normal: se
+   * factura por la mañana lo del día anterior—. Mirando sólo los pedidos de hoy, esa
+   * factura no la veía nadie hasta la pasada completa.
+   */
+  const desdePedidos =
+    desdeFijo ?? (rapido ? new Date(hasta.getTime() - RAPIDO_DIAS * 86400000) : desde);
   const sucursales = await prisma.sucursal.findMany({ select: { id: true, nombre: true, codigo: true } });
   const bases = await databases();
   const salida: ResultadoCotejo[] = [];
@@ -167,10 +198,11 @@ export async function cotejarUnaVez(
         const esperando = await prisma.pedido.findMany({
           where: {
             sucursalId: suc.id,
-            fecha: { gte: desde },
+            fecha: { gte: desdePedidos },
             OR: [{ facturaEstado: null }, { facturaEstado: 'sin_factura' }],
           },
           select: { folio: true },
+          orderBy: { fecha: 'desc' },
         });
 
         if (esperando.length === 0) {
@@ -193,11 +225,17 @@ export async function cotejarUnaVez(
          * Si la sucursal no tiene todavía ningún folio con forma reconocible, se cae al
          * camino de siempre. Preferible una consulta gorda que ninguna.
          */
-        const prefijos = [...new Set(esperando.map((p) => prefijoDeFolio(p.folio)).filter(Boolean))] as string[];
+        const prefijos = [...new Set(esperando.map((p) => prefijoDeNota(p.folio)).filter(Boolean))] as string[];
 
-        ventas = prefijos.length
-          ? await ventasPorPrefijoDeFolio(base.database, prefijos)
-          : await ventasDeSucursal(base.database, soloFecha(desde), soloFecha(hasta));
+        /**
+         * Pocos folios: se piden uno a uno y se traen los suyos, de cualquier día.
+         * Muchos: una sola consulta de lo facturado HOY, que es lo que se está
+         * esperando. Lo de días anteriores lo recoge la pasada completa.
+         */
+        ventas =
+          prefijos.length && prefijos.length <= TOPE_PREFIJOS
+            ? await ventasPorPrefijoDeFolio(base.database, prefijos)
+            : await ventasDeSucursal(base.database, soloFecha(desde), soloFecha(hasta));
       } else {
         ventas = await ventasDeSucursal(base.database, soloFecha(desde), soloFecha(hasta));
       }
@@ -223,7 +261,7 @@ export async function cotejarUnaVez(
       const pedidos = await prisma.pedido.findMany({
         where: {
           sucursalId: suc.id,
-          fecha: hastaFijo ? { gte: desde, lte: hasta } : { gte: desde },
+          fecha: hastaFijo ? { gte: desdePedidos, lte: hasta } : { gte: desdePedidos },
         },
         include: { items: true, cliente: true },
       });
@@ -355,6 +393,14 @@ type PedidoConItems = {
   costoDomicilio: number | null;
   facturaEstado: string | null;
   facturaNumero: string | null;
+  /**
+   * Lo que ya está guardado de la factura. Está aquí para poder comparar ANTES de
+   * escribir: sin esto, cada pasada reescribía lo mismo y mandaba un evento a todas las
+   * pantallas abiertas, dos veces por minuto, por pedidos que no habían cambiado.
+   */
+  lineasFactura: string | null;
+  facturaDiferencias: string | null;
+  facturaDomicilio: number | null;
   /** El del PEDIDO (`completada` o nulo), no el de la factura. */
   estado: string | null;
   itemsOriginal: string | null;
@@ -407,7 +453,10 @@ async function cotejarUnPedido(
   const completar = camposParaCompletar(r.estado, p.estado);
 
   if (completar) Object.assign(datos, completar);
-  if (r.domicilioFacturado != null) datos.facturaDomicilio = r.domicilioFacturado;
+  // Igual que arriba: sólo si de verdad es otro número.
+  if (r.domicilioFacturado != null && r.domicilioFacturado !== p.facturaDomicilio) {
+    datos.facturaDomicilio = r.domicilioFacturado;
+  }
 
   /**
    * Y AQUÍ SE CORRIGE EL PEDIDO CON LO QUE DICE LA FACTURA.
@@ -512,9 +561,23 @@ async function cotejarUnPedido(
     datos.facturaDiferencias = JSON.stringify(r.diferencias);
     corregido = true;
   } else if (r.lineas.length > 0) {
-    // Sin corregir, lo facturado se guarda AL LADO para poder verlo y compararlo.
-    datos.lineasFactura = JSON.stringify(paraPintar(r));
-    if (r.diferencias.length > 0) datos.facturaDiferencias = JSON.stringify(r.diferencias);
+    /**
+     * Sin corregir, lo facturado se guarda AL LADO para poder verlo y compararlo. Pero
+     * SÓLO SI CAMBIÓ.
+     *
+     * Antes se reescribía en cada pasada, aunque viniera idéntico. Cada reescritura es un
+     * `UPDATE` y, sobre todo, un evento al navegador: con el carril rápido cada treinta
+     * segundos, toda pantalla abierta volvía a pedir la lista entera dos veces por
+     * minuto por pedidos que no habían cambiado nada. Eso es parte de lo que se siente
+     * como «va lento».
+     */
+    const pintado = JSON.stringify(paraPintar(r));
+
+    if (pintado !== p.lineasFactura) datos.lineasFactura = pintado;
+
+    const diferencias = r.diferencias.length > 0 ? JSON.stringify(r.diferencias) : null;
+
+    if (diferencias && diferencias !== p.facturaDiferencias) datos.facturaDiferencias = diferencias;
   }
 
   /**

@@ -130,6 +130,23 @@ export function facturasPorFolio(lineas: LineaConNota[]): Map<string, Set<string
  * forma —los hay viejos y los hay escritos a mano—, y quien llama entonces pregunta por
  * fechas como siempre: quedarse sin cotejar por un folio raro sería mucho peor.
  */
+/**
+ * El prefijo con el que hay que buscar NUESTRO folio en las notas de Ventra.
+ *
+ * Nosotros guardamos `PAT26-260920-1192`; en la nota, el operador copia `P-PAT26-260920-1192`.
+ * `prefijoDeFolio` espera lo segundo —parte por guiones y exige la `P` delante—, así que
+ * pasarle el folio tal cual devolvía SIEMPRE `null`.
+ *
+ * Eso tenía consecuencia: el carril rápido se quedaba sin prefijos y caía al camino
+ * viejo, descargándose la facturación ENTERA del día de cada sucursal cada treinta
+ * segundos por la VPN. La optimización del 07/09/2026 estaba escrita y no corrió nunca.
+ */
+export function prefijoDeNota(folio: string): string | null {
+  const limpio = String(folio ?? '').trim().toUpperCase().replace(/^P-/, '');
+
+  return limpio ? prefijoDeFolio(`P-${limpio}`) : null;
+}
+
 export function prefijoDeFolio(folio: string): string | null {
   const partes = (folio || '').trim().toUpperCase().split('-');
 
