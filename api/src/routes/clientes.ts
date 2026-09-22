@@ -160,7 +160,12 @@ router.get('/parranda-lista', async (req, res) => {
       prisma.cliente.count({ where }),
       prisma.cliente.findMany({
         where,
-        orderBy: { updatedAt: 'desc' },
+        /**
+         * `updatedAt` empata a lo bestia: una importación toca cientos de clientes en la
+         * misma pasada y les deja la misma marca. Sin un desempate único, esas filas se
+         * reordenan entre página y página y alguna sale dos veces.
+         */
+        orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
         skip: (page - 1) * limit,
         take: limit,
         select: {
@@ -392,7 +397,9 @@ router.get('/', async (req, res) => {
         where,
         skip,
         take: limit,
-        orderBy: { nombre: 'asc' },
+        // Dos clientes se pueden llamar igual: el `id` decide cuál va antes, siempre el
+        // mismo, y así la paginación no los baraja.
+        orderBy: [{ nombre: 'asc' }, { id: 'asc' }],
       }),
       prisma.cliente.count({ where }),
     ]);

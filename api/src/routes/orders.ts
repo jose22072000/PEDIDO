@@ -446,7 +446,19 @@ router.get('/', async (req, res) => {
         cliente: true, 
         vendedor: true 
       },
-      orderBy: { fecha: 'desc' },
+      /**
+       * TRES CRITERIOS, Y EL ULTIMO ES UNICO.
+       *
+       * Estaba sólo `fecha`, que es el DIA: todos los pedidos de una jornada empatan.
+       * Entre filas empatadas el orden NO está definido —Postgres devuelve lo que le
+       * convenga según el plan—, así que dos páginas pedidas por separado pueden
+       * solaparse: el mismo pedido sale en la 2 y en la 3, y otro no sale en ninguna.
+       * Lo vió Jose con `…1591-1` de Jean Michel.
+       *
+       * `createdAt` ordena dentro del día (lo último tomado, arriba) y `id` cierra el
+       * desempate: es único, así que el orden es total y la paginación deja de bailar.
+       */
+      orderBy: [{ fecha: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
       skip,
       take: limit,
     });

@@ -54,7 +54,9 @@ router.get('/', async (req, res) => {
       prisma.usuario.findMany({
         where,
         include: { rol: true, sucursal: true },
-        orderBy: { createdAt: 'desc' },
+        // Con `id` al final el orden es total: sin él, dos usuarios creados en el mismo
+        // milisegundo —el seed los crea así— pueden cambiar de sitio entre páginas.
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         skip: (page - 1) * limit,
         take: limit,
       }),
