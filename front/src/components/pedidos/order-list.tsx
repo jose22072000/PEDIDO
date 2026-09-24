@@ -1649,18 +1649,13 @@ export const OrdersList = () => {
       {/* LO QUE ESTÁ ENTRANDO, donde antes sólo ponía "En vivo".
           "En vivo" decía que la conexión estaba abierta, no que estuvieran entrando datos
           — y la pregunta que llega cada cinco segundos es la segunda, no la primera. */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <BarraEntrando conectado={live} />
-        {canDeleteOrders && (
-          <Button
-            size="sm"
-            startContent={<Icons.trash className="size-4" />}
-            variant="light"
-            onPress={() => setPapeleraAbierta(true)}
-          >
-            Borrados
-          </Button>
-        )}
+      {/* La barra ocupa lo que necesite y los botones van SIEMPRE pegados a la derecha.
+          Con `justify-between` y tres hijos, «Borrados» quedaba en medio y se movía de
+          sitio según lo ancha que fuera la barra —que cambia con cada sucursal—. Un
+          botón que no está donde estaba la última vez es un botón que no se encuentra. */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="min-w-0 flex-1"><BarraEntrando conectado={live} /></div>
+        <div className="ml-auto flex items-center gap-2 shrink-0">
         {nuevosPend > 0 && (
           <Button
             color="primary"
@@ -1676,6 +1671,17 @@ export const OrdersList = () => {
             {nuevosPend > 1 ? "s" : ""} — actualizar
           </Button>
         )}
+        {canDeleteOrders && (
+          <Button
+            size="sm"
+            startContent={<Icons.trash className="size-4" />}
+            variant="light"
+            onPress={() => setPapeleraAbierta(true)}
+          >
+            Borrados
+          </Button>
+        )}
+        </div>
       </div>
 
       {/* Loading State */}
