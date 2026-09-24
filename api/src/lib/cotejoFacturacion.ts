@@ -48,7 +48,7 @@
  * El pedido es de PEDIDO, y a Entrega no se le puede preguntar nada: es una APK que
  * trabaja sin conexión. El cotejo tiene que ocurrir del lado que siempre está en línea.
  */
-import { avisarCompletadoAutomatico, camposParaCompletar } from './autocompletado';
+import { avisarCompletadoAutomatico, camposParaCompletar, conservaSuFactura } from './autocompletado';
 import prisma from '../prismaClient';
 import { databases, ventasDeSucursal, ventasPorPrefijoDeFolio, type LineaVentaVentra } from './ventra';
 import { baseDeSucursal } from './baseDeVentra';
@@ -262,6 +262,16 @@ export async function cotejarUnaVez(
         where: {
           sucursalId: suc.id,
           fecha: hastaFijo ? { gte: desdePedidos, lte: hasta } : { gte: desdePedidos },
+          /**
+           * EL CARRIL RAPIDO SOLO MIRA LO QUE ESPERA FACTURA.
+           *
+           * Su trabajo es ver aparecer facturas nuevas, no revisar las que ya casaron. Y
+           * mirarlas le salía caro de verdad: el rápido pregunta por lo facturado HOY, así
+           * que un pedido de anteayer que ya tenía su factura no aparecía en esa respuesta
+           * y se le marcaba «sin factura», pisando el `igual` que tenía. Así quedaron 113
+           * pedidos completados y diciendo «no apareció» a la vez (21-23/09/2026).
+           */
+          ...(rapido ? { OR: [{ facturaEstado: null }, { facturaEstado: 'sin_factura' }] } : {}),
         },
         include: { items: true, cliente: true },
       });
@@ -293,7 +303,18 @@ export async function cotejarUnaVez(
 
       for (const p of pedidos) {
         const suyas = porFolio.get(p.folio.toUpperCase());
-        const cambios = await cotejarUnPedido(p, suyas ? ventas.filter((v) => suyas.has(v.operNumber)) : [], catalogo);
+        /**
+         * DESCASAR sólo si de verdad se miró donde tocaba.
+         *
+         * Pasar de `igual`/`cambiado` a `sin_factura` es decir «esta factura ya no está»,
+         * y eso sólo se puede afirmar si la consulta a Ventra cubría el día de ese pedido.
+         * Si no, un hueco de ventana —o una respuesta a medias por un corte de la VPN—
+         * borra una factura buena sin que nadie se entere.
+         */
+        const puedeDescasar = !rapido && p.fecha >= desde;
+        const cambios = await cotejarUnPedido(
+          p, suyas ? ventas.filter((v) => suyas.has(v.operNumber)) : [], catalogo, puedeDescasar,
+        );
 
         if (cambios.estado === 'igual') r.igual++;
         else if (cambios.estado === 'cambiado') r.cambiado++;
@@ -420,6 +441,8 @@ async function cotejarUnPedido(
   p: PedidoConItems,
   ventas: LineaVentaVentra[],
   catalogo: CatalogoSucursal | null = null,
+  /** Si esta pasada puede quitarle la factura a un pedido que ya la tenía. Ver quien llama. */
+  puedeDescasar = true,
 ): Promise<{ estado: string; corregido: boolean }> {
   const suyas = ventas.map<LineaFactura>((v) => ({
     operNumber: v.operNumber,
@@ -431,6 +454,16 @@ async function cotejarUnPedido(
   }));
 
   const r = cotejar(p.items as LineaPedido[], suyas);
+
+  /**
+   * Y si esta pasada no podía descasar, se deja el pedido como estaba.
+   *
+   * Sale antes de tocar nada: sin factura que mirar no hay líneas que enriquecer, ni
+   * corrección que hacer, ni evento que mandar.
+   */
+  if (conservaSuFactura(p.facturaEstado, r.estado, puedeDescasar)) {
+    return { estado: p.facturaEstado as string, corregido: false };
+  }
 
   enriquecerLineas(r.lineas, p.items, catalogo);
 
