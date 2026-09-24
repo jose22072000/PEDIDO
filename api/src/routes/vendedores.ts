@@ -88,7 +88,24 @@ router.get('/usuarios', async (req, res) => {
       orderBy: { username: 'asc' },
       select: { id: true, username: true },
     });
-    res.json(usuarios.map((u) => ({ id: u.id, nombre: u.username })));
+    /**
+     * Y LOS VENDEDORES SIN USUARIO, que desde el 24/09/2026 existen a propósito: los
+     * que no usan la app, dados de alta con su sucursal para que las operadoras los
+     * elijan de la lista. Si no salieran aquí, no habría forma de filtrar sus pedidos.
+     *
+     * Van con el id prefijado `v:` para que el filtro de pedidos sepa que es un
+     * vendedor y no un usuario, sin cambiar la forma de la lista ni el desplegable.
+     */
+    const sinUsuario = await prisma.vendedor.findMany({
+      where: { activo: true, gestorId: null, sucursalId: sucursalId ?? { not: null } },
+      orderBy: { nombre: 'asc' },
+      select: { id: true, nombre: true },
+    });
+
+    res.json([
+      ...usuarios.map((u) => ({ id: u.id, nombre: u.username })),
+      ...sinUsuario.map((v) => ({ id: `v:${v.id}`, nombre: v.nombre })),
+    ]);
   } catch (error) {
     console.error('Error fetching vendedores/usuarios:', error);
     res.status(500).json({ error: 'Error al obtener usuarios vendedores' });
@@ -152,8 +169,15 @@ router.get('/gestores', async (req, res) => {
     res.json({
       gestores,
       vendedores,
-      // "Sin asignar" solo cuenta a los vendedores activos (los de baja no importan).
-      sinAsignar: vendedores.filter((v) => v.activo && !v.gestorId).length,
+      // "Sin asignar" es SIN SUCURSAL: sin usuario se puede estar, sin sucursal no —
+      // ahí es donde los pedidos quedan ocultos. Solo cuenta a los activos.
+      sinAsignar: vendedores.filter((v) => v.activo && !v.sucursalId).length,
+      // Para elegir la sucursal de un vendedor sin usuario. Al scopeado le llega la suya.
+      sucursales: await prisma.sucursal.findMany({
+        where: sucursalId ? { id: sucursalId } : {},
+        select: { id: true, nombre: true, codigo: true },
+        orderBy: { nombre: 'asc' },
+      }),
       inactivos: vendedores.filter((v) => !v.activo).length,
     });
   } catch (error) {
@@ -249,10 +273,11 @@ router.post('/', async (req, res) => {
       return res.status(403).json({ error: 'No tienes permiso para crear vendedores.' });
     }
 
-    const { nombre: nombreCrudo, codigo: codigoCrudo, gestorId } = req.body as {
+    const { nombre: nombreCrudo, codigo: codigoCrudo, gestorId, sucursalId: sucursalPedida } = req.body as {
       nombre?: string;
       codigo?: string;
       gestorId?: string;
+      sucursalId?: string;
     };
 
     const nombre = nombreComparable(typeof nombreCrudo === 'string' ? nombreCrudo : '');
@@ -271,29 +296,47 @@ router.post('/', async (req, res) => {
     );
     if (errorCodigo) return res.status(400).json({ error: errorCodigo });
 
-    // El gestor es obligatorio: de él sale la sucursal. Sin gestor el vendedor
-    // nacería "Sin asignar" y sus pedidos quedarían OCULTOS — que es justo lo
-    // contrario de lo que se busca al darlo de alta a mano.
-    if (!gestorId) {
-      return res.status(400).json({ error: 'Elige el gestor al que pertenece el vendedor.' });
-    }
+    /**
+     * LA SUCURSAL ES LO OBLIGATORIO; EL USUARIO, NO.
+     *
+     * Hasta el 24/09/2026 había que enlazar un gestor —un usuario de la app— para dar de
+     * alta a un vendedor, porque la sucursal salía de él. Pero la mayoría de los que se
+     * crean a mano son justo los que NO usan la aplicación: no toman pedidos desde
+     * ninguna tablet, y lo único que hace falta es que existan con su sucursal para que
+     * las operadoras los elijan de la lista en vez de teclear el nombre cada vez.
+     *
+     * Así que: con gestor, la sucursal sale de él (como siempre). Sin gestor, se elige la
+     * sucursal y ya. Un vendedor con sucursal y sin usuario NO es «sin asignar»: sus
+     * pedidos se ven, porque la vista los busca por sucursal.
+     */
+    let gestor: { id: string; sucursalId: string } | null = null;
+    let sucursalId: string;
 
-    const gestor = await prisma.usuario.findUnique({
-      where: { id: gestorId },
-      include: { rol: true },
-    });
-    if (!gestor) return res.status(404).json({ error: 'Gestor no encontrado' });
-    if (!ROLES_ENLAZABLES.includes(gestor.rol?.nombre ?? '')) {
-      return res.status(400).json({
-        error: `Ese usuario no puede llevar vendedores: se requiere rol ${ROLES_ENLAZABLES.join(' o ')}.`,
-      });
-    }
-    if (!gestor.sucursalId) {
-      return res.status(400).json({ error: 'El gestor no tiene sucursal asignada' });
-    }
-    // Quien no es Super Admin solo da de alta en SU sucursal.
-    if (!requester.isGlobalAdmin && gestor.sucursalId !== requester.sucursalId) {
-      return res.status(403).json({ error: 'Ese gestor es de otra sucursal.' });
+    if (gestorId) {
+      const u = await prisma.usuario.findUnique({ where: { id: gestorId }, include: { rol: true } });
+      if (!u) return res.status(404).json({ error: 'Gestor no encontrado' });
+      if (!ROLES_ENLAZABLES.includes(u.rol?.nombre ?? '')) {
+        return res.status(400).json({
+          error: `Ese usuario no puede llevar vendedores: se requiere rol ${ROLES_ENLAZABLES.join(' o ')}.`,
+        });
+      }
+      if (!u.sucursalId) return res.status(400).json({ error: 'El gestor no tiene sucursal asignada' });
+      // Quien no es Super Admin solo da de alta en SU sucursal.
+      if (!requester.isGlobalAdmin && u.sucursalId !== requester.sucursalId) {
+        return res.status(403).json({ error: 'Ese gestor es de otra sucursal.' });
+      }
+      gestor = { id: u.id, sucursalId: u.sucursalId };
+      sucursalId = u.sucursalId;
+    } else {
+      if (!sucursalPedida) {
+        return res.status(400).json({ error: 'Elige la sucursal del vendedor.' });
+      }
+      const suc = await prisma.sucursal.findUnique({ where: { id: sucursalPedida }, select: { id: true } });
+      if (!suc) return res.status(404).json({ error: 'Sucursal no encontrada' });
+      if (!requester.isGlobalAdmin && suc.id !== requester.sucursalId) {
+        return res.status(403).json({ error: 'Esa sucursal no es la tuya.' });
+      }
+      sucursalId = suc.id;
     }
 
     // Colisión por CÓDIGO (único global) y por NOMBRE (así lo busca la ingesta
@@ -331,8 +374,8 @@ router.post('/', async (req, res) => {
         data: {
           nombre,
           codigo,
-          gestorId: gestor.id,
-          sucursalId: gestor.sucursalId,
+          gestorId: gestor?.id ?? null,
+          sucursalId,
           activo: true,
           creadoPor: requester.username ?? null,
         },
@@ -608,7 +651,16 @@ router.patch('/:id/gestor', async (req, res) => {
       return res.status(403).json({ error: 'Ese vendedor es de otra sucursal.' });
     }
 
-    let sucursalId: string | null = null;
+    /**
+     * Al desenlazar el gestor, la sucursal SE QUEDA.
+     *
+     * Antes se ponía a null «para que volviera a Sin asignar». Eso tenía sentido cuando
+     * la sucursal solo podía venir del gestor; desde el 24/09/2026 un vendedor puede
+     * tener sucursal sin usuario —los que no usan la app— y quitarle el gestor no es
+     * quitarle la sucursal. Si hay que sacarlo de la sucursal, para eso está
+     * `PATCH /:id/sucursal`.
+     */
+    let sucursalId: string | null = vendedor.sucursalId;
     if (gestorId) {
       const gestor = await prisma.usuario.findUnique({
         where: { id: gestorId },
@@ -633,10 +685,8 @@ router.patch('/:id/gestor', async (req, res) => {
     const result = await prisma.$transaction(async (tx) => {
       const v = await tx.vendedor.update({
         where: { id },
-        // La sucursal del vendedor ES la de su gestor. Al desenlazar vuelve a
-        // "Sin asignar" y se queda SIN sucursal (antes conservaba la vieja, que
-        // es como acababan apareciendo vendedores sin gestor dentro de una
-        // sucursal). Sus pedidos históricos no se tocan al desenlazar.
+        // Con gestor, la sucursal es la de su gestor. Sin gestor, se conserva la que
+        // tuviera. Sus pedidos históricos no se tocan al desenlazar.
         data: { gestorId: gestorId || null, sucursalId },
       });
 
@@ -672,6 +722,61 @@ router.patch('/:id/gestor', async (req, res) => {
   } catch (error) {
     console.error('Error linking gestor:', error);
     res.status(500).json({ error: 'Error al enlazar el gestor' });
+  }
+});
+
+/**
+ * PATCH /vendedores/:id/sucursal   body: { sucursalId: string | null }
+ *
+ * Poner (o cambiar) la sucursal de un vendedor que no tiene usuario. Con gestor no se
+ * usa: ahí la sucursal es la del gestor y cambiarla aquí dejaría dos verdades. Al poner
+ * sucursal se hace el mismo backfill que al enlazar un gestor, para que los pedidos que
+ * entraron «sin asignar» aparezcan donde toca.
+ */
+router.patch('/:id/sucursal', async (req, res) => {
+  try {
+    const requester = getRequesterContext(req);
+    if (!requester.puedeGestionarVendedores) {
+      return res.status(403).json({ error: 'No tienes permiso para modificar vendedores.' });
+    }
+    const { id } = req.params;
+    const { sucursalId } = req.body as { sucursalId?: string | null };
+
+    const vendedor = await prisma.vendedor.findUnique({ where: { id } });
+    if (!vendedor) return res.status(404).json({ error: 'Vendedor no encontrado' });
+    if (vendedor.gestorId) {
+      return res.status(400).json({
+        error: 'Este vendedor tiene usuario: su sucursal es la del usuario. Cámbiala desde el usuario, o quítale el enlace primero.',
+      });
+    }
+    if (!requester.isGlobalAdmin && vendedor.sucursalId && vendedor.sucursalId !== requester.sucursalId) {
+      return res.status(403).json({ error: 'Ese vendedor es de otra sucursal.' });
+    }
+    if (sucursalId) {
+      const suc = await prisma.sucursal.findUnique({ where: { id: sucursalId }, select: { id: true } });
+      if (!suc) return res.status(404).json({ error: 'Sucursal no encontrada' });
+      if (!requester.isGlobalAdmin && suc.id !== requester.sucursalId) {
+        return res.status(403).json({ error: 'Esa sucursal no es la tuya.' });
+      }
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const v = await tx.vendedor.update({ where: { id }, data: { sucursalId: sucursalId || null } });
+      const bf = sucursalId
+        ? await backfillSucursalDeVendedor(tx, id, sucursalId)
+        : { pedidos: 0, clientes: 0, fusionados: 0 };
+      return { v, ...bf };
+    });
+
+    await emitirVendedor(result.v.id, 'update', vendedor.sucursalId);
+    if (result.pedidos > 0) emitEvent('pedido', { sucursalId: result.v.sucursalId, accion: 'backfill' });
+    if (result.clientes > 0 || result.fusionados > 0)
+      emitEvent('cliente', { sucursalId: result.v.sucursalId, accion: 'backfill' });
+
+    res.json({ vendedor: result.v, backfill: { pedidos: result.pedidos, clientes: result.clientes, fusionados: result.fusionados } });
+  } catch (error) {
+    console.error('Error setting sucursal:', error);
+    res.status(500).json({ error: 'Error al poner la sucursal' });
   }
 });
 

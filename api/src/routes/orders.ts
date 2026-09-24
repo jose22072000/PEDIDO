@@ -399,7 +399,13 @@ router.get('/', async (req, res) => {
     // Filter por "vendedor" = usuario/gestor vinculado (desde el desplegable, sin teclear
     // el nombre). Filtra los pedidos cuyos vendedores gestiona ese usuario.
     if (usuarioId) {
-      conditions.push({ vendedor: { gestorId: usuarioId } });
+      // `v:<id>` es un VENDEDOR sin usuario (ver GET /vendedores/usuarios); lo demás es
+      // un usuario, y se filtra por los vendedores que gestiona.
+      conditions.push(
+        usuarioId.startsWith('v:')
+          ? { vendedorId: usuarioId.slice(2) }
+          : { vendedor: { gestorId: usuarioId } },
+      );
     }
 
     // Filter by domicilio (para ver los pedidos con envío a domicilio y su costo)
@@ -1017,11 +1023,16 @@ async function resolveSeller(name: string, code: string): Promise<SellerResoluti
     // subía el CSV, y eso metía a un vendedor "Sin asignar" dentro de la sucursal
     // del que le tocara importar ese día: así 'glenda.melisa' acabó fichada en GTO
     // con sus 1447 pedidos en STG. Sin gestor => sin sucursal => "Sin asignar".
-    const sucursalId = existing.gestor?.sucursalId ?? null;
+    //
+    // Y si NO tiene gestor pero sí sucursal —puesta a mano desde el 24/09/2026, para los
+    // que no usan la app—, vale esa. Lo que no puede pasar es lo de glenda: heredar la
+    // del que sube el archivo. Una sucursal que alguien eligió a propósito no es eso.
+    const sucursalId = existing.gestor?.sucursalId ?? existing.sucursalId ?? null;
 
     // La ficha del vendedor sigue al gestor. Si estaba en otra sucursal (heredada
     // del uploader o de una restauración), se corrige aquí en vez de quedar torcida.
-    if (existing.sucursalId !== sucursalId) {
+    // Sin gestor no se toca: la sucursal ahí la puso una persona.
+    if (existing.gestor && existing.sucursalId !== sucursalId) {
       await prisma.vendedor.update({ where: { id: existing.id }, data: { sucursalId } });
     }
     return { seller: existing, sucursalId };

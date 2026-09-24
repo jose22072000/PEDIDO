@@ -34,8 +34,7 @@ import { mostrarUsuario } from "@/lib/nombre-usuario";
 import {
   usarVendedores,
   type Vendedor,
-  type Gestor,
-} from "@/stores/datos/vendedores";
+  type Gestor, type Sucursal } from "@/stores/datos/vendedores";
 import { useCerrarAlPulsarFuera } from "@/hooks/cerrar-al-pulsar-fuera";
 
 // Los tipos Vendedor/Gestor viven en el store: los comparten quien los pinta y
@@ -47,6 +46,7 @@ const SIN_ASIGNAR = "__sin_asignar__";
 // un array nuevo en cada render y dispararia efectos y memos sin parar.
 const VACIOS: Vendedor[] = [];
 const SIN_GESTORES: Gestor[] = [];
+const SIN_SUCURSALES: Sucursal[] = [];
 
 /**
  * Trae la lista. Se lee de /vendedores/gestores (NO scopeado por sucursal) porque
@@ -163,7 +163,7 @@ export const VendedoresList = () => {
           vendedores: lista,
           // El contador de "sin asignar" es la razon de ser de esta vista: tiene
           // que cuadrar con lo que se esta viendo, no con lo que trajo el servidor.
-          sinAsignar: lista.filter((v) => v.activo && !v.gestorId).length,
+          sinAsignar: lista.filter((v) => v.activo && !v.sucursal?.id).length,
         };
       },
     },
@@ -171,10 +171,50 @@ export const VendedoresList = () => {
 
   const vendedores = datos?.vendedores ?? VACIOS;
   const gestores = datos?.gestores ?? SIN_GESTORES;
+  const sucursales = datos?.sucursales ?? SIN_SUCURSALES;
   const sinAsignar = datos?.sinAsignar ?? 0;
 
   // Enlaza el vendedor a un gestor. El backend rellena la sucursal de sus pedidos
   // y clientes -> dejan de estar ocultos en la vista de pedidos.
+  /** Poner o cambiar la sucursal de un vendedor SIN usuario. */
+  const handleSetSucursal = useCallback(
+    async (vendedor: Vendedor, sucursalId: string | null) => {
+      setSavingId(vendedor.id);
+      try {
+        const r = await fetch(`${getApiBaseUrl()}/vendedores/${vendedor.id}/sucursal`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sucursalId }),
+        });
+        const json = await r.json();
+
+        if (!r.ok) throw new Error(json.error || "No se pudo cambiar la sucursal");
+        const b = json.backfill;
+
+        addToast({
+          title: sucursalId ? "Sucursal puesta" : "Vendedor sin sucursal",
+          description:
+            sucursalId && b && b.pedidos > 0
+              ? `${b.pedidos} pedido${b.pedidos === 1 ? "" : "s"} que estaban ocultos ya se ven.`
+              : sucursalId
+                ? "Ya sale en la lista para meterle pedidos."
+                : "Sus pedidos quedan ocultos hasta que tenga sucursal.",
+          color: sucursalId ? "success" : "warning",
+        });
+        void fetchVendedores();
+      } catch (err) {
+        addToast({
+          title: "No se pudo",
+          description: err instanceof Error ? err.message : "Error desconocido",
+          color: "danger",
+        });
+      } finally {
+        setSavingId(null);
+      }
+    },
+    [fetchVendedores],
+  );
+
   const handleSetGestor = useCallback(
     async (vendedor: Vendedor, gestorId: string | null) => {
       setSavingId(vendedor.id);
@@ -409,8 +449,9 @@ export const VendedoresList = () => {
     const search = searchValue.trim().toLowerCase();
 
     const filtered = vendedores.filter((v) => {
-      if (filtroEstado === "sin_gestor" && (v.gestorId || !v.activo)) return false;
-      if (filtroEstado === "asignados" && (!v.gestorId || !v.activo)) return false;
+      // «Sin asignar» es sin SUCURSAL: sin usuario se puede estar, sin sucursal no.
+      if (filtroEstado === "sin_gestor" && (v.sucursal?.id || !v.activo)) return false;
+      if (filtroEstado === "asignados" && (!v.sucursal?.id || !v.activo)) return false;
       if (filtroEstado === "baja" && v.activo) return false;
       // "activos" (por defecto) enseña a todos los que están de alta, tengan
       // gestor o no: es la lista de trabajo normal.
@@ -592,9 +633,15 @@ export const VendedoresList = () => {
                                 ? ` · ${vendedor.sucursal.codigo}`
                                 : ""}
                             </Chip>
+                          ) : vendedor.sucursal?.id ? (
+                            // Sin usuario pero con sucursal: es de los que no usan la
+                            // app. Sus pedidos se ven, no hay nada que asignar.
+                            <Chip color="primary" size="sm" variant="flat">
+                              {vendedor.sucursal.nombre} · sin usuario
+                            </Chip>
                           ) : (
                             <Chip color="warning" size="sm" variant="flat">
-                              Sin asignar — pedidos ocultos
+                              Sin sucursal — pedidos ocultos
                             </Chip>
                           )}
                           {!vendedor.activo && (
@@ -827,7 +874,7 @@ export const VendedoresList = () => {
                   {/* Gestor asignado (o asignar uno) */}
                   <div className="flex flex-col gap-3 p-3 rounded-lg bg-default-50">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-sm font-semibold">Gestor:</span>
+                      <span className="text-sm font-semibold">Sucursal y usuario:</span>
                       {detalle?.gestorId ? (
                         <Chip color="success" size="sm" variant="flat">
                           {mostrarUsuario(detalle.gestor?.username)}
@@ -835,9 +882,13 @@ export const VendedoresList = () => {
                             ? ` · ${detalle.sucursal.codigo}`
                             : ""}
                         </Chip>
+                      ) : detalle?.sucursal?.id ? (
+                        <Chip color="primary" size="sm" variant="flat">
+                          {detalle.sucursal.nombre} · sin usuario
+                        </Chip>
                       ) : (
                         <Chip color="warning" size="sm" variant="flat">
-                          Sin asignar — sus pedidos están ocultos
+                          Sin sucursal — sus pedidos están ocultos
                         </Chip>
                       )}
                       {detalle && !detalle.activo && (
@@ -876,7 +927,7 @@ export const VendedoresList = () => {
                       >
                         {[
                           <SelectItem key={SIN_ASIGNAR}>
-                            Sin asignar
+                            Sin usuario
                           </SelectItem>,
                           ...gestores.map((g) => (
                             <SelectItem key={g.id}>
@@ -885,6 +936,34 @@ export const VendedoresList = () => {
                           )),
                         ]}
                       </Select>
+
+                      {/* La sucursal, a mano, SOLO para los que no tienen usuario: con
+                          usuario la sucursal es la de él y cambiarla aquí dejaría dos
+                          verdades. */}
+                      {detalle && !detalle.gestorId && (
+                        <Select
+                          aria-label="Sucursal del vendedor"
+                          className="w-full sm:max-w-xs"
+                          isDisabled={savingId === detalle.id || sucursales.length === 0}
+                          placeholder="Sin sucursal"
+                          selectedKeys={new Set([detalle.sucursal?.id ?? SIN_ASIGNAR])}
+                          size="sm"
+                          variant="bordered"
+                          onSelectionChange={(keys) => {
+                            const key = Array.from(keys)[0] as string | undefined;
+
+                            if (!key || key === (detalle.sucursal?.id ?? SIN_ASIGNAR)) return;
+                            handleSetSucursal(detalle, key === SIN_ASIGNAR ? null : key);
+                          }}
+                        >
+                          {[
+                            <SelectItem key={SIN_ASIGNAR}>Sin sucursal</SelectItem>,
+                            ...sucursales.map((sc) => (
+                              <SelectItem key={sc.id}>{sc.nombre}</SelectItem>
+                            )),
+                          ]}
+                        </Select>
+                      )}
 
                       {detalle && (
                         <Button
@@ -1088,6 +1167,7 @@ export const VendedoresList = () => {
           petición ni puede quedar desfasado respecto a lo que se ve. */}
       <NuevoVendedor
         gestores={gestores}
+        sucursales={sucursales}
         isOpen={abrirNuevo}
         onClose={() => setAbrirNuevo(false)}
         onCreado={fetchVendedores}

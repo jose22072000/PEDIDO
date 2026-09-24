@@ -15,7 +15,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { getApiBaseUrl } from "@/config";
 import { mostrarUsuario } from "@/lib/nombre-usuario";
-import { type Gestor } from "@/stores/datos/vendedores";
+import { type Gestor, type Sucursal } from "@/stores/datos/vendedores";
 import { useCerrarAlPulsarFuera } from "@/hooks/cerrar-al-pulsar-fuera";
 
 /**
@@ -55,6 +55,8 @@ interface Props {
   isOpen: boolean;
   onClose: () => void;
   gestores: Gestor[];
+  /** Las sucursales donde quien mira puede dar de alta. Al scopeado le llega la suya. */
+  sucursales: Sucursal[];
   /** Se llama tras crearlo, para que la lista se refresque. */
   onCreado: () => void;
 }
@@ -63,11 +65,22 @@ export const NuevoVendedor = ({
   isOpen,
   onClose,
   gestores,
+  sucursales,
   onCreado,
 }: Props) => {
   const [nombre, setNombre] = useState("");
   const [codigo, setCodigo] = useState("");
   const [gestorId, setGestorId] = useState("");
+  /**
+   * LA SUCURSAL ES LO QUE HACE FALTA; EL USUARIO ES OPCIONAL.
+   *
+   * Los vendedores que se crean a mano son casi siempre los que NO usan la aplicación:
+   * no toman pedidos desde ninguna tablet. Lo que se busca al darlos de alta es que las
+   * operadoras los elijan de la lista en vez de teclear el nombre. Para eso basta la
+   * sucursal. Si además tiene usuario, la sucursal sale de él.
+   */
+  const [sucursalId, setSucursalId] = useState("");
+  const gestorElegido = gestores.find((g) => g.id === gestorId) ?? null;
   const [previa, setPrevia] = useState<VistaPrevia | null>(null);
   const [comprobando, setComprobando] = useState(false);
   const [guardando, setGuardando] = useState(false);
@@ -83,8 +96,11 @@ export const NuevoVendedor = ({
     setNombre("");
     setCodigo("");
     setGestorId("");
+    // Con una sola sucursal a la vista —el caso del administrador de sucursal— ya
+    // viene puesta: no hay nada que elegir.
+    setSucursalId(sucursales.length === 1 ? sucursales[0].id : "");
     setPrevia(null);
-  }, [isOpen]);
+  }, [isOpen, sucursales]);
 
   // Vista previa mientras se escribe, con freno: sin él sería una petición por
   // tecla. Se cancela la anterior, así que la última en escribirse es la última
@@ -132,7 +148,9 @@ export const NuevoVendedor = ({
         body: JSON.stringify({
           nombre,
           codigo: codigo.trim() || undefined,
-          gestorId,
+          gestorId: gestorId || undefined,
+          // Con usuario, la sucursal la decide el servidor a partir de él.
+          sucursalId: gestorId ? undefined : sucursalId,
         }),
       });
       const json = await r.json();
@@ -155,13 +173,13 @@ export const NuevoVendedor = ({
     } finally {
       setGuardando(false);
     }
-  }, [nombre, codigo, gestorId, onCreado, onClose]);
+  }, [nombre, codigo, gestorId, sucursalId, onCreado, onClose]);
 
   const yaExiste = !!previa?.existente;
   // Sin gestor no se puede: de él sale la sucursal. Un vendedor sin sucursal
   // nace con los pedidos ocultos, que es lo contrario de para lo que se crea.
   const puedeGuardar =
-    !!nombre.trim() && !!gestorId && !yaExiste && !comprobando && !guardando;
+    !!nombre.trim() && (!!gestorId || !!sucursalId) && !yaExiste && !comprobando && !guardando;
 
   return (
     <Modal
@@ -175,7 +193,8 @@ export const NuevoVendedor = ({
         <ModalHeader className="flex flex-col gap-1">
           <span>Nuevo vendedor</span>
           <span className="text-sm font-normal text-default-500">
-            Para los vendedores que no usan tablet. Los que sí la usan entran
+            Para los vendedores que no usan la aplicación: con su sucursal ya
+            salen en la lista para meterles pedidos. Los que sí la usan entran
             solos con su archivo: no hay que crearlos aquí.
           </span>
         </ModalHeader>
@@ -192,11 +211,41 @@ export const NuevoVendedor = ({
           />
 
           <Select
-            isRequired
-            description="De él sale la sucursal del vendedor y de sus pedidos."
+            isRequired={!gestorId}
+            description={
+              gestorElegido
+                ? `Viene del usuario elegido: ${gestorElegido.sucursal?.nombre ?? "su sucursal"}.`
+                : "Con esto ya aparece en la lista de vendedores y sus pedidos se ven."
+            }
+            isDisabled={!!gestorId}
+            items={sucursales}
+            label="Sucursal"
+            placeholder="Elige la sucursal"
+            selectedKeys={
+              gestorElegido?.sucursalId
+                ? [gestorElegido.sucursalId]
+                : sucursalId
+                  ? [sucursalId]
+                  : []
+            }
+            variant="bordered"
+            onSelectionChange={(k) =>
+              setSucursalId((Array.from(k)[0] as string) ?? "")
+            }
+          >
+            {(sc) => (
+              <SelectItem key={sc.id} textValue={sc.nombre}>
+                {sc.nombre}
+                {sc.codigo ? ` · ${sc.codigo}` : ""}
+              </SelectItem>
+            )}
+          </Select>
+
+          <Select
+            description="Solo si toma pedidos desde la tablet. Si no, déjalo en blanco."
             items={gestores}
-            label="Gestor al que pertenece"
-            placeholder="Elige el gestor"
+            label="Usuario de la aplicación (opcional)"
+            placeholder="Sin usuario"
             selectedKeys={gestorId ? [gestorId] : []}
             variant="bordered"
             onSelectionChange={(k) =>
