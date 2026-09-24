@@ -16,6 +16,7 @@ import { useCallback, useEffect, useState } from "react";
 import { getApiBaseUrl } from "@/config";
 import { mostrarUsuario } from "@/lib/nombre-usuario";
 import { type Gestor, type Sucursal } from "@/stores/datos/vendedores";
+import { useAuthStore } from "@/stores/authStore";
 import { useCerrarAlPulsarFuera } from "@/hooks/cerrar-al-pulsar-fuera";
 
 /**
@@ -68,6 +69,12 @@ export const NuevoVendedor = ({
   sucursales,
   onCreado,
 }: Props) => {
+  // Dónde puede crear: la decide el ROL, no la lista que llegó. Un rol GLOBAL
+  // (Super Admin, Desarrollador) elige entre las sucursales que tiene a la vista;
+  // el administrador de sucursal, no: solo puede crear en la suya, así que a él
+  // el selector no se le enseña.
+  const { session } = useAuthStore();
+  const esGlobal = Boolean(session?.isGlobalAdmin);
   const [nombre, setNombre] = useState("");
   const [codigo, setCodigo] = useState("");
   const [gestorId, setGestorId] = useState("");
@@ -210,36 +217,49 @@ export const NuevoVendedor = ({
             onValueChange={setNombre}
           />
 
-          <Select
-            isRequired={!gestorId}
-            description={
-              gestorElegido
-                ? `Viene del usuario elegido: ${gestorElegido.sucursal?.nombre ?? "su sucursal"}.`
-                : "Con esto ya aparece en la lista de vendedores y sus pedidos se ven."
-            }
-            isDisabled={!!gestorId}
-            items={sucursales}
-            label="Sucursal"
-            placeholder="Elige la sucursal"
-            selectedKeys={
-              gestorElegido?.sucursalId
-                ? [gestorElegido.sucursalId]
-                : sucursalId
-                  ? [sucursalId]
-                  : []
-            }
-            variant="bordered"
-            onSelectionChange={(k) =>
-              setSucursalId((Array.from(k)[0] as string) ?? "")
-            }
-          >
-            {(sc) => (
-              <SelectItem key={sc.id} textValue={sc.nombre}>
-                {sc.nombre}
-                {sc.codigo ? ` · ${sc.codigo}` : ""}
-              </SelectItem>
-            )}
-          </Select>
+          {esGlobal ? (
+            <Select
+              isRequired={!gestorId}
+              description={
+                gestorElegido
+                  ? `Viene del usuario elegido: ${gestorElegido.sucursal?.nombre ?? "su sucursal"}.`
+                  : "Con esto ya aparece en la lista de vendedores y sus pedidos se ven."
+              }
+              isDisabled={!!gestorId}
+              items={sucursales}
+              label="Sucursal"
+              placeholder="Elige la sucursal"
+              selectedKeys={
+                gestorElegido?.sucursalId
+                  ? [gestorElegido.sucursalId]
+                  : sucursalId
+                    ? [sucursalId]
+                    : []
+              }
+              variant="bordered"
+              onSelectionChange={(k) =>
+                setSucursalId((Array.from(k)[0] as string) ?? "")
+              }
+            >
+              {(sc) => (
+                <SelectItem key={sc.id} textValue={sc.nombre}>
+                  {sc.nombre}
+                  {sc.codigo ? ` · ${sc.codigo}` : ""}
+                </SelectItem>
+              )}
+            </Select>
+          ) : (
+            // El administrador de sucursal no elige: solo puede dar de alta en la
+            // suya, y la lista ya le llegó reducida a una. Se enseña cuál es, fija.
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-default-200 bg-default-50 px-3 py-2 text-sm">
+              <span className="text-default-500">Sucursal</span>
+              <span className="font-semibold text-primary">
+                {sucursales[0]?.nombre ??
+                  gestorElegido?.sucursal?.nombre ??
+                  "tu sucursal"}
+              </span>
+            </div>
+          )}
 
           <Select
             description="Solo si toma pedidos desde la tablet. Si no, déjalo en blanco."

@@ -3,6 +3,7 @@ import { persist } from "zustand/middleware";
 
 import { getApiBaseUrl } from "@/config";
 import { limpiarSesion } from "@/lib/limpiar-sesion";
+import { esRolGlobal } from "@/lib/rol-global";
 
 interface UserData {
   id: string;
@@ -79,12 +80,13 @@ export const useAuthStore = create<AuthState>()(
                     : undefined,
                   sucursalId: data.user?.sucursalId || undefined,
                   usuarioId: data.user?.id || undefined,
-                  // Solo el Super Admin ve todas las sucursales; el Administrador
-                  // quedó scopeado a la suya.
+                  // Solo los roles GLOBALES ven todas las sucursales (Super Admin
+                  // y Desarrollador, igual que ROLES_GLOBALES en el api); los
+                  // demás quedaron scopeados a la suya. El Administrador está
+                  // scopeado aunque «contenga admin».
                   isGlobalAdmin:
                     String(data.user?.username || "").toLowerCase() === "admin" ||
-                    String(data.user?.role || "").toUpperCase() ===
-                      "SUPER ADMIN",
+                    esRolGlobal(data.user?.role),
                 },
                 isAuthenticated: true,
                 isLoading: false,
@@ -168,8 +170,7 @@ export const useAuthStore = create<AuthState>()(
                 usuarioId: data.user?.id || undefined,
                 isGlobalAdmin:
                   String(data.user?.username || "").toLowerCase() === "admin" ||
-                  String(data.user?.role || "").toUpperCase() ===
-                    "SUPER ADMIN",
+                  esRolGlobal(data.user?.role),
               },
             isAuthenticated: true,
             error: null,
