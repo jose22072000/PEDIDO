@@ -62,6 +62,9 @@ const traerVendedores = async (signal: AbortSignal) => {
   return {
     vendedores: d.vendedores ?? [],
     gestores: d.gestores ?? [],
+    // Las sucursales en las que quien mira puede dar de alta. Sin propagarlas,
+    // el selector de "Nuevo vendedor" salía vacío (parecía un campo de texto).
+    sucursales: d.sucursales ?? [],
     sinAsignar: d.sinAsignar ?? 0,
   };
 };
