@@ -162,6 +162,16 @@ export const ConsumoPropio = ({
                 <div className="flex items-center justify-between gap-2">
                   <div className="min-w-0">
                     <p className="truncate font-mono text-xs text-default-600">{c.folio}</p>
+                    {/* LA FECHA DEL PEDIDO, y no sólo cuándo entró el fichero.
+                        Son dos cosas distintas: `fecha` es el día del pedido —el
+                        que se factura— y `subidoAt` es cuándo llegó su CSV, que
+                        puede ser días después. La operadora copia esto para
+                        facturar, así que la que tiene que ver primero es la del
+                        pedido. Se dejan las dos porque la de subida es lo único
+                        que dice si éste es el último que mandó el vendedor. */}
+                    <p className="text-[11px] text-default-400">
+                      Pedido del {cuando(c.fecha)}
+                    </p>
                     <p className="text-[11px] text-default-400">
                       Subido el {cuando(c.subidoAt)}
                     </p>
