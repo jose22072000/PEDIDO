@@ -1,6 +1,7 @@
 import { Router, type Request } from 'express';
 import { Prisma } from '@prisma/client';
 import prisma from '../prismaClient';
+import { esConsumoPropio } from '../lib/consumoPropio';
 import { catalogoDeSucursal, unidadesDeVenta } from '../lib/catalogoSucursal';
 import {
   mapCsvRecords,
@@ -925,6 +926,130 @@ router.delete('/borrados/:id', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Error al quitar la nota de borrado' });
+  }
+});
+
+/**
+ * GET /orders/consumo-propio
+ *
+ * El ÚLTIMO pedido del cliente de consumo propio de cada vendedor de la sucursal.
+ *
+ * # Para qué
+ *
+ * El consumo propio es el cajón donde el vendedor mete al que compra poco y no tiene
+ * ficha (ver `lib/consumoPropio`). Es el pedido que más se copia al facturar, y hasta
+ * ahora había que buscarlo a mano: filtrar por el vendedor, mirar cuál de sus pedidos es
+ * el del consumo, abrirlo y copiar. Todo el día, por cada venta suelta.
+ *
+ * Aquí sale uno por vendedor, ya listo para copiar.
+ *
+ * # Por qué el último y no «el suyo»
+ *
+ * Porque no hay un «suyo»: el mismo vendedor tiene hasta cinco fichas de consumo propio
+ * —las que se han ido creando al escribir el nombre distinto cada vez— y NIURKA, en Las
+ * Tunas, tiene cinco. Cogiendo el último pedido que subió, el cajón enseña solo la que
+ * está usando de verdad esta semana, y las viejas desaparecen solas sin tener que
+ * limpiar nada.
+ *
+ * Y por eso es el último POR FECHA DE SUBIDA y no por la fecha del pedido: lo que se
+ * reutiliza es el último que entró.
+ */
+router.get('/consumo-propio', async (req, res) => {
+  try {
+    const { sucursalId, error, status } = resolveSucursalFilter(req);
+
+    if (error) return res.status(status ?? 400).json({ error });
+
+    // Los clientes se filtran EN MEMORIA y no con un `contains` de Prisma: la regla es
+    // un patrón con faltas de ortografía y una excepción («punto de venta» es un cliente
+    // de verdad), y eso no cabe en un `where`. Son mil clientes por sucursal: una
+    // consulta de dos columnas.
+    const clientes = await prisma.cliente.findMany({
+      where: { ...(sucursalId ? { sucursalId } : {}) },
+      select: { id: true, nombre: true, codigo: true },
+    });
+
+    const deConsumo = clientes.filter((c) => esConsumoPropio(c.nombre));
+
+    if (!deConsumo.length) return res.json({ consumos: [] });
+
+    const clienteIds = deConsumo.map((c) => c.id);
+
+    // El gestor ve lo suyo, igual que en la lista y en la papelera.
+    const suyo = soloLoSuyo(req);
+    let deSusVendedores: string[] | null = null;
+
+    if (suyo) {
+      const vendedores = await prisma.vendedor.findMany({
+        where: { gestorId: suyo.gestorId },
+        select: { id: true },
+      });
+
+      deSusVendedores = vendedores.map((v) => v.id);
+    }
+
+    const base = {
+      clienteId: { in: clienteIds },
+      ...(sucursalId ? { sucursalId } : {}),
+      // Los dos filtros del vendedor van en la MISMA clave a propósito: escritos en dos
+      // líneas, la segunda pisa a la primera y el gestor vería los de todos.
+      vendedorId: deSusVendedores ? { in: deSusVendedores } : { not: null },
+    };
+
+    /**
+     * Qué vendedores tienen uno. Se pregunta aparte para no traerse los mil pedidos de
+     * consumo de la sucursal y quedarse con diez: Las Tunas lleva 2.600.
+     */
+    const conConsumo = await prisma.pedido.groupBy({
+      by: ['vendedorId'],
+      where: base,
+    });
+
+    const consumos = await Promise.all(
+      conConsumo
+        .map((g) => g.vendedorId)
+        .filter((id): id is string => Boolean(id))
+        .map((vendedorId) =>
+          prisma.pedido.findFirst({
+            where: { ...base, vendedorId },
+            orderBy: [{ createdAt: 'desc' }, { fecha: 'desc' }],
+            select: {
+              id: true,
+              folio: true,
+              fecha: true,
+              createdAt: true,
+              estado: true,
+              vendedor: { select: { id: true, nombre: true, codigo: true } },
+              cliente: { select: { id: true, nombre: true, codigo: true } },
+              _count: { select: { items: true } },
+            },
+          }),
+        ),
+    );
+
+    res.json({
+      consumos: consumos
+        .filter((p): p is NonNullable<typeof p> => Boolean(p))
+        .map((p) => ({
+          pedidoId: p.id,
+          folio: p.folio,
+          fecha: p.fecha,
+          subidoAt: p.createdAt,
+          estado: p.estado,
+          lineas: p._count.items,
+          vendedorId: p.vendedor?.id ?? null,
+          vendedorNombre: p.vendedor?.nombre ?? 'Sin vendedor',
+          clienteId: p.cliente?.id ?? null,
+          clienteNombre: p.cliente?.nombre ?? 'Sin cliente',
+          // Lo que se pega en la factura necesita el CÓDIGO del cliente, igual que el
+          // botón de copiar de la lista; si no lo tiene, su nombre.
+          clienteCodigo: p.cliente?.codigo || p.cliente?.nombre || 'Sin cliente',
+        }))
+        .sort((a, b) => a.vendedorNombre.localeCompare(b.vendedorNombre, 'es')),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error al listar los consumos propios' });
   }
 });
 

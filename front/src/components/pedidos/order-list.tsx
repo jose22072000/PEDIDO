@@ -51,6 +51,7 @@ import {
   type Moneda,
 } from "@/lib/moneda";
 import { PapeleraBorrados } from "./papelera-borrados";
+import { ConsumoPropio } from "./consumo-propio";
 
 import { useAuthStore } from "@/stores/authStore";
 import { useLiveStatus, useLiveEvents } from "@/hooks/use-live-events";
@@ -745,6 +746,8 @@ export const OrdersList = () => {
   } = useDisclosure();
   const { session } = useAuthStore();
 
+  // El cajón del consumo propio: el último pedido de cada vendedor, para copiarlo.
+  const [consumoAbierto, setConsumoAbierto] = useState(false);
   // La papelera: qué se borró y sigue sin poder volver a entrar con el archivo.
   const [papeleraAbierta, setPapeleraAbierta] = useState(false);
 
@@ -1671,6 +1674,16 @@ export const OrdersList = () => {
             {nuevosPend > 1 ? "s" : ""} — actualizar
           </Button>
         )}
+        {/* Delante de «Borrados» porque se usa cien veces más: es el pedido que se
+            copia en cada venta suelta del día. */}
+        <Button
+          size="sm"
+          startContent={<Icons.users className="size-4" />}
+          variant="flat"
+          onPress={() => setConsumoAbierto(true)}
+        >
+          Consumo propio
+        </Button>
         {canDeleteOrders && (
           <Button
             size="sm"
@@ -1987,6 +2000,7 @@ export const OrdersList = () => {
         </>
       )}
 
+      <ConsumoPropio isOpen={consumoAbierto} onClose={() => setConsumoAbierto(false)} />
       <PapeleraBorrados isOpen={papeleraAbierta} onClose={() => setPapeleraAbierta(false)} />
 
       {/* Order Details Modal */}
