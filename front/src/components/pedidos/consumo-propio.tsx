@@ -1,6 +1,5 @@
 import {
   Button,
-  Chip,
   Drawer,
   DrawerBody,
   DrawerContent,
@@ -152,14 +151,12 @@ export const ConsumoPropio = ({
                 key={c.pedidoId}
                 className="rounded-large border border-default-200 p-3 flex flex-col gap-2"
               >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold">{c.vendedorNombre}</p>
-                    <p className="truncate text-xs text-default-500">{c.clienteNombre}</p>
-                  </div>
-                  <Chip size="sm" variant="flat">
-                    {c.lineas} línea{c.lineas === 1 ? "" : "s"}
-                  </Chip>
+                {/* Ni «1 línea» ni nada parecido: aquí no se viene a mirar el pedido,
+                    se viene a copiarlo. Lo único que hay que poder comprobar de un
+                    vistazo es de quién es y de cuándo. */}
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold">{c.vendedorNombre}</p>
+                  <p className="truncate text-xs text-default-500">{c.clienteNombre}</p>
                 </div>
 
                 <div className="flex items-center justify-between gap-2">
