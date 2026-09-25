@@ -167,7 +167,7 @@ export const ConsumoPropio = ({
                     </p>
                   </div>
                   <Button
-                    color={copiado === c.pedidoId ? "success" : "primary"}
+                    color={copiado === c.pedidoId ? "success" : "default"}
                     size="sm"
                     startContent={
                       copiado === c.pedidoId ? (
@@ -176,7 +176,7 @@ export const ConsumoPropio = ({
                         <Icons.copy className="size-4" />
                       )
                     }
-                    variant={copiado === c.pedidoId ? "flat" : "solid"}
+                    variant="bordered"
                     onPress={() => copiar(c)}
                   >
                     {copiado === c.pedidoId ? "Copiado" : "Copiar"}

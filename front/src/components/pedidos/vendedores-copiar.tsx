@@ -156,7 +156,7 @@ export const VendedoresCopiar = ({
               >
                 <span className="min-w-0 truncate text-sm font-medium">{v.nombre}</span>
                 <Button
-                  color={copiado === v.id ? "success" : "primary"}
+                  color={copiado === v.id ? "success" : "default"}
                   size="sm"
                   startContent={
                     copiado === v.id ? (
@@ -165,7 +165,7 @@ export const VendedoresCopiar = ({
                       <Icons.copy className="size-4" />
                     )
                   }
-                  variant={copiado === v.id ? "flat" : "solid"}
+                  variant="bordered"
                   onPress={() => copiar(v)}
                 >
                   {copiado === v.id ? "Copiado" : "Copiar"}

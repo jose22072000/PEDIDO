@@ -1641,7 +1641,7 @@ export const OrdersList = () => {
             <Button
               className="h-14 w-full"
               startContent={<Icons.users className="size-4" />}
-              variant="flat"
+              variant="bordered"
               onPress={() => setConsumoAbierto(true)}
             >
               Consumo propio
@@ -1649,7 +1649,7 @@ export const OrdersList = () => {
             <Button
               className="h-14 w-full"
               startContent={<Icons.user className="size-4" />}
-              variant="flat"
+              variant="bordered"
               onPress={() => setVendedoresAbierto(true)}
             >
               Vendedores
@@ -1689,7 +1689,7 @@ export const OrdersList = () => {
             color="primary"
             size="sm"
             startContent={<Icons.receipt className="size-4" />}
-            variant="flat"
+            variant="bordered"
             onPress={() => {
               setNuevosPend(0);
               setPage(1);
@@ -1703,7 +1703,7 @@ export const OrdersList = () => {
           <Button
             size="sm"
             startContent={<Icons.trash className="size-4" />}
-            variant="light"
+            variant="bordered"
             onPress={() => setPapeleraAbierta(true)}
           >
             Borrados

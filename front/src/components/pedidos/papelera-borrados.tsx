@@ -186,7 +186,7 @@ export const PapeleraBorrados = ({
                     color="primary"
                     isLoading={soltando === b.id}
                     size="sm"
-                    variant="flat"
+                    variant="bordered"
                     onPress={() => dejarEntrar(b)}
                   >
                     Que vuelva a entrar
@@ -198,7 +198,7 @@ export const PapeleraBorrados = ({
         </EnvaseCuerpo>
 
         <EnvasePie>
-          <Button variant="flat" onPress={onClose}>
+          <Button variant="bordered" onPress={onClose}>
             Cerrar
           </Button>
         </EnvasePie>
