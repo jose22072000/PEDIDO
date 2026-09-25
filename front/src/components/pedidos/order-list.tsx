@@ -52,6 +52,7 @@ import {
 } from "@/lib/moneda";
 import { PapeleraBorrados } from "./papelera-borrados";
 import { ConsumoPropio } from "./consumo-propio";
+import { VendedoresCopiar } from "./vendedores-copiar";
 
 import { useAuthStore } from "@/stores/authStore";
 import { useLiveStatus, useLiveEvents } from "@/hooks/use-live-events";
@@ -746,6 +747,8 @@ export const OrdersList = () => {
   } = useDisclosure();
   const { session } = useAuthStore();
 
+  // Y el de los vendedores, para copiar su `V-NOMBRE;` sin salir de Pedidos.
+  const [vendedoresAbierto, setVendedoresAbierto] = useState(false);
   // El cajón del consumo propio: el último pedido de cada vendedor, para copiarlo.
   const [consumoAbierto, setConsumoAbierto] = useState(false);
   // La papelera: qué se borró y sigue sin poder volver a entrar con el archivo.
@@ -1684,6 +1687,14 @@ export const OrdersList = () => {
         >
           Consumo propio
         </Button>
+        <Button
+          size="sm"
+          startContent={<Icons.user className="size-4" />}
+          variant="flat"
+          onPress={() => setVendedoresAbierto(true)}
+        >
+          Vendedores
+        </Button>
         {canDeleteOrders && (
           <Button
             size="sm"
@@ -2001,6 +2012,7 @@ export const OrdersList = () => {
       )}
 
       <ConsumoPropio isOpen={consumoAbierto} onClose={() => setConsumoAbierto(false)} />
+      <VendedoresCopiar isOpen={vendedoresAbierto} onClose={() => setVendedoresAbierto(false)} />
       <PapeleraBorrados isOpen={papeleraAbierta} onClose={() => setPapeleraAbierta(false)} />
 
       {/* Order Details Modal */}
