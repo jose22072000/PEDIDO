@@ -1609,10 +1609,16 @@ export const OrdersList = () => {
             />
           </div>
 
-          <div className="flex flex-col gap-4 sm:flex-row">
+          {/* CUATRO EN LA FILA, Y DOS SON ATAJOS.
+              Un campo de fecha ocupa lo que ocupa una fecha; puestos a mitad de ancho
+              cada uno, esta fila era medio panel vacío. Al lado caben los dos atajos que
+              se usan mientras se factura —el consumo propio y los vendedores—, que
+              además es donde se está mirando: el buscador y los filtros.
+              Alto `h-14` para que queden a ras de las fechas, que son `size="lg"`. */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <Input
               isClearable
-              className="flex-1"
+              className="w-full"
               label="Fecha desde"
               size="lg"
               type="date"
@@ -1623,7 +1629,7 @@ export const OrdersList = () => {
             />
             <Input
               isClearable
-              className="flex-1"
+              className="w-full"
               label="Fecha hasta"
               size="lg"
               type="date"
@@ -1632,6 +1638,22 @@ export const OrdersList = () => {
               onChange={(e) => setFechaHasta(e.target.value)}
               onClear={() => setFechaHasta("")}
             />
+            <Button
+              className="h-14 w-full"
+              startContent={<Icons.users className="size-4" />}
+              variant="flat"
+              onPress={() => setConsumoAbierto(true)}
+            >
+              Consumo propio
+            </Button>
+            <Button
+              className="h-14 w-full"
+              startContent={<Icons.user className="size-4" />}
+              variant="flat"
+              onPress={() => setVendedoresAbierto(true)}
+            >
+              Vendedores
+            </Button>
           </div>
 
           {/* Al final, debajo de las fechas: esto no es un filtro más —no acota lo que se
@@ -1677,24 +1699,6 @@ export const OrdersList = () => {
             {nuevosPend > 1 ? "s" : ""} — actualizar
           </Button>
         )}
-        {/* Delante de «Borrados» porque se usa cien veces más: es el pedido que se
-            copia en cada venta suelta del día. */}
-        <Button
-          size="sm"
-          startContent={<Icons.users className="size-4" />}
-          variant="flat"
-          onPress={() => setConsumoAbierto(true)}
-        >
-          Consumo propio
-        </Button>
-        <Button
-          size="sm"
-          startContent={<Icons.user className="size-4" />}
-          variant="flat"
-          onPress={() => setVendedoresAbierto(true)}
-        >
-          Vendedores
-        </Button>
         {canDeleteOrders && (
           <Button
             size="sm"
