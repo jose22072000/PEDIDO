@@ -994,6 +994,11 @@ router.get('/consumo-propio', async (req, res) => {
       // Los dos filtros del vendedor van en la MISMA clave a propósito: escritos en dos
       // líneas, la segunda pisa a la primera y el gestor vería los de todos.
       vendedorId: deSusVendedores ? { in: deSusVendedores } : { not: null },
+      // Quien está de baja no sale. Su último consumo propio puede ser de hace cuatro
+      // meses —en Las Tunas hay dos así—, y ofrecerlo para facturar sería invitar a
+      // copiar el folio de alguien que ya no vende; la ingesta ni siquiera le acepta
+      // pedidos nuevos.
+      vendedor: { is: { activo: true, bajaEn: null } },
     };
 
     /**
