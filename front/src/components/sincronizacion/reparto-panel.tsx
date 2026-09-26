@@ -40,7 +40,8 @@ type Estado = {
   recibir: {
     por: string;
     formato: string;
-    claves: { id: string; label: string; prefix: string; usada: string | null; veces: number }[];
+    firmada: string;
+    tieneClaves: boolean;
     recibidosHoy: number;
     ultimo: { folio: string; estado: string | null; cuando: string; sucursalId: string | null } | null;
   };
@@ -379,16 +380,23 @@ export const RepartoSyncPanel = () => {
 
       {/* ------------------------------------------- EL WEBHOOK: URL, KEY Y SECRET */}
       <div className="rounded-xl border border-default-200 p-4">
-        <p className="mb-1 font-semibold">Webhook de salida (opcional)</p>
+        <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+          <p className="font-semibold">Webhook de salida</p>
+          {!enviar.webhook.url && (
+            <Chip color="warning" size="sm" variant="flat">
+              Sin configurar
+            </Chip>
+          )}
+        </div>
         <p className="mb-3 text-sm text-default-500">
-          La otra puerta, para quien prefiera que le toquen antes que leer la cola. Le
-          llega el aviso <span className="font-medium">con el pedido entero dentro</span>
-          {" "}—cliente con coordenadas, vendedor y líneas con sus pesos— así que no tiene
-          que volver a preguntar. Sale firmado y con reintentos.
+          Por aquí se le manda al reparto todo lo que necesita:{" "}
+          <span className="font-medium">el pedido entero dentro del aviso</span> —cliente
+          con coordenadas, vendedor y líneas con sus pesos ya resueltos— para que no tenga
+          que volver a preguntar nada. Sale firmado y con reintentos.
           <span className="mt-1 block">
-            <span className="font-medium">Sin URL no sale ni un POST</span>, y eso es lo
-            que hay hoy: el reparto lee la cola. La cola espera; un webhook se rinde a los
-            tres intentos. No conviene tener las dos a la vez.
+            La misma <span className="font-medium">key y secret</span> valen para los dos
+            sentidos: con ellas se firma lo que sale y se comprueba lo que entra.{" "}
+            <span className="font-medium">Sin URL no sale ni un POST.</span>
           </span>
         </p>
 
@@ -465,7 +473,7 @@ export const RepartoSyncPanel = () => {
               ? enviar.webhook.tieneSecret
                 ? "Configurado"
                 : "Falta el secret"
-              : "Sin usar (sólo cola)"}
+              : "Falta la URL del reparto"}
           </Chip>
           {enviar.webhook.esperando != null && (
             <Chip size="sm" variant="flat">
@@ -580,36 +588,33 @@ export const RepartoSyncPanel = () => {
           </div>
 
           {/*
-            QUIÉN puede escribirnos, y si lo está usando.
-            Una clave que nadie ha usado nunca y una que se usó hace un minuto se ven
-            igual en una lista de claves, y son cosas muy distintas: la primera es o una
-            clave que el otro extremo no tiene, o una que sobra y hay que revocar.
-          */}
-          {recibir.claves.length > 0 && (
-            <div className="rounded-medium bg-default-100 p-3">
-              <p className="mb-2 text-xs font-semibold text-default-600">Quién puede escribir aquí</p>
-              <ul className="flex flex-col gap-1">
-                {recibir.claves.map((k) => (
-                  <li key={k.id} className="flex flex-wrap items-baseline justify-between gap-2 text-xs">
-                    <span className="text-default-600">
-                      {k.label} <span className="font-mono text-[11px] text-default-400">{k.prefix}…</span>
-                    </span>
-                    <span className={k.usada ? "text-default-500" : "text-warning"}>
-                      {k.usada ? `usada ${hace(new Date(k.usada).getTime())}` : "nunca usada"}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+            La puerta del REPARTO, que es la firmada y la que se configura arriba.
 
-          <p className="text-[11px] text-default-400">
-            Esta dirección no tiene interruptor: si la clave está mal, el reparto recibe un
-            401 y se ve en su propio registro. Hay además una puerta firmada,{" "}
-            <span className="font-mono">POST /webhooks/reparto/estados</span>, con la
-            misma pareja de key y secret de arriba: la clave dice quién eres y la firma
-            dice que el cuerpo es el que mandaste.
-          </p>
+            Aquí se enseñaba la lista de claves de servicio activas —Parranda, Visita,
+            asignación de vendedores—. No pintaban nada en esta pantalla: son de otros
+            proyectos y de otra puerta. Se administran en Configuración → API keys.
+          */}
+          <div>
+            <p className="mb-1 text-xs font-medium text-default-600">
+              Y la puerta firmada, que es la suya
+            </p>
+            <Snippet hideSymbol className="max-w-full" size="sm" variant="bordered">
+              <span className="break-all">{recibir.firmada}</span>
+            </Snippet>
+            <p className="mt-2 text-[11px] text-default-400">
+              Se identifica con la <span className="font-medium">misma key y secret</span>{" "}
+              de arriba: la key dice quién es y la firma dice que el cuerpo es el que él
+              mandó. La de <span className="font-mono">/integration</span> abre con la
+              clave de servicio, que vale para todo <span className="font-mono">/integration</span>,
+              y por eso no sirve para una puerta que escribe en los pedidos.
+            </p>
+            {!recibir.tieneClaves && (
+              <p className="mt-1 text-[11px] text-warning">
+                Hasta que la key y el secret estén puestos, esta puerta contesta 503 y el
+                reparto tiene que seguir entrando por la de arriba.
+              </p>
+            )}
+          </div>
           </CardBody>
         </Card>
       </div>

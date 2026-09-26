@@ -49,7 +49,7 @@ router.get('/reparto', async (req, res) => {
 
     const q = webhooksQueue();
 
-    const [cola, encendido, webhook, esperando, fallados, recibidosHoy, ultimoRecibido, claves] = await Promise.all([
+    const [cola, encendido, webhook, esperando, fallados, recibidosHoy, ultimoRecibido] = await Promise.all([
       infoStream(STREAM_REPARTO, 'espejo'),
       avisosEncendidos(),
       getConfig('reparto'),
@@ -61,20 +61,6 @@ router.get('/reparto', async (req, res) => {
         where: { estadoEntregaAt: { not: null } },
         orderBy: { estadoEntregaAt: 'desc' },
         select: { folio: true, estadoEntrega: true, estadoEntregaAt: true, sucursalId: true },
-      }),
-      /*
-       * QUIÉN puede escribirnos. Se enseña la etiqueta, el prefijo y cuándo se usó por
-       * última vez; el token no existe en ningún sitio, sólo su hash.
-       *
-       * Una clave que nadie ha usado nunca y una que se usó hace un minuto se ven igual
-       * en la lista de claves, y son cosas muy distintas: la primera es o una clave que
-       * el otro extremo no tiene, o una que sobra y hay que revocar.
-       */
-      prisma.apiKey.findMany({
-        where: { activo: true, revokedAt: null },
-        select: { id: true, label: true, prefix: true, lastUsedAt: true, usageCount: true },
-        orderBy: { lastUsedAt: 'desc' },
-        take: 10,
       }),
     ]);
 
@@ -123,15 +109,17 @@ router.get('/reparto', async (req, res) => {
          */
         por: 'POST /integration/orders/status',
         formato: '{ pedidos: [{ pedidoId, estado, nota?, at? }] }',
-        // Esta dirección no tiene interruptor: es una ruta con clave. Si el reparto
-        // tiene su clave, escribe; si no, recibe un 401 y se ve en sus propios logs.
-        claves: claves.map((k) => ({
-          id: k.id,
-          label: k.label,
-          prefix: k.prefix,
-          usada: k.lastUsedAt,
-          veces: k.usageCount,
-        })),
+        /*
+         * La puerta FIRMADA, que es la que le toca al reparto y la que se configura
+         * arriba: se identifica con la MISMA pareja de key y secret que el envío.
+         *
+         * Aquí se enseñaba además la lista de claves de servicio activas —Parranda,
+         * Visita, asignación de vendedores—. No pintaban nada en esta pantalla: son de
+         * otros proyectos y de otra puerta. Esa lista vive en Configuración → API keys,
+         * que es donde se administran.
+         */
+        firmada: 'POST /webhooks/reparto/estados',
+        tieneClaves: Boolean(webhook.key) && Boolean(webhook.secret),
         recibidosHoy,
         ultimo: ultimoRecibido
           ? {
