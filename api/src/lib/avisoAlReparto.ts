@@ -24,6 +24,20 @@
  * reiniciándose justo cuando entra un pedido, ese pedido no le llega nunca y no hay
  * forma de notarlo. El stream guarda lo publicado hasta que alguien lo lee.
  *
+ * # QUÉ se avisa, que no es todo
+ *
+ * Sólo lo que el reparto puede usar, y por eso el aviso sale de los cuatro sitios que
+ * SABEN por qué, no de un enganche general que dispare con cualquier cambio:
+ *
+ *   factura      el cotejo encontró la factura, o la factura cambió
+ *   domicilio    la APK puso el precio del domicilio: el pedido ya es repartible
+ *   importacion  entró una tanda de CSV — mira esa sucursal entera
+ *   borrado      se borró el pedido: hay que quitarlo del camión
+ *
+ * Un cambio de teléfono o de dirección no despierta a nadie: el reparto lo verá en su
+ * ciclo lento. Llenar la cola de avisos que no llevan a ninguna acción es volver al
+ * problema de origen, sólo que por el otro lado.
+ *
  * # Lo que va en cada aviso, y lo que no
  *
  * Va el MÍNIMO para que el reparto sepa qué pedir: qué pedido, de qué sucursal y qué le
@@ -44,9 +58,18 @@ import { xaddReparto, STREAM_REPARTO } from './redis';
 export interface AvisoReparto {
   /** `pedido`. Se manda para que el consumidor pueda distinguir si mañana hay más. */
   entidad: string;
-  /** Qué le pasó: `create`, `update`, `delete`, `bulk`… tal como lo dice PEDIDO. */
+  /**
+   * POR QUÉ se avisa. Es lo que le dice al reparto qué hacer sin tener que adivinarlo:
+   *
+   *   factura      apareció la factura, o cambió — el pedido ya se puede cargar
+   *   domicilio    le pusieron el precio del domicilio: es repartible
+   *   importacion  entró una tanda de CSV: mira esa sucursal entera
+   *   borrado      se borró: quítalo del camión
+   */
+  motivo: string;
+  /** Qué le pasó, con las palabras de PEDIDO: `update`, `delete`, `igual`, `cambiado`… */
   accion: string;
-  /** El id del pedido. Vacío en los avisos de tanda (`bulk`), que son «mira la sucursal». */
+  /** El id del pedido. Vacío en los avisos de tanda, que son «mira la sucursal». */
   id: string;
   /** De qué sucursal. Vacío = no se sabe, y entonces el reparto mira todas. */
   sucursalId: string;
@@ -54,36 +77,25 @@ export interface AvisoReparto {
   ts: string;
 }
 
-/**
- * Las acciones que le importan al reparto.
- *
- * No todas las de PEDIDO le afectan: `backfill` o `reasignar` mueven a quién pertenece un
- * pedido, no lo que se reparte. Se dejan pasar igual —cuestan nada y el reparto decide—,
- * pero las de otras entidades (clientes, usuarios, metas) NO entran aquí: el reparto no
- * las usa y llenarían la cola de ruido.
- */
-export const ENTIDADES_QUE_AVISAN = new Set(['pedido']);
-
-/** ¿Este cambio hay que contárselo al reparto? */
-export function leInteresaAlReparto(entidad: string): boolean {
-  return ENTIDADES_QUE_AVISAN.has(entidad);
+export interface CambioParaElReparto {
+  id?: string | null;
+  sucursalId?: string | null;
+  motivo: 'factura' | 'domicilio' | 'importacion' | 'borrado';
+  accion?: string;
 }
 
 /**
  * Arma el aviso. Puro y aparte para poder probarlo: lo que se manda importa tanto como
  * que se mande, y un campo con `undefined` dentro rompe el `XADD` entero.
  */
-export function armarAviso(
-  entidad: string,
-  opts: { id?: string | null; sucursalId?: string | null; accion?: string },
-  ahora: () => number = Date.now,
-): AvisoReparto {
+export function armarAviso(c: CambioParaElReparto, ahora: () => number = Date.now): AvisoReparto {
   return {
-    entidad,
-    accion: opts.accion || 'change',
+    entidad: 'pedido',
+    motivo: c.motivo,
+    accion: c.accion || 'change',
     // Nunca `undefined` ni `null`: Redis los rechaza y el aviso se perdería entero.
-    id: opts.id ?? '',
-    sucursalId: opts.sucursalId ?? '',
+    id: c.id ?? '',
+    sucursalId: c.sucursalId ?? '',
     ts: String(ahora()),
   };
 }
@@ -100,13 +112,10 @@ export function avisosEncendidos(env: NodeJS.ProcessEnv = process.env): boolean 
 }
 
 /** Deja el aviso en la bandeja del reparto. Best-effort: nunca lanza, nunca bloquea. */
-export function avisarAlReparto(
-  entidad: string,
-  opts: { id?: string | null; sucursalId?: string | null; accion?: string },
-): void {
-  if (!avisosEncendidos() || !leInteresaAlReparto(entidad)) return;
+export function avisarAlReparto(cambio: CambioParaElReparto): void {
+  if (!avisosEncendidos()) return;
 
-  void xaddReparto(armarAviso(entidad, opts) as unknown as Record<string, string>);
+  void xaddReparto(armarAviso(cambio) as unknown as Record<string, string>);
 }
 
 export { STREAM_REPARTO };

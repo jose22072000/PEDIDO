@@ -1,5 +1,4 @@
 import { publishJSON, CH_EVENTS } from './redis';
-import { avisarAlReparto } from './avisoAlReparto';
 
 // Entidades que emiten evento de cambio para el SSE en vivo (/events/stream).
 export type EntidadEvento =
@@ -71,9 +70,4 @@ export function emitEvent(tipo: EntidadEvento, opts: OpcionesEvento = {}): void 
     ts: Date.now(),
   });
 
-  // Y el mismo cambio, a la bandeja del REPARTO (ver `avisoAlReparto`). Se engancha
-  // aquí y no en cada sitio que toca un pedido porque por aquí pasan TODOS: colgarlo de
-  // los treinta llamantes sería olvidarse de uno, y el que se olvide es un pedido que
-  // el reparto no ve nunca.
-  avisarAlReparto(tipo, opts);
 }

@@ -22,8 +22,10 @@ import mantenimientoRouter from './routes/mantenimiento';
 import eventsRouter from './routes/events';
 import prisma from './prismaClient';
 import { iniciarArchivadoAutomatico } from './lib/archivador';
+import { iniciarVendedoresDeAccesos } from './lib/accesos';
 import apiKeysRouter from './routes/apiKeys';
 import webhooksRouter from './routes/webhooks';
+import sincronizacionRepartoRouter from './routes/sincronizacionReparto';
 import entregaRouter from './routes/entrega';
 import { sembrarConfigDesdeEntorno } from './lib/webhook';
 import { apiKeyAuth } from './middleware/apiKeyAuth';
@@ -103,6 +105,7 @@ app.use('/copias', copiasRouter);
 // Entrada de webhooks de terceros (la APK de domicilio). Sin sesión y sin la clave de
 // servicio: se autentica por firma, con su propio secret.
 app.use('/webhooks', webhooksRouter);
+app.use('/sincronizacion', sincronizacionRepartoRouter);
 // Lo que manda la APK de Entrega, para verlo desde el panel. Con sesión: ver el router.
 app.use('/entrega', entregaRouter);
 
@@ -130,6 +133,10 @@ app.listen(port, '0.0.0.0', async () => {
   }
   // Archiva completados y expirados-viejos (soft-delete) al inicio y cada hora.
   iniciarArchivadoAutomatico();
+  // Y trae los vendedores que se dan de alta en Accesos: allí el administrador de una
+  // sucursal abre la cuenta y le pone su código, y hasta ahora aquí no existían hasta
+  // que llegaba su primer CSV. Sin la clave de Accesos configurada, no hace nada.
+  iniciarVendedoresDeAccesos();
   // Y trae de Ventra el catálogo de cada sucursal —precio, existencias y peso— cada
   // media hora. Solo lee: en Ventra no se escribe nada nunca.
   // El sondeo de Ventra ya NO corre aquí: lo hace el worker.

@@ -50,6 +50,7 @@
  */
 import { avisarCompletadoAutomatico, camposParaCompletar, conservaSuFactura } from './autocompletado';
 import prisma from '../prismaClient';
+import { avisarAlReparto } from './avisoAlReparto';
 import { databases, ventasDeSucursal, ventasPorPrefijoDeFolio, type LineaVentaVentra } from './ventra';
 import { baseDeSucursal } from './baseDeVentra';
 import {
@@ -667,6 +668,9 @@ async function cotejarUnPedido(
     if (completar && cotejoNuevo) await avisarCompletadoAutomatico(p.id);
     // Que se vea sin que nadie recargue.
     emitEvent('pedido', { id: p.id, sucursalId: p.sucursalId, accion: 'update' });
+    // Y al REPARTO, que es justo lo que espera: un pedido con factura —o con la factura
+    // cambiada— es un pedido que ya se puede cargar en un camión.
+    avisarAlReparto({ id: p.id, sucursalId: p.sucursalId, motivo: 'factura', accion: r.estado });
   }
 
   /**

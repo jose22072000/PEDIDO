@@ -2,6 +2,7 @@ import { Router, type Request } from 'express';
 import { Prisma } from '@prisma/client';
 import prisma from '../prismaClient';
 import { esConsumoPropio } from '../lib/consumoPropio';
+import { avisarAlReparto } from '../lib/avisoAlReparto';
 import { catalogoDeSucursal, unidadesDeVenta } from '../lib/catalogoSucursal';
 import {
   mapCsvRecords,
@@ -831,6 +832,9 @@ router.delete('/:id', async (req, res) => {
       prisma.pedido.delete({ where: { id } }),
     ]);
     emitEvent('pedido', { sucursalId: existingOrder.sucursalId, id, accion: 'delete' });
+    // Y que el reparto lo quite: un pedido borrado que sigue en el camión es peor que
+    // uno que falta, porque nadie lo va a echar en falta.
+    avisarAlReparto({ id, sucursalId: existingOrder.sucursalId, motivo: 'borrado', accion: 'delete' });
 
     res.json({
       success: true,
@@ -2136,6 +2140,8 @@ export async function processBulkImport(
 
   if (results.created > 0 || results.updated > 0) {
     emitEvent('pedido', { sucursalId: uploaderSucursalId ?? null, accion: 'bulk' });
+    // Entró una tanda: el reparto repasa esa sucursal en vez de pedir pedido a pedido.
+    avisarAlReparto({ sucursalId: uploaderSucursalId ?? null, motivo: 'importacion', accion: 'bulk' });
     emitEvent('cliente', { sucursalId: uploaderSucursalId ?? null, accion: 'bulk' });
   }
   return { ok: true, results };

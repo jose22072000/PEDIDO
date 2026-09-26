@@ -1,6 +1,7 @@
 import { avisarCompletadoAutomatico, camposParaCompletar } from '../lib/autocompletado';
 import { Router } from 'express';
 import prisma from '../prismaClient';
+import { avisarAlReparto } from '../lib/avisoAlReparto';
 import { catalogosDeSucursales, unidadesDeVenta } from '../lib/catalogoSucursal';
 import { serviceAuth } from '../middleware/serviceAuth';
 
@@ -1160,6 +1161,8 @@ router.post('/orders/invoicing', async (req, res) => {
   // los de la lista: la vista sustituye su fila y ya.
   for (const t of tocados) {
     emitEvent('pedido', { id: t.id, sucursalId: t.sucursalId, accion: 'update', datos: await pedidoParaLista(t.id) });
+    // Ya tiene precio de domicilio: es repartible y el reparto lo quiere ver.
+    avisarAlReparto({ id: t.id, sucursalId: t.sucursalId, motivo: 'domicilio', accion: 'update' });
   }
 
   res.json({
@@ -1268,6 +1271,8 @@ router.post('/orders/status', async (req, res) => {
 
   for (const t of tocados) {
     emitEvent('pedido', { id: t.id, sucursalId: t.sucursalId, accion: 'update', datos: await pedidoParaLista(t.id) });
+    // Ya tiene precio de domicilio: es repartible y el reparto lo quiere ver.
+    avisarAlReparto({ id: t.id, sucursalId: t.sucursalId, motivo: 'domicilio', accion: 'update' });
   }
 
   res.json({ ok: rechazados.length === 0, recibidos: pedidos.length, aplicados, rechazados });

@@ -100,6 +100,54 @@ export async function xaddReparto(campos: Record<string, string>): Promise<void>
   }
 }
 
+/**
+ * Cómo va la bandeja: cuántos avisos hay, cuántos cogidos sin terminar y del último.
+ *
+ * Devuelve `null` en los números cuando no hay Redis o el stream aún no existe. `null`
+ * no es cero: un cero dice «todo procesado» y tranquiliza, y «no se sabe» es otra cosa
+ * muy distinta que en pantalla tiene que verse distinta.
+ */
+export async function infoStream(clave: string, grupo: string): Promise<{
+  hay: number | null;
+  sinTerminar: number | null;
+  ultimoAviso: number | null;
+  grupoCreado: boolean;
+  redis: boolean;
+}> {
+  const vacio = { hay: null, sinTerminar: null, ultimoAviso: null, grupoCreado: false, redis: false };
+  if (!connection) return vacio;
+
+  try {
+    const hay = await connection.xlen(clave);
+
+    // El último aviso, para saber cuánto hace que no pasa nada. El id de un stream es
+    // `<milisegundos>-<n>`: la hora viene puesta por Redis y no hay que guardarla.
+    let ultimoAviso: number | null = null;
+    const ultimos = await connection.xrevrange(clave, '+', '-', 'COUNT', 1);
+    if (ultimos?.length) {
+      const ms = Number(String(ultimos[0][0]).split('-')[0]);
+      if (Number.isFinite(ms)) ultimoAviso = ms;
+    }
+
+    // Los cogidos y sin reconocer. Si el grupo no existe todavía, Redis da error: eso
+    // no es un fallo, es que el consumidor no se ha estrenado.
+    let sinTerminar: number | null = null;
+    let grupoCreado = false;
+    try {
+      const p = (await connection.xpending(clave, grupo)) as unknown as [number, ...unknown[]];
+      sinTerminar = Number(p?.[0] ?? 0);
+      grupoCreado = true;
+    } catch {
+      sinTerminar = null;
+    }
+
+    return { hay, sinTerminar, ultimoAviso, grupoCreado, redis: true };
+  } catch (e) {
+    console.error(`[redis] no se pudo leer ${clave}:`, (e as Error).message);
+    return { ...vacio, redis: true };
+  }
+}
+
 /** Publica un evento JSON. No-op si Redis está deshabilitado. Nunca lanza. */
 export async function publishJSON(channel: string, payload: unknown): Promise<void> {
   if (!connection) return;
