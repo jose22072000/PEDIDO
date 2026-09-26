@@ -2182,7 +2182,17 @@ async function avisarDeLaTanda(
 
   try {
     const candidatos = await prisma.pedido.findMany({
-      where: { folio: { in: folios } },
+      /*
+       * El folio SOLO no identifica un pedido: la clave es (sucursal, folio, vendedor).
+       * Buscando por folio a secas se cuelan los pedidos que otra sucursal tiene con ese
+       * mismo número —X-2992 existe en varias—, y entonces esta tanda avisaría de
+       * pedidos que no entraron en ella y además llenaría el cupo de 50 con los ajenos,
+       * justo hasta caer al aviso de sucursal que veníamos a quitar.
+       */
+      where: {
+        folio: { in: folios },
+        ...(sucursalesTocadas.size ? { sucursalId: { in: [...sucursalesTocadas] } } : {}),
+      },
       select: { id: true, sucursalId: true, ...CAMPOS_PARA_DECIDIR },
     });
     const suyos = candidatos.filter((p) => esParaElReparto(p));
