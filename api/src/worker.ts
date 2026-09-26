@@ -252,6 +252,14 @@ function arrancarWebhooks() {
      *   422        el cuerpo no se entiende. Mandarlo otra vez no lo va a entender.
      *   5xx        ahí sí: base caída, reinicio, un pico. Se reintenta.
      *
+     * PERO NO TODO 4xx ES DEFINITIVO, y esto se me escapó de la primera:
+     *
+     *   408  se agotó el tiempo. Es el caso más claro de volver a intentarlo.
+     *   425  «todavía no». Lo dice el propio nombre.
+     *   429  hay demasiado tráfico: ESPERA Y VUELVE. Tirarlo es exactamente lo
+     *        contrario de lo que pide, y encima el reintento con espera exponencial
+     *        que ya tenemos es la respuesta correcta a un 429.
+     *
      * `job.discard()` le dice a Bull que no lo reintente: falla una vez, queda a la
      * vista con su motivo, y quien mira sabe que tiene que tocar algo en vez de esperar.
      */
@@ -262,7 +270,9 @@ function arrancarWebhooks() {
     } catch (e) {
       const status = (e as { status?: number }).status;
 
-      if (status && status >= 400 && status < 500) job.discard();
+      const seArreglaEsperando = status === 408 || status === 425 || status === 429;
+
+      if (status && status >= 400 && status < 500 && !seArreglaEsperando) job.discard();
       throw e;
     }
 
