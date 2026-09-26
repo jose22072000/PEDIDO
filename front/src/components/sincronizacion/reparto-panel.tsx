@@ -23,6 +23,7 @@ type Estado = {
     redis: boolean;
     hay: number | null;
     sinTerminar: number | null;
+    masViejoSinTerminar: number | null;
     ultimoAviso: number | null;
     grupoCreado: boolean;
     regla: string;
@@ -310,9 +311,19 @@ export const RepartoSyncPanel = () => {
       ? { color: "danger" as const, texto: "Sin Redis" }
       : !enviar.grupoCreado
         ? { color: "warning" as const, texto: "Nadie está leyendo" }
-        : (enviar.sinTerminar ?? 0) > 50
-          ? { color: "warning" as const, texto: "Se está acumulando" }
-          : { color: "success" as const, texto: "Funcionando" };
+        : /*
+           * Atascado se mide por la EDAD del más viejo sin terminar, no por cuántos hay.
+           *
+           * «40 cogidos y sin reconocer» se ve igual si entraron hace dos segundos —se
+           * están trabajando— que si llevan ahí desde anoche, que es un consumidor
+           * muerto. Diez minutos es de sobra: el reparto los coge y los reconoce en
+           * cuanto guarda.
+           */
+          enviar.masViejoSinTerminar != null && Date.now() - enviar.masViejoSinTerminar > 600_000
+          ? { color: "warning" as const, texto: "Atascado" }
+          : (enviar.sinTerminar ?? 0) > 50
+            ? { color: "warning" as const, texto: "Se está acumulando" }
+            : { color: "success" as const, texto: "Funcionando" };
 
   const dato = (v: number | null) => (v == null ? "—" : String(v));
 
@@ -484,7 +495,7 @@ export const RepartoSyncPanel = () => {
             </Chip>
           </CardHeader>
           <CardBody className="gap-4">
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <div>
                 <p className="text-[11px] uppercase tracking-wide text-default-400">Esperando</p>
                 <p className="text-2xl font-bold tabular-nums">{dato(enviar.hay)}</p>
@@ -492,6 +503,12 @@ export const RepartoSyncPanel = () => {
               <div>
                 <p className="text-[11px] uppercase tracking-wide text-default-400">Sin terminar</p>
                 <p className="text-2xl font-bold tabular-nums">{dato(enviar.sinTerminar)}</p>
+              </div>
+              <div>
+                <p className="text-[11px] uppercase tracking-wide text-default-400">El más viejo</p>
+                <p className="text-sm font-semibold">
+                  {enviar.masViejoSinTerminar ? hace(enviar.masViejoSinTerminar) : "—"}
+                </p>
               </div>
               <div>
                 <p className="text-[11px] uppercase tracking-wide text-default-400">Último aviso</p>

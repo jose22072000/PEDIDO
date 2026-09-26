@@ -110,11 +110,19 @@ export async function xaddReparto(campos: Record<string, string>): Promise<void>
 export async function infoStream(clave: string, grupo: string): Promise<{
   hay: number | null;
   sinTerminar: number | null;
+  masViejoSinTerminar: number | null;
   ultimoAviso: number | null;
   grupoCreado: boolean;
   redis: boolean;
 }> {
-  const vacio = { hay: null, sinTerminar: null, ultimoAviso: null, grupoCreado: false, redis: false };
+  const vacio = {
+    hay: null,
+    sinTerminar: null,
+    masViejoSinTerminar: null,
+    ultimoAviso: null,
+    grupoCreado: false,
+    redis: false,
+  };
   if (!connection) return vacio;
 
   try {
@@ -132,16 +140,35 @@ export async function infoStream(clave: string, grupo: string): Promise<{
     // Los cogidos y sin reconocer. Si el grupo no existe todavía, Redis da error: eso
     // no es un fallo, es que el consumidor no se ha estrenado.
     let sinTerminar: number | null = null;
+    let masViejoSinTerminar: number | null = null;
     let grupoCreado = false;
     try {
-      const p = (await connection.xpending(clave, grupo)) as unknown as [number, ...unknown[]];
+      const p = (await connection.xpending(clave, grupo)) as unknown as [number, string | null, ...unknown[]];
+
       sinTerminar = Number(p?.[0] ?? 0);
       grupoCreado = true;
+
+      /*
+       * EL MÁS VIEJO SIN TERMINAR, que es EL número que dice si esto está atascado.
+       *
+       * «Hay 40 cogidos y sin reconocer» no distingue entre cuarenta que entraron hace
+       * dos segundos —normal, se están trabajando— y cuarenta que llevan ahí desde
+       * anoche, que es un consumidor muerto. El contador se ve igual en los dos casos.
+       *
+       * `XPENDING` sin más devuelve [cuántos, el id más viejo, el más nuevo, quiénes], y
+       * el id de un stream lleva la hora dentro: `<milisegundos>-<n>`.
+       *
+       * La idea es de la sesión del reparto, que lo tiene en su pantalla para lo que
+       * manda; del otro lado del mismo tubo hace la misma falta.
+       */
+      const ms = Number(String(p?.[1] ?? '').split('-')[0]);
+
+      if (Number.isFinite(ms) && ms > 0) masViejoSinTerminar = ms;
     } catch {
       sinTerminar = null;
     }
 
-    return { hay, sinTerminar, ultimoAviso, grupoCreado, redis: true };
+    return { hay, sinTerminar, masViejoSinTerminar, ultimoAviso, grupoCreado, redis: true };
   } catch (e) {
     console.error(`[redis] no se pudo leer ${clave}:`, (e as Error).message);
     return { ...vacio, redis: true };
