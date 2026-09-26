@@ -148,6 +148,42 @@ export async function infoStream(clave: string, grupo: string): Promise<{
   }
 }
 
+/**
+ * Los últimos avisos de la bandeja, del más nuevo al más viejo.
+ *
+ * Se pagina con el id del último visto (`antes`) y no con un número de página: un
+ * stream no tiene páginas fijas —entran avisos por arriba todo el rato— y la página 2
+ * de hace un minuto ya no es la misma. Con el cursor, «los anteriores a éste» siempre
+ * quiere decir lo mismo.
+ */
+export async function ultimosDelStream(
+  clave: string,
+  limite = 25,
+  antes?: string,
+): Promise<{ avisos: Array<Record<string, string> & { _id: string }>; siguiente: string | null }> {
+  if (!connection) return { avisos: [], siguiente: null };
+
+  try {
+    // El cursor es EXCLUSIVO: `(id` en Redis quiere decir «desde ahí sin incluirlo».
+    const hasta = antes ? `(${antes}` : '+';
+    const filas = await connection.xrevrange(clave, hasta, '-', 'COUNT', limite);
+    const avisos = (filas || []).map(([id, pares]) => {
+      const o: Record<string, string> = {};
+      for (let i = 0; i < pares.length; i += 2) o[pares[i]] = pares[i + 1];
+      return { ...o, _id: String(id) };
+    });
+
+    return {
+      avisos,
+      // Si vino la página entera, es probable que haya más. Si vino a medias, no.
+      siguiente: avisos.length === limite ? avisos[avisos.length - 1]._id : null,
+    };
+  } catch (e) {
+    console.error(`[redis] no se pudieron leer los avisos de ${clave}:`, (e as Error).message);
+    return { avisos: [], siguiente: null };
+  }
+}
+
 /** Publica un evento JSON. No-op si Redis está deshabilitado. Nunca lanza. */
 export async function publishJSON(channel: string, payload: unknown): Promise<void> {
   if (!connection) return;

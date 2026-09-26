@@ -54,6 +54,18 @@
  */
 import { xaddReparto, STREAM_REPARTO } from './redis';
 
+/**
+ * Prisma se pide cuando hace falta, no al importar el módulo.
+ *
+ * `prismaClient` abre la conexión en cuanto se carga, así que importarlo arriba obligaba
+ * a tener una base en pie sólo para poder mirar cómo se arma un aviso. Aquí la parte que
+ * decide QUÉ se manda es pura y se prueba sola; la que lee el interruptor es la única
+ * que necesita base, y la pide ella.
+ */
+async function base() {
+  return (await import('../prismaClient')).default;
+}
+
 /** Lo que el reparto necesita saber de un cambio. Todo texto: un stream es campo/valor. */
 export interface AvisoReparto {
   /** `pedido`. Se manda para que el consumidor pueda distinguir si mañana hay más. */
@@ -103,19 +115,68 @@ export function armarAviso(c: CambioParaElReparto, ahora: () => number = Date.no
 /**
  * ¿Está encendido el aviso?
  *
- * `DELIVERY_EVENTS` ya existía en el `.env` desde que esto se planeó, puesta a `true` y
- * sin que la leyera nadie. Ahora significa lo que decía que significaba. Apagada, PEDIDO
- * se comporta exactamente como antes.
+ * Manda la BASE, no el `.env`: así se apaga desde la pantalla de Sincronización cuando
+ * el reparto esté caído o haciendo obras, sin volver a desplegar. Si no hay fila —una
+ * instalación recién levantada— vale lo que diga `DELIVERY_EVENTS`, que es como estaba
+ * antes de que esto tuviera pantalla.
+ *
+ * Con caché corto porque esto se pregunta en cada cambio de pedido y la respuesta
+ * cambia una vez cada muchos meses. Quince segundos es lo que tarda en notarse un
+ * cambio desde la pantalla, que es de sobra.
  */
-export function avisosEncendidos(env: NodeJS.ProcessEnv = process.env): boolean {
+const ID_CONFIG = 'reparto';
+const VIGENCIA_MS = 15000;
+let _cache: { at: number; activo: boolean } | null = null;
+
+export function porDefectoDelEntorno(env: NodeJS.ProcessEnv = process.env): boolean {
   return String(env.DELIVERY_EVENTS || '').trim().toLowerCase() === 'true';
 }
 
-/** Deja el aviso en la bandeja del reparto. Best-effort: nunca lanza, nunca bloquea. */
-export function avisarAlReparto(cambio: CambioParaElReparto): void {
-  if (!avisosEncendidos()) return;
+export async function avisosEncendidos(): Promise<boolean> {
+  if (_cache && Date.now() - _cache.at < VIGENCIA_MS) return _cache.activo;
 
-  void xaddReparto(armarAviso(cambio) as unknown as Record<string, string>);
+  let activo = porDefectoDelEntorno();
+  try {
+    const fila = await (await base()).webhookConfig.findUnique({ where: { id: ID_CONFIG } });
+    if (fila) activo = fila.activo;
+  } catch {
+    // Sin base no se puede preguntar: vale lo del entorno y no se cachea el fallo.
+    return activo;
+  }
+
+  _cache = { at: Date.now(), activo };
+
+  return activo;
+}
+
+/** Lo enciende o lo apaga desde la pantalla, y tira el caché para que se note ya. */
+export async function ponerAvisos(activo: boolean): Promise<boolean> {
+  const fila = await (await base()).webhookConfig.upsert({
+    where: { id: ID_CONFIG },
+    update: { activo },
+    create: { id: ID_CONFIG, activo },
+  });
+
+  _cache = { at: Date.now(), activo: fila.activo };
+
+  return fila.activo;
+}
+
+/**
+ * Deja el aviso en la bandeja del reparto.
+ *
+ * Best-effort de verdad: no se espera, no lanza y no puede tumbar lo que lo llamó. Un
+ * pedido que se completa no se puede quedar a medias porque Redis no conteste.
+ */
+export function avisarAlReparto(cambio: CambioParaElReparto): void {
+  void (async () => {
+    try {
+      if (!(await avisosEncendidos())) return;
+      await xaddReparto(armarAviso(cambio) as unknown as Record<string, string>);
+    } catch (e) {
+      console.error('[aviso-reparto] no se pudo avisar:', (e as Error).message);
+    }
+  })();
 }
 
 export { STREAM_REPARTO };

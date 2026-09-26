@@ -1,10 +1,12 @@
-// Webhooks configurables. DOS destinos, la misma tabla (WebhookConfig, una fila por
-// destino) y la misma pantalla de Configuración:
+// El webhook configurable de la APK de DOMICILIO, en los dos sentidos: le avisamos de
+// que hay un pedido que cotizar, y el secret de esta misma fila es con el que
+// verificamos el costo que nos devuelven.
 //
-//   parranda   -> el aviso de "pedido completado" de siempre.
-//   domicilio  -> la APK de domicilio. En los DOS sentidos: le avisamos de que hay un
-//                 pedido que cotizar, y el secret de esta misma fila es con el que
-//                 verificamos el costo que nos devuelven.
+// Hubo un segundo destino, `parranda` («pedido completado»), que se quitó el 26/09/2026:
+// nunca llegó a configurarse —ni una fila en la base, ni una URL, ni un envío en toda su
+// vida— y dejarlo era una casilla encendida en Configuración que no hacía nada. Si
+// alguna vez hace falta avisar a otro sitio, la tabla admite más filas y el camino está
+// en el historial.
 //
 // Un solo secret por destino para ida y vuelta, no dos: son los dos extremos de la
 // misma conversación. Con un secret por sentido, el día que se rote uno, alguien rota
@@ -18,7 +20,7 @@ import prisma from '../prismaClient';
 import { aplicarCostoDomicilio } from './domicilio';
 import { emitEvent } from './events';
 
-export type Destino = 'parranda' | 'domicilio';
+export type Destino = 'domicilio';
 
 export type ConfigWebhook = { url: string; key: string; secret: string; activo: boolean };
 
@@ -108,53 +110,6 @@ export async function enviarWebhook(destino: Destino, payload: unknown): Promise
   } catch (e) {
     console.error(`[webhook:${destino}] falló:`, (e as Error).message);
   }
-}
-
-/**
- * A Parranda SOLO se le mandan SUS productos: la cerveza "Parranda" en 330/500/1500 ml y
- * la "Malta Guajira" en 330/1500 ml (la malta NO tiene 500). Todo lo demás del pedido se
- * ignora. Devuelve el formato en ml, o null si el ítem no es un producto Parranda.
- */
-export function clasificarParranda(nombre: string): { producto: string; formatoMl: number } | null {
-  const n = String(nombre || '').toUpperCase();
-  const fmt = /0\.33L|(^|\D)330(\D|$)/.test(n) ? 330
-    : /1\.5L|(^|\D)1500(\D|$)/.test(n) ? 1500
-    : /0\.5L|(^|\D)500(\D|$)/.test(n) ? 500
-    : 0;
-  if (!fmt) return null;
-  if (n.includes('PARRANDA')) return { producto: 'Parranda', formatoMl: fmt };            // 330/500/1500
-  if (n.includes('MALTA') && fmt !== 500) return { producto: 'Malta Guajira', formatoMl: fmt }; // 330/1500
-  return null;
-}
-
-/** Dispara (fire-and-forget) el evento "pedido completado" con SOLO los productos Parranda. */
-export function notifyPedidoCompletado(p: {
-  folio: string;
-  completedAt: Date | null;
-  fecha: Date | null;
-  estado: string | null;
-  cliente?: { codigo: string | null; nombre: string } | null;
-  sucursal?: { codigo: string | null } | null;
-  items?: Array<{ producto: string; unidades: number | null; packs: number | null }> | null;
-}): void {
-  const productos = (p.items || [])
-    .map((it) => {
-      const c = clasificarParranda(it.producto);
-      return c ? { producto: c.producto, formatoMl: c.formatoMl, unidades: it.unidades ?? null, packs: it.packs ?? null } : null;
-    })
-    .filter(Boolean);
-
-  void enviarWebhook('parranda', {
-    evento: 'pedido.completado',
-    folio: p.folio,
-    sucursalCodigo: p.sucursal?.codigo ?? null,
-    clienteCodigo: p.cliente?.codigo ?? null,
-    clienteNombre: p.cliente?.nombre ?? null,
-    estado: p.estado,
-    completadoEn: p.completedAt ? p.completedAt.toISOString() : null, // cuándo se efectivizó
-    fecha: p.fecha ? p.fecha.toISOString() : null,
-    productos, // SOLO Parranda (330/500/1500) + Malta Guajira (330/1500)
-  });
 }
 
 /**
@@ -335,7 +290,6 @@ async function guardarRecalculo(
 export async function sembrarConfigDesdeEntorno(): Promise<void> {
   const destinos: Array<{ destino: Destino; prefijo: string }> = [
     { destino: 'domicilio', prefijo: 'WEBHOOK_DOMICILIO' },
-    { destino: 'parranda', prefijo: 'WEBHOOK_PARRANDA' },
   ];
 
   for (const { destino, prefijo } of destinos) {

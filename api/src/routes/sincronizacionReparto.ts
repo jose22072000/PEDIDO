@@ -18,8 +18,8 @@ import express from 'express';
 import prisma from '../prismaClient';
 import { authenticateToken } from '../middleware/auth';
 import { getRequesterContext } from '../lib/sucursalContext';
-import { avisosEncendidos, STREAM_REPARTO } from '../lib/avisoAlReparto';
-import { infoStream } from '../lib/redis';
+import { avisosEncendidos, ponerAvisos, porDefectoDelEntorno, STREAM_REPARTO } from '../lib/avisoAlReparto';
+import { infoStream, ultimosDelStream } from '../lib/redis';
 
 const router = express.Router();
 
@@ -45,8 +45,9 @@ router.get('/reparto', async (req, res) => {
     const desdeHoy = new Date();
     desdeHoy.setHours(0, 0, 0, 0);
 
-    const [cola, recibidosHoy, ultimoRecibido] = await Promise.all([
+    const [cola, encendido, recibidosHoy, ultimoRecibido] = await Promise.all([
       infoStream(STREAM_REPARTO, 'espejo'),
+      avisosEncendidos(),
       // Lo que ha entrado DE VUELTA hoy: pedidos con estado de reparto puesto.
       prisma.pedido.count({ where: { estadoEntregaAt: { gte: desdeHoy } } }),
       prisma.pedido.findFirst({
@@ -58,7 +59,10 @@ router.get('/reparto', async (req, res) => {
 
     res.json({
       enviar: {
-        encendido: avisosEncendidos(),
+        encendido,
+        // De dónde sale el interruptor: si no hay fila, manda el `.env`, y conviene
+        // que la pantalla lo diga para que nadie busque el botón que lo cambió.
+        porDefecto: porDefectoDelEntorno(),
         stream: STREAM_REPARTO,
         // `null` cuando no hay Redis: no es cero, es «no se sabe», y en pantalla se
         // tiene que ver distinto — un cero tranquiliza y un «no se sabe» no.
@@ -90,6 +94,56 @@ router.get('/reparto', async (req, res) => {
   } catch (e) {
     console.error('Error leyendo el estado de la sincronización con el reparto:', e);
     res.status(500).json({ error: 'No se pudo leer el estado de la sincronización.' });
+  }
+});
+
+/**
+ * PUT /sincronizacion/reparto   body: { activo }
+ *
+ * Enciende o apaga los avisos SIN desplegar. Es lo que hace falta el día que el reparto
+ * esté de obras: se apaga, deja de acumularse cola, y se vuelve a encender.
+ */
+router.put('/reparto', async (req, res) => {
+  try {
+    if (!puedeVer(req)) {
+      return res.status(403).json({ error: 'Sólo administración puede tocar la sincronización.' });
+    }
+
+    const { activo } = req.body as { activo?: unknown };
+
+    if (typeof activo !== 'boolean') {
+      return res.status(400).json({ error: 'Falta `activo` (true o false).' });
+    }
+
+    res.json({ activo: await ponerAvisos(activo) });
+  } catch (e) {
+    console.error('Error cambiando la sincronización con el reparto:', e);
+    res.status(500).json({ error: 'No se pudo guardar.' });
+  }
+});
+
+/**
+ * GET /sincronizacion/reparto/avisos?antes=<id>&limite=25
+ *
+ * Los avisos que hay en la bandeja, del más nuevo al más viejo. Es lo que contesta
+ * «¿esto está trabajando?» de verdad: no un contador, sino QUÉ se está mandando.
+ *
+ * Se pagina con el id del último visto y no con un número de página: entran avisos por
+ * arriba todo el rato y la página 2 de hace un minuto ya no es la misma.
+ */
+router.get('/reparto/avisos', async (req, res) => {
+  try {
+    if (!puedeVer(req)) {
+      return res.status(403).json({ error: 'Sólo administración puede ver la sincronización.' });
+    }
+
+    const limite = Math.min(100, Math.max(5, Number(req.query.limite) || 25));
+    const antes = typeof req.query.antes === 'string' && req.query.antes ? req.query.antes : undefined;
+
+    res.json(await ultimosDelStream(STREAM_REPARTO, limite, antes));
+  } catch (e) {
+    console.error('Error leyendo los avisos del reparto:', e);
+    res.status(500).json({ error: 'No se pudieron leer los avisos.' });
   }
 });
 

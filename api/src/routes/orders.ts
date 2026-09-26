@@ -20,7 +20,6 @@ import {
 } from '../lib/sucursalContext';
 import { nombreComparable, codigoComparable } from '../lib/nombreVendedor';
 import { parsearFechaConsulta } from '../lib/fechaConsulta';
-import { notifyPedidoCompletado } from '../lib/webhook';
 import { emitEvent } from '../lib/events';
 import { claveDePedido, clavesDeBorrados, folioBaseDe, reservarFoliosBorrados } from '../lib/pedidoBorrado';
 import { redisEnabled, publishJSON, getSubscriber, CH_IMPORT_DONE, CH_IMPORT_FAILED } from '../lib/redis';
@@ -722,8 +721,6 @@ router.patch('/:id/completar', async (req, res) => {
       include: { items: true, cliente: true, vendedor: true, sucursal: { select: { codigo: true } } },
     });
 
-    // Webhook PUSH (configurable): avisa a Parranda que el pedido se completó + la fecha.
-    notifyPedidoCompletado(order);
     emitEvent('pedido', {
       sucursalId: order.sucursalId,
       id: order.id,
@@ -1264,9 +1261,6 @@ router.patch('/:id/estado', async (req, res) => {
             },
       include: { items: true, cliente: true, vendedor: true, sucursal: { select: { codigo: true } } },
     });
-
-    // A Parranda se le avisa solo al completar: es lo que su webhook entiende.
-    if (estado === 'completada') notifyPedidoCompletado(order);
 
     // Un pedido que se REABRE y sigue pidiendo domicilio sin costo hay que volver a
     // cotizarlo, y en el acto. Si no, se queda esperando a que alguien importe un CSV o

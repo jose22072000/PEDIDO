@@ -48,7 +48,7 @@
  * El pedido es de PEDIDO, y a Entrega no se le puede preguntar nada: es una APK que
  * trabaja sin conexión. El cotejo tiene que ocurrir del lado que siempre está en línea.
  */
-import { avisarCompletadoAutomatico, camposParaCompletar, conservaSuFactura } from './autocompletado';
+import { camposParaCompletar, conservaSuFactura } from './autocompletado';
 import prisma from '../prismaClient';
 import { avisarAlReparto } from './avisoAlReparto';
 import { databases, ventasDeSucursal, ventasPorPrefijoDeFolio, type LineaVentaVentra } from './ventra';
@@ -654,18 +654,6 @@ async function cotejarUnPedido(
 
   if (Object.keys(datos).length > 0 || corregido) {
     if (Object.keys(datos).length > 0) await prisma.pedido.update({ where: { id: p.id }, data: datos });
-    /**
-     * A Parranda se le avisa SOLO si la factura es nueva en esta pasada.
-     *
-     * Al encender esto había 215 pedidos ya facturados y sin completar, de once días
-     * atrás. Completarlos está bien —es la verdad— pero soltarle a Parranda 215 avisos de
-     * golpe por pedidos viejos no es contarle una novedad: es una ráfaga contra un sistema
-     * de fuera que no la espera.
-     *
-     * Con factura nueva sí se avisa, que es el caso normal a partir de ahora: la factura
-     * aparece y el pedido se completa en la misma pasada.
-     */
-    if (completar && cotejoNuevo) await avisarCompletadoAutomatico(p.id);
     // Que se vea sin que nadie recargue.
     emitEvent('pedido', { id: p.id, sucursalId: p.sucursalId, accion: 'update' });
     // Y al REPARTO, que es justo lo que espera: un pedido con factura —o con la factura

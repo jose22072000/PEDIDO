@@ -71,9 +71,9 @@ router.get('/job/:jobId', (req, res) => {
 // Que se edite aquí y no en el .env es lo que permite cambiar la URL o rotar el secret
 // sin volver a desplegar, que es justo lo que hace falta el día que se rota de verdad.
 
-const DESTINOS = new Set<Destino>(['parranda', 'domicilio']);
+const DESTINOS = new Set<Destino>(['domicilio']);
 function destinoDe(req: any): Destino | null {
-  const d = String(req.params.destino || 'parranda') as Destino;
+  const d = String(req.params.destino || 'domicilio') as Destino;
   return DESTINOS.has(d) ? d : null;
 }
 

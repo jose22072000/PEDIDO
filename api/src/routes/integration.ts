@@ -1,4 +1,4 @@
-import { avisarCompletadoAutomatico, camposParaCompletar } from '../lib/autocompletado';
+import { camposParaCompletar } from '../lib/autocompletado';
 import { Router } from 'express';
 import prisma from '../prismaClient';
 import { avisarAlReparto } from '../lib/avisoAlReparto';
@@ -12,7 +12,7 @@ import { serviceAuth } from '../middleware/serviceAuth';
 // SEGURIDAD DE SUCURSAL: cada instalación de PEDIDO es local a UNA sucursal
 // (config.json.sucursalId). La integración se scopea a esa sucursal para que un
 // delivery de una sucursal nunca vea ni escriba pedidos de otra.
-import { clasificarParranda } from '../lib/webhook';
+import { clasificarParranda } from '../lib/productoParranda';
 import { readConfiguredSucursalId } from '../lib/sucursalLocal';
 import { aplicarCostoDomicilio } from '../lib/domicilio';
 import { emitEvent } from '../lib/events';
@@ -1118,9 +1118,6 @@ router.post('/orders/invoicing', async (req, res) => {
         guardado.push('factura');
         if (completar) {
           guardado.push('completado');
-          // Igual que en el cotejo: sólo se avisa a Parranda si la factura es nueva. Poner
-          // al día los ya facturados no es una novedad que contarle a nadie.
-          if (pedido.facturaEstado !== estado) await avisarCompletadoAutomatico(pedido.id);
         }
       }
 

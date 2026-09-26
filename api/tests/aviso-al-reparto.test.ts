@@ -8,22 +8,27 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { armarAviso, avisosEncendidos } from '../src/lib/avisoAlReparto';
+import { armarAviso, porDefectoDelEntorno } from '../src/lib/avisoAlReparto';
 
 // ------------------------------------------------------------------ el interruptor
+//
+// El de verdad vive en la base y se toca desde la pantalla de Sincronización; eso no se
+// prueba aquí porque necesita base. Lo que sí se prueba es el valor POR DEFECTO, el que
+// manda mientras nadie haya tocado la pantalla: una instalación nueva no puede ponerse a
+// avisar sola porque alguien dejara un `DELIVERY_EVENTS=0` por ahí.
 
 test('apagado por defecto: sin la variable, PEDIDO se comporta como antes', () => {
-  assert.equal(avisosEncendidos({}), false);
-  assert.equal(avisosEncendidos({ DELIVERY_EVENTS: '' }), false);
-  assert.equal(avisosEncendidos({ DELIVERY_EVENTS: 'false' }), false);
+  assert.equal(porDefectoDelEntorno({}), false);
+  assert.equal(porDefectoDelEntorno({ DELIVERY_EVENTS: '' }), false);
+  assert.equal(porDefectoDelEntorno({ DELIVERY_EVENTS: 'false' }), false);
   // Un `0` o un `si` heredados de otro sitio no lo encienden: sólo «true».
-  assert.equal(avisosEncendidos({ DELIVERY_EVENTS: '0' }), false);
-  assert.equal(avisosEncendidos({ DELIVERY_EVENTS: 'si' }), false);
+  assert.equal(porDefectoDelEntorno({ DELIVERY_EVENTS: '0' }), false);
+  assert.equal(porDefectoDelEntorno({ DELIVERY_EVENTS: 'si' }), false);
 });
 
 test('y encendido con «true», aunque venga con mayúsculas o espacios', () => {
-  assert.equal(avisosEncendidos({ DELIVERY_EVENTS: 'true' }), true);
-  assert.equal(avisosEncendidos({ DELIVERY_EVENTS: ' TRUE ' }), true);
+  assert.equal(porDefectoDelEntorno({ DELIVERY_EVENTS: 'true' }), true);
+  assert.equal(porDefectoDelEntorno({ DELIVERY_EVENTS: ' TRUE ' }), true);
 });
 
 // ------------------------------------------------------------------ el contenido
