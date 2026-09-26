@@ -20,6 +20,8 @@ import { authenticateToken } from '../middleware/auth';
 import { getRequesterContext } from '../lib/sucursalContext';
 import { avisosEncendidos, ponerAvisos, porDefectoDelEntorno, STREAM_REPARTO } from '../lib/avisoAlReparto';
 import { infoStream, ultimosDelStream } from '../lib/redis';
+import { getConfig } from '../lib/webhook';
+import { webhooksQueue } from '../lib/queues';
 
 const router = express.Router();
 
@@ -45,15 +47,34 @@ router.get('/reparto', async (req, res) => {
     const desdeHoy = new Date();
     desdeHoy.setHours(0, 0, 0, 0);
 
-    const [cola, encendido, recibidosHoy, ultimoRecibido] = await Promise.all([
+    const q = webhooksQueue();
+
+    const [cola, encendido, webhook, esperando, fallados, recibidosHoy, ultimoRecibido, claves] = await Promise.all([
       infoStream(STREAM_REPARTO, 'espejo'),
       avisosEncendidos(),
+      getConfig('reparto'),
+      q ? q.getWaitingCount().catch(() => null) : Promise.resolve(null),
+      q ? q.getFailedCount().catch(() => null) : Promise.resolve(null),
       // Lo que ha entrado DE VUELTA hoy: pedidos con estado de reparto puesto.
       prisma.pedido.count({ where: { estadoEntregaAt: { gte: desdeHoy } } }),
       prisma.pedido.findFirst({
         where: { estadoEntregaAt: { not: null } },
         orderBy: { estadoEntregaAt: 'desc' },
         select: { folio: true, estadoEntrega: true, estadoEntregaAt: true, sucursalId: true },
+      }),
+      /*
+       * QUIÉN puede escribirnos. Se enseña la etiqueta, el prefijo y cuándo se usó por
+       * última vez; el token no existe en ningún sitio, sólo su hash.
+       *
+       * Una clave que nadie ha usado nunca y una que se usó hace un minuto se ven igual
+       * en la lista de claves, y son cosas muy distintas: la primera es o una clave que
+       * el otro extremo no tiene, o una que sobra y hay que revocar.
+       */
+      prisma.apiKey.findMany({
+        where: { activo: true, revokedAt: null },
+        select: { id: true, label: true, prefix: true, lastUsedAt: true, usageCount: true },
+        orderBy: { lastUsedAt: 'desc' },
+        take: 10,
       }),
     ]);
 
@@ -64,22 +85,53 @@ router.get('/reparto', async (req, res) => {
         // que la pantalla lo diga para que nadie busque el botón que lo cambió.
         porDefecto: porDefectoDelEntorno(),
         stream: STREAM_REPARTO,
+        /*
+         * La otra puerta: un POST firmado a la URL que se configure. El secret NUNCA
+         * vuelve —sólo si lo hay—, y la cola dice si está saliendo o atascándose.
+         */
+        webhook: {
+          url: webhook.url,
+          key: webhook.key,
+          tieneSecret: Boolean(webhook.secret),
+          activo: webhook.activo,
+          esperando,
+          fallados,
+        },
         // `null` cuando no hay Redis: no es cero, es «no se sabe», y en pantalla se
         // tiene que ver distinto — un cero tranquiliza y un «no se sabe» no.
         ...cola,
         // Qué dispara un aviso. Va en la respuesta y no escrito en la pantalla para
         // que no se queden en dos sitios distintos diciendo cosas distintas.
+        // La regla de qué sale. Va en la respuesta para que la pantalla no la repita por
+        // su cuenta: dos sitios diciendo lo mismo acaban diciendo cosas distintas.
+        regla: 'Sólo los pedidos que van a domicilio Y ya tienen factura.',
         motivos: [
           { motivo: 'factura', que: 'apareció la factura o cambió' },
           { motivo: 'domicilio', que: 'le pusieron el precio del domicilio' },
-          { motivo: 'importacion', que: 'entró una tanda de CSV de esa sucursal' },
+          { motivo: 'importacion', que: 'entró por una tanda de CSV y ya le toca' },
           { motivo: 'borrado', que: 'se borró el pedido y hay que quitarlo del camión' },
+          { motivo: 'ya_no_va', que: 'dejó de ser suyo: sin domicilio o sin factura' },
+          { motivo: 'cliente', que: 'el cliente se movió de sitio' },
         ],
       },
       recibir: {
+        /*
+         * La ruta de verdad, que es una sola y recibe LOTES —hasta 500 pedidos por
+         * llamada—, no un pedido por petición. Estaba escrita aquí de memoria y no
+         * existía: quien la hubiera copiado para configurar el otro extremo se habría
+         * pasado la tarde contra un 404.
+         */
+        por: 'POST /integration/orders/status',
+        formato: '{ pedidos: [{ pedidoId, estado, nota?, at? }] }',
         // Esta dirección no tiene interruptor: es una ruta con clave. Si el reparto
         // tiene su clave, escribe; si no, recibe un 401 y se ve en sus propios logs.
-        por: 'POST /integration/orders/:folio/estado-entrega',
+        claves: claves.map((k) => ({
+          id: k.id,
+          label: k.label,
+          prefix: k.prefix,
+          usada: k.lastUsedAt,
+          veces: k.usageCount,
+        })),
         recibidosHoy,
         ultimo: ultimoRecibido
           ? {

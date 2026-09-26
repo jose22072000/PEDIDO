@@ -2,7 +2,7 @@ import { Router, type Request } from 'express';
 import { Prisma } from '@prisma/client';
 import prisma from '../prismaClient';
 import { esConsumoPropio } from '../lib/consumoPropio';
-import { avisarAlReparto } from '../lib/avisoAlReparto';
+import { avisarAlReparto, esParaElReparto, CAMPOS_PARA_DECIDIR } from '../lib/avisoAlReparto';
 import { catalogoDeSucursal, unidadesDeVenta } from '../lib/catalogoSucursal';
 import {
   mapCsvRecords,
@@ -829,9 +829,20 @@ router.delete('/:id', async (req, res) => {
       prisma.pedido.delete({ where: { id } }),
     ]);
     emitEvent('pedido', { sucursalId: existingOrder.sucursalId, id, accion: 'delete' });
-    // Y que el reparto lo quite: un pedido borrado que sigue en el camión es peor que
-    // uno que falta, porque nadie lo va a echar en falta.
-    avisarAlReparto({ id, sucursalId: existingOrder.sucursalId, motivo: 'borrado', accion: 'delete' });
+    /*
+     * Y que el reparto lo quite: un pedido borrado que sigue en el camión es peor que uno
+     * que falta, porque nadie lo va a echar en falta.
+     *
+     * Si le tocaba o no se decide AQUÍ y va decidido en el aviso: cuando el aviso salga,
+     * el pedido ya no está en la base y no hay a quién preguntarle si iba a domicilio.
+     */
+    avisarAlReparto({
+      id,
+      sucursalId: existingOrder.sucursalId,
+      motivo: 'borrado',
+      accion: 'delete',
+      esDelReparto: esParaElReparto(existingOrder),
+    });
 
     res.json({
       success: true,
@@ -2138,25 +2149,67 @@ export async function processBulkImport(
 
   if (results.created > 0 || results.updated > 0) {
     emitEvent('pedido', { sucursalId: uploaderSucursalId ?? null, accion: 'bulk' });
-    /**
-     * Entró una tanda: el reparto repasa esas sucursales en vez de pedir pedido a pedido.
-     *
-     * La sucursal sale de los pedidos que ENTRARON, no de quien subió el archivo. Los CSV
-     * los mete la ingesta con una cuenta sin sucursal, así que con `uploaderSucursalId` el
-     * aviso salía siempre en blanco —y un aviso en blanco le dice al reparto «repasa las
-     * ocho», que es justo el barrido que veníamos a quitar. Un aviso por sucursal tocada.
-     */
-    for (const sid of sucursalesTocadas) {
-      avisarAlReparto({ sucursalId: sid, motivo: 'importacion', accion: 'bulk' });
-    }
-    // Si no se pudo saber de quién era ninguno, se avisa sin sucursal: es peor que el
-    // reparto no se entere que un repaso de más.
-    if (sucursalesTocadas.size === 0) {
-      avisarAlReparto({ sucursalId: uploaderSucursalId ?? null, motivo: 'importacion', accion: 'bulk' });
-    }
+    await avisarDeLaTanda(mappedRecords, sucursalesTocadas);
     emitEvent('cliente', { sucursalId: uploaderSucursalId ?? null, accion: 'bulk' });
   }
   return { ok: true, results };
+}
+
+/**
+ * Lo que entró en una tanda y le toca al reparto. Ni un aviso más.
+ *
+ * Aquí estaba el chorro: se avisaba de CADA importación, una por sucursal, cada pocos
+ * minutos, entrara lo que entrara. En producción el primer día fueron veinticinco avisos
+ * y los veinticinco eran eso — tandas, sin un pedido dentro que el reparto pudiera
+ * llevar—. Un aviso que no lleva a ninguna acción es el barrido de antes con otro nombre.
+ *
+ * Ahora se mira qué entró de verdad: de los folios del archivo, los que van a domicilio y
+ * ya tienen factura. Una sola consulta para toda la tanda, no una por pedido.
+ *
+ * Y con tope: si pasan más de `TOPE`, se manda un aviso por sucursal en vez de mil
+ * sueltos. Mil avisos y «mira esta sucursal» le cuestan al reparto lo mismo —los va a
+ * pedir todos igual—, pero mil llenan la cola y tapan lo que venga detrás.
+ */
+const TOPE_AVISOS_POR_TANDA = 50;
+
+async function avisarDeLaTanda(
+  mappedRecords: Array<{ order: { folio: string } }>,
+  sucursalesTocadas: Set<string>,
+): Promise<void> {
+  const folios = [...new Set(mappedRecords.map((r) => r.order.folio).filter(Boolean))];
+
+  if (folios.length === 0) return;
+
+  try {
+    const candidatos = await prisma.pedido.findMany({
+      where: { folio: { in: folios } },
+      select: { id: true, sucursalId: true, ...CAMPOS_PARA_DECIDIR },
+    });
+    const suyos = candidatos.filter((p) => esParaElReparto(p));
+
+    if (suyos.length === 0) return;
+
+    if (suyos.length > TOPE_AVISOS_POR_TANDA) {
+      for (const sid of sucursalesTocadas) {
+        avisarAlReparto({ sucursalId: sid, motivo: 'importacion', accion: 'bulk', esDelReparto: true });
+      }
+
+      return;
+    }
+
+    for (const p of suyos) {
+      avisarAlReparto({
+        id: p.id,
+        sucursalId: p.sucursalId,
+        motivo: 'importacion',
+        accion: 'bulk',
+        esDelReparto: true,
+      });
+    }
+  } catch (e) {
+    // Que no se entere el reparto es malo; que reviente la importación por eso, peor.
+    console.error('[import] no se pudo avisar al reparto:', (e as Error).message);
+  }
 }
 
 // `sellerId` viene ya resuelto (global por código) y `sucursalId` sale de su gestor.

@@ -63,15 +63,16 @@ router.get('/job/:jobId', (req, res) => {
 });
 
 // -------- Webhooks: config editable por el SUPER ADMIN desde la UI (NO por .env) --------
-// Dos destinos, la misma tabla y la misma pantalla:
-//   parranda  -> aviso de "pedido completado".
-//   domicilio -> la APK. Ida (hay que cotizar) y vuelta (el secret con el que se
-//                verifica lo que nos devuelven).
+// Dos destinos, la misma tabla y el mismo formulario, cada uno en su pantalla:
+//   domicilio -> la APK de Entrega. Ida (hay que cotizar) y vuelta (el secret con el
+//                que se verifica el costo que nos devuelven).
+//   reparto   -> delivery-logistica. Los pedidos que ya se pueden cargar en un camión.
+//                Vive en Sincronización · Reparto, que es donde se mira si funciona.
 //
 // Que se edite aquí y no en el .env es lo que permite cambiar la URL o rotar el secret
 // sin volver a desplegar, que es justo lo que hace falta el día que se rota de verdad.
 
-const DESTINOS = new Set<Destino>(['domicilio']);
+const DESTINOS = new Set<Destino>(['domicilio', 'reparto']);
 function destinoDe(req: any): Destino | null {
   const d = String(req.params.destino || 'domicilio') as Destino;
   return DESTINOS.has(d) ? d : null;

@@ -50,7 +50,7 @@
  */
 import { camposParaCompletar, conservaSuFactura } from './autocompletado';
 import prisma from '../prismaClient';
-import { avisarAlReparto } from './avisoAlReparto';
+import { avisarAlReparto, avisarQueYaNoVa } from './avisoAlReparto';
 import { databases, ventasDeSucursal, ventasPorPrefijoDeFolio, type LineaVentaVentra } from './ventra';
 import { baseDeSucursal } from './baseDeVentra';
 import {
@@ -656,9 +656,27 @@ async function cotejarUnPedido(
     if (Object.keys(datos).length > 0) await prisma.pedido.update({ where: { id: p.id }, data: datos });
     // Que se vea sin que nadie recargue.
     emitEvent('pedido', { id: p.id, sucursalId: p.sucursalId, accion: 'update' });
-    // Y al REPARTO, que es justo lo que espera: un pedido con factura —o con la factura
-    // cambiada— es un pedido que ya se puede cargar en un camión.
-    avisarAlReparto({ id: p.id, sucursalId: p.sucursalId, motivo: 'factura', accion: r.estado });
+
+    /*
+     * Y al REPARTO. En los dos sentidos, que es lo que faltaba.
+     *
+     * Un pedido con factura —o con la factura cambiada— es un pedido que ya se puede
+     * cargar. Pero un pedido que TENÍA factura y se queda sin ella deja de ser suyo, y
+     * eso hay que decirlo igual: si sólo se avisa hacia dentro, el reparto se lo queda
+     * para siempre. Antes lo arreglaba solo el barrido, que dejaba de traerlo.
+     *
+     * Se mira contra lo que el pedido tenía ANTES —`p`, que es de antes del update— para
+     * no mandar un `ya_no_va` de algo que el reparto nunca tuvo.
+     */
+    const teniaFactura = Boolean(p.facturaNumero) || p.facturaEstado === 'igual' || p.facturaEstado === 'cambiado';
+    const seQuedaSinFactura =
+      teniaFactura && datos.facturaEstado === 'sin_factura' && !datos.facturaNumero;
+
+    if (seQuedaSinFactura) {
+      avisarQueYaNoVa({ id: p.id, sucursalId: p.sucursalId, accion: 'sin_factura' });
+    } else {
+      avisarAlReparto({ id: p.id, sucursalId: p.sucursalId, motivo: 'factura', accion: r.estado });
+    }
   }
 
   /**

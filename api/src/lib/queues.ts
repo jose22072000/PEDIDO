@@ -116,3 +116,37 @@ export async function encolarWebhook(
     console.error('[queues] encolarWebhook falló:', (e as Error).message);
   }
 }
+
+/**
+ * Un aviso saliente para el REPARTO, por la puerta y con reintentos.
+ *
+ * Va con el aviso Y EL PEDIDO ENTERO dentro, no con el id. El de domicilio hacía lo
+ * contrario —releía el pedido al entregarlo— y para aquello era lo correcto: el aviso
+ * decía «cotiza esto» y lo que valía era el pedido de ese momento. Aquí el aviso ES la
+ * noticia —«a este pedido le cambió la factura»— y releerlo diez minutos después
+ * contaría una cosa distinta de la que pasó. Además, mandarlo entero es lo que le
+ * ahorra al reparto tener que volver a preguntar, que es de lo que iba todo esto.
+ *
+ * El `jobId` lleva el ts: dos avisos del mismo pedido por dos motivos distintos son dos
+ * noticias, y deduplicarlos por pedido perdería la segunda.
+ */
+export async function encolarAvisoWebhook(carga: {
+  aviso: { id: string; sucursalId: string; ts: string; motivo: string };
+  /** El pedido entero, o el cliente entero, según de qué hable el aviso. */
+  pedido?: unknown;
+  cliente?: unknown;
+}): Promise<void> {
+  const q = webhooksQueue();
+
+  if (!q) return;
+  try {
+    const { aviso } = carga;
+
+    await q.add(
+      { destino: 'reparto', payload: carga },
+      { jobId: `reparto:${aviso.id || aviso.sucursalId || 'tanda'}:${aviso.ts}`, removeOnComplete: true },
+    );
+  } catch (e) {
+    console.error('[queues] encolarAvisoWebhook falló:', (e as Error).message);
+  }
+}

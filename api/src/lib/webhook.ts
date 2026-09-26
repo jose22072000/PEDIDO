@@ -20,7 +20,12 @@ import prisma from '../prismaClient';
 import { aplicarCostoDomicilio } from './domicilio';
 import { emitEvent } from './events';
 
-export type Destino = 'domicilio';
+/**
+ * `domicilio` es la APK de Entrega; `reparto` es delivery-logistica, la que carga los
+ * camiones. Son dos conversaciones distintas, con su URL y su secret cada una: rotar el
+ * de una no puede callar a la otra.
+ */
+export type Destino = 'domicilio' | 'reparto';
 
 export type ConfigWebhook = { url: string; key: string; secret: string; activo: boolean };
 

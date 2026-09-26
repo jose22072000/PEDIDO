@@ -6,12 +6,14 @@
 // `domicilio`, rotable desde Configuración sin desplegar— y se verifica por firma, no
 // por una clave que viaja en claro en cada petición.
 import { Router } from 'express';
-import { getConfig, firmar, firmaValida } from '../lib/webhook';
+import { getConfig, firmar, firmaValida, type Destino } from '../lib/webhook';
 import { aplicarCostoDomicilio, cancelarDomicilio } from '../lib/domicilio';
 import { normalizarGrupos, repartoDeGrupos } from '../lib/domicilioGrupos';
 import { emitEvent } from '../lib/events';
 import prisma from '../prismaClient';
 import { apuntarIntentos } from '../lib/entregaIntentos';
+import { aplicarEstadosDeEntrega, comoVengan, TOPE_POR_LLAMADA } from '../lib/estadoEntrega';
+import { pedidoParaLista } from './orders';
 
 const router = Router();
 
@@ -29,8 +31,8 @@ const router = Router();
  */
 // Devuelve null si todo bien, o el fallo a contestar. (Un union discriminado se
 // leería mejor, pero este proyecto compila sin strictNullChecks y ahí no estrecha.)
-async function verificar(req: any): Promise<{ status: number; error: string } | null> {
-  const fallo = await comprobar(req);
+async function verificar(req: any, destino: Destino = 'domicilio'): Promise<{ status: number; error: string } | null> {
+  const fallo = await comprobar(req, destino);
 
   /**
    * UN RECHAZO TIENE QUE DEJAR RASTRO.
@@ -47,7 +49,7 @@ async function verificar(req: any): Promise<{ status: number; error: string } | 
   if (fallo) {
     // eslint-disable-next-line no-console
     console.warn(
-      `[webhook:domicilio] RECHAZADO ${fallo.status} — ${fallo.error} · ip=${req.ip || '?'} ` +
+      `[webhook:${destino}] RECHAZADO ${fallo.status} — ${fallo.error} · ip=${req.ip || '?'} ` +
         `· key=${req.headers['x-webhook-key'] ? 'sí' : 'no'} ` +
         `· firma=${req.headers['x-webhook-signature'] ? 'sí' : 'no'} ` +
         /**
@@ -70,14 +72,14 @@ async function verificar(req: any): Promise<{ status: number; error: string } | 
   return fallo;
 }
 
-async function comprobar(req: any): Promise<{ status: number; error: string } | null> {
-  const { secret, key, activo } = await getConfig('domicilio');
+async function comprobar(req: any, destino: Destino): Promise<{ status: number; error: string } | null> {
+  const { secret, key, activo } = await getConfig(destino);
 
   if (!secret) {
-    return { status: 503, error: 'El webhook de domicilio no está configurado todavía (falta el secret).' };
+    return { status: 503, error: `El webhook de ${destino} no está configurado todavía (falta el secret).` };
   }
   if (!activo) {
-    return { status: 503, error: 'El webhook de domicilio está desactivado.' };
+    return { status: 503, error: `El webhook de ${destino} está desactivado.` };
   }
 
   if (key) {
@@ -532,3 +534,44 @@ router.post('/domicilio/cancelar', async (req, res) => {
 
 export default router;
 
+/**
+ * POST /webhooks/reparto/estados
+ * Body: { pedidos: [{ pedidoId, estado, nota?, at? }] }
+ *
+ * Por donde delivery-logistica nos dice en qué va cada entrega.
+ *
+ * # Por qué otra puerta y no la de /integration
+ *
+ * Porque son dos cosas distintas con la misma pinta. `/integration/orders/status` se
+ * abre con la clave de servicio a secas, que viaja en claro en cada petición y vale
+ * para TODO /integration; quien la tenga puede leerse los clientes de las ocho
+ * sucursales. Aquí el que escribe es un tercero, y una puerta que escribe en los
+ * pedidos se protege con firma: la clave dice quién eres, la firma dice que el cuerpo
+ * es el que tú mandaste y que nadie lo tocó por el camino.
+ *
+ * La de /integration se queda como está: la usa la delivery de siempre, que no es
+ * nuestra y no se toca.
+ *
+ * # La misma pareja para los dos sentidos
+ *
+ * La `key` y el `secret` de la fila `reparto` valen para la ida y para la vuelta: PEDIDO
+ * firma con ellos lo que manda, y con ellos verifica lo que llega. Un secret por sentido
+ * sería el doble de cosas que rotar, y el día que se rote el que no era, la mitad de los
+ * mensajes se caen sin que nadie sepa cuál de los dos mirar.
+ */
+router.post('/reparto/estados', async (req, res) => {
+  const mal = await verificar(req, 'reparto');
+
+  if (mal) return res.status(mal.status).json({ error: mal.error });
+
+  const pedidos = comoVengan(req.body);
+
+  if (pedidos.length === 0) {
+    return res.status(400).json({ error: 'No vino ninguno. Se espera { pedidos: [{ pedidoId, estado }] }.' });
+  }
+  if (pedidos.length > TOPE_POR_LLAMADA) {
+    return res.status(413).json({ error: `Máximo ${TOPE_POR_LLAMADA} pedidos por llamada.` });
+  }
+
+  res.json(await aplicarEstadosDeEntrega(pedidos, pedidoParaLista));
+});

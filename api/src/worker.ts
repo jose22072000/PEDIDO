@@ -6,7 +6,7 @@
 import 'dotenv/config';
 import { redisEnabled, publishJSON, anotarLatencia, CH_IMPORT_DONE, CH_IMPORT_FAILED } from './lib/redis';
 import { importQueue, parrandaQueue, webhooksQueue, repasoFacturasQueue, QUEUE_IMPORT, QUEUE_PARRANDA, QUEUE_WEBHOOKS } from './lib/queues';
-import { entregarWebhook } from './lib/webhook';
+import { entregarWebhook, type Destino } from './lib/webhook';
 import { emitEvent } from './lib/events';
 import { processBulkImport } from './routes/orders';
 import { processParrandaSync } from './lib/parranda';
@@ -218,10 +218,46 @@ async function programarRepasoFacturas(rq: NonNullable<ReturnType<typeof repasoF
  * foto de cuando se encoló.
  */
 function arrancarWebhooks() {
-  // La cola de salida ya no existe: Entrega no necesita que PEDIDO le avise de
-  // los pedidos, porque el repartidor teclea el folio y el cliente ya lo tiene bajado.
-  // Lo único que queda del domicilio es el webhook de ENTRADA, y ése lo atiende la API.
-  return;
+  // De DOMICILIO ya no sale nada: Entrega no necesita que PEDIDO le avise de los
+  // pedidos, porque el repartidor teclea el folio y el cliente ya lo tiene bajado. Lo
+  // único que queda de ese lado es el webhook de ENTRADA, y ése lo atiende la API.
+  //
+  // Lo que sale ahora es para el REPARTO: los pedidos que ya se pueden cargar.
+  const q = webhooksQueue();
+
+  if (!q) {
+    console.log('[worker] sin Redis: los avisos salientes no se entregan por webhook');
+
+    return;
+  }
+
+  q.process(Number(process.env.WEBHOOK_CONCURRENCY || 3), async (job) => {
+    const { destino, payload } = job.data as {
+      destino: Destino;
+      payload: { aviso?: { id?: string; sucursalId?: string; motivo?: string } };
+    };
+
+    // `entregarWebhook` LANZA si no se pudo entregar, y eso es lo que hace que Bull
+    // reintente. Tragarse el error aquí sería tener una cola con reintentos que no
+    // reintenta nunca, que es peor que no tenerla: parece que hay red debajo.
+    const respuesta = await entregarWebhook(destino, payload);
+
+    avisarPantallas(payload.aviso?.id || payload.aviso?.sucursalId || 'tanda', false);
+
+    return respuesta ?? null;
+  });
+
+  q.on('failed', (job, err) => {
+    const a = (job?.data as { payload?: { aviso?: { id?: string; motivo?: string } } } | undefined)?.payload?.aviso;
+
+    console.error(
+      `[worker] aviso ${a?.motivo || '?'} de ${a?.id || 'tanda'} falló` +
+        ` (intento ${job?.attemptsMade}):`,
+      err.message,
+    );
+  });
+
+  console.log(`[worker] escuchando ${QUEUE_WEBHOOKS}`);
 }
 
 /**

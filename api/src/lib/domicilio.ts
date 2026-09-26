@@ -5,6 +5,7 @@
 // ellos saben cuánto cuesta llevarlo. Por eso el pedido sale de aquí con el total de
 // la mercancía ya hecho y sin la línea de domicilio, y vuelve sólo con esa línea.
 import prisma from '../prismaClient';
+import { avisarAlReparto, avisarQueYaNoVa } from './avisoAlReparto';
 import { tasaActual } from './tasaCambio';
 import { normalizarProducto, variantesProducto, porContenido } from './nombreProducto';
 import { readConfiguredSucursalId } from './sucursalLocal';
@@ -246,7 +247,7 @@ export async function aplicarCostoDomicilio(u: {
 
     const pedido = await prisma.pedido.findUnique({
       where: { id: pedidoId },
-      select: { cliente: { select: { id: true, latitud: true, longitud: true } } },
+      select: { cliente: { select: { id: true, sucursalId: true, latitud: true, longitud: true } } },
     });
     const c = pedido?.cliente;
     if (!c) return;
@@ -286,6 +287,26 @@ export async function aplicarCostoDomicilio(u: {
         },
       }),
     ]);
+
+    /*
+     * Y que el reparto se entere de que el cliente se movió.
+     *
+     * El reparto trabaja con dónde ESTÁ la gente además de con qué se le lleva: unas
+     * coordenadas nuevas le cambian la ruta aunque no se haya tocado un solo pedido. Un
+     * cliente que se mudó y no se enteró el que conduce es una entrega que no llega, y
+     * hasta hoy eso sólo se arreglaba cuando al espejo le tocaba repasar clientes.
+     *
+     * Va con la sucursal SIEMPRE que se sepa: del otro lado, un aviso sin sucursal
+     * significa «repasa las ocho», y por un cliente que se movió diez metros eso es
+     * justo el barrido que estamos quitando.
+     */
+    avisarAlReparto({
+      id: c.id,
+      sucursalId: c.sucursalId,
+      entidad: 'cliente',
+      motivo: 'cliente',
+      accion: 'update',
+    });
   };
 
   const guardarDistancia = async (pedidoId: string) => {
@@ -587,12 +608,18 @@ export async function cancelarDomicilio(u: {
   // Mismo alcance que al escribir: esta instalación sólo toca SUS pedidos.
   const local = readConfiguredSucursalId();
   const alcance = local ? { sucursalId: local } : {};
-  let pedido: { id: string; folio: string; costoDomicilio: number | null; domicilioPorEntrega: boolean | null } | null = null;
+  let pedido: {
+    id: string;
+    folio: string;
+    sucursalId: string | null;
+    costoDomicilio: number | null;
+    domicilioPorEntrega: boolean | null;
+  } | null = null;
 
   if (u.pedidoId) {
     pedido = await prisma.pedido.findFirst({
       where: { id: String(u.pedidoId), ...alcance },
-      select: { id: true, folio: true, costoDomicilio: true, domicilioPorEntrega: true },
+      select: { id: true, folio: true, sucursalId: true, costoDomicilio: true, domicilioPorEntrega: true },
     });
   }
 
@@ -603,7 +630,7 @@ export async function cancelarDomicilio(u: {
     const folio = String(u.folio).trim();
     const candidatos = await prisma.pedido.findMany({
       where: { folio: { startsWith: folio }, ...alcance },
-      select: { id: true, folio: true, costoDomicilio: true, domicilioPorEntrega: true },
+      select: { id: true, folio: true, sucursalId: true, costoDomicilio: true, domicilioPorEntrega: true },
       take: 5,
     });
     const exactos = candidatos.filter((c) => c.folio === folio);
@@ -646,6 +673,15 @@ export async function cancelarDomicilio(u: {
       `[domicilio] cancelado ${pedido.folio} (${pedido.id}): ${deshecho.join(', ')}` +
         (u.motivo ? ` · motivo: ${String(u.motivo).slice(0, 120)}` : ''),
     );
+    /*
+     * Y que el reparto lo quite, que es la mitad que faltaba.
+     *
+     * Se le avisa cuando un pedido pasa a tocarle; si no se le avisa cuando deja de
+     * tocarle, se queda con él para siempre — y un pedido fantasma en un camión no lo
+     * echa en falta nadie. Antes esto lo arreglaba solo el barrido: el pedido dejaba de
+     * salir en la lista. Con avisos filtrados hay que decirlo.
+     */
+    avisarQueYaNoVa({ id: pedido.id, sucursalId: pedido.sucursalId, accion: 'cancelado' });
   }
 
   return { ok: true, pedidoId: pedido.id, folio: pedido.folio, deshecho };

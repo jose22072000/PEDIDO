@@ -8,7 +8,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { armarAviso, porDefectoDelEntorno } from '../src/lib/avisoAlReparto';
+import { armarAviso, esParaElReparto, porDefectoDelEntorno } from '../src/lib/avisoAlReparto';
 
 // ------------------------------------------------------------------ el interruptor
 //
@@ -84,4 +84,52 @@ test('la hora va en texto y en milisegundos, para poder medir el retraso', () =>
 
   assert.equal(a.ts, '1759000000000');
   assert.ok(Number(a.ts) > 0);
+});
+
+// ------------------------------------------------------------------ a quién le toca
+//
+// Esta es LA regla: qué sale de PEDIDO hacia el reparto. Equivocarse por el lado flojo
+// llena la cola de ruido —y volvemos al barrido que veníamos a quitar—; por el lado
+// estricto, deja pedidos sin repartir y no avisa nadie. Las dos formas de fallar son
+// caras y ninguna se ve en una pantalla.
+
+test('le toca: va a domicilio Y ya tiene factura', () => {
+  assert.equal(esParaElReparto({ requiere_domicilio: true, facturaNumero: 'F-1' }), true);
+  // El cotejo ya dijo lo suyo: vale igual que traer el número.
+  assert.equal(esParaElReparto({ requiere_domicilio: true, facturaEstado: 'igual' }), true);
+  assert.equal(esParaElReparto({ requiere_domicilio: true, facturaEstado: 'cambiado' }), true);
+});
+
+test('la factura manda sobre la casilla: si se cobró la entrega, se entrega', () => {
+  // Nadie marcó `requiere_domicilio`, pero la factura trae la línea de ENTREGA A
+  // DOMICILIO. Sale de lo que se cobró, no de lo que alguien marcó al tomar el pedido.
+  assert.equal(esParaElReparto({ facturaDomicilio: 350, facturaNumero: 'F-2' }), true);
+  // Cobrada en cero no es cobrada.
+  assert.equal(esParaElReparto({ facturaDomicilio: 0, facturaNumero: 'F-2' }), false);
+});
+
+test('no le toca: de mostrador, o sin facturar todavía', () => {
+  // De mostrador, aunque esté facturadísimo.
+  assert.equal(esParaElReparto({ requiere_domicilio: false, facturaNumero: 'F-3' }), false);
+  // A domicilio pero sin factura: no se carga un camión con lo que no se sabe qué es.
+  assert.equal(esParaElReparto({ requiere_domicilio: true }), false);
+  // `sin_factura` es «se comprobó y no la tiene», que no es tenerla.
+  assert.equal(esParaElReparto({ requiere_domicilio: true, facturaEstado: 'sin_factura' }), false);
+  // Recién entrado por CSV: ni una cosa ni la otra.
+  assert.equal(esParaElReparto({}), false);
+  assert.equal(esParaElReparto(null), false);
+});
+
+test('los nulos de la base no cuentan como un sí', () => {
+  // Prisma devuelve `null`, no `undefined`, y un `null` colándose por un `||` sería
+  // justo el fallo por el lado flojo: avisar de todo.
+  assert.equal(
+    esParaElReparto({
+      requiere_domicilio: null,
+      facturaDomicilio: null,
+      facturaNumero: null,
+      facturaEstado: null,
+    }),
+    false,
+  );
 });
