@@ -331,7 +331,28 @@ router.get('/orders', async (req, res) => {
 });
 
 /**
- * GET /integration/orders/resumen?desde=&hasta=   (x-api-key)
+ * `?archivado=0` sólo los vivos · `?archivado=1` sólo los archivados · sin él, TODOS.
+ *
+ * Por defecto van todos y eso es deliberado: archivar en PEDIDO es esconder de la lista,
+ * no borrar, y de los 2.521 repartibles **1.798 están archivados** —el archivado entra a
+ * los siete días de completarse, así que la frontera es sencillamente «hace una semana»—.
+ * Quien compare espejos sin saberlo ve un descuadre de miles que no existe.
+ *
+ * No se excluyen por defecto para no romper a quien ya compara contra el total, y sobre
+ * todo para no invitar a nadie a BORRAR: un consumidor que purgue lo que no venga en la
+ * respuesta se cargaría su histórico entero el día que esto cambiara de criterio.
+ */
+function soloArchivados(req: { query: unknown }): Record<string, unknown> {
+  const v = String((req.query as Record<string, unknown>).archivado ?? '').trim();
+
+  if (v === '0' || v === 'false') return { archivedAt: null };
+  if (v === '1' || v === 'true') return { archivedAt: { not: null } };
+
+  return {};
+}
+
+/**
+ * GET /integration/orders/resumen?desde=&hasta=&archivado=   (x-api-key)
  *
  * CUÁNTOS PEDIDOS REPARTIBLES HAY POR DÍA, y cuándo se tocó el último de cada día.
  *
@@ -379,8 +400,12 @@ router.get('/orders/resumen', async (req, res) => {
     if (hasta) rango.lte = new Date(hasta.getTime() + 24 * 60 * 60 * 1000 - 1);
 
     const filas = await prisma.pedido.findMany({
-      where: { ...DONDE_ES_PARA_EL_REPARTO, ...(desde || hasta ? { fecha: rango } : {}) },
-      select: { fecha: true, updatedAt: true },
+      where: {
+        ...DONDE_ES_PARA_EL_REPARTO,
+        ...(desde || hasta ? { fecha: rango } : {}),
+        ...soloArchivados(req),
+      },
+      select: { fecha: true, updatedAt: true, archivedAt: true },
     });
 
     /*
@@ -389,23 +414,29 @@ router.get('/orders/resumen', async (req, res) => {
      * que el día en UTC y el día en Cuba son el mismo. El día que alguien guarde una
      * fecha a las 23:00, esto hay que revisarlo.
      */
-    const porDia = new Map<string, { pedidos: number; maxUpdatedAt: Date }>();
+    const porDia = new Map<string, { pedidos: number; vivos: number; archivados: number; maxUpdatedAt: Date }>();
 
     for (const f of filas) {
       const dia = f.fecha.toISOString().slice(0, 10);
-      const previo = porDia.get(dia);
+      const previo = porDia.get(dia) ?? { pedidos: 0, vivos: 0, archivados: 0, maxUpdatedAt: f.updatedAt };
 
-      if (!previo) porDia.set(dia, { pedidos: 1, maxUpdatedAt: f.updatedAt });
-      else {
-        previo.pedidos++;
-        if (f.updatedAt > previo.maxUpdatedAt) previo.maxUpdatedAt = f.updatedAt;
-      }
+      previo.pedidos++;
+      if (f.archivedAt) previo.archivados++;
+      else previo.vivos++;
+      if (f.updatedAt > previo.maxUpdatedAt) previo.maxUpdatedAt = f.updatedAt;
+      porDia.set(dia, previo);
     }
 
     res.json(
       [...porDia.entries()]
         .sort((a, b) => (a[0] < b[0] ? -1 : 1))
-        .map(([dia, v]) => ({ dia, pedidos: v.pedidos, maxUpdatedAt: v.maxUpdatedAt })),
+        .map(([dia, v]) => ({
+          dia,
+          pedidos: v.pedidos,
+          vivos: v.vivos,
+          archivados: v.archivados,
+          maxUpdatedAt: v.maxUpdatedAt,
+        })),
     );
   } catch (e) {
     console.error('[integration] resumen falló:', (e as Error).message);
@@ -456,12 +487,14 @@ router.get('/orders/ids', async (req, res) => {
     if (hasta) rango.lte = hasta;
 
     const filas = await prisma.pedido.findMany({
-      where: { ...DONDE_ES_PARA_EL_REPARTO, fecha: rango },
-      select: { id: true, updatedAt: true },
+      where: { ...DONDE_ES_PARA_EL_REPARTO, fecha: rango, ...soloArchivados(req) },
+      select: { id: true, updatedAt: true, archivedAt: true },
       orderBy: { id: 'asc' },
     });
 
-    res.json(filas);
+    // `archivado` como booleano y no la fecha: quien compara quiere saber si cuenta o no,
+    // y la fecha exacta del archivado no le dice nada que pueda usar.
+    res.json(filas.map((f) => ({ id: f.id, updatedAt: f.updatedAt, archivado: f.archivedAt != null })));
   } catch (e) {
     console.error('[integration] ids falló:', (e as Error).message);
     res.status(500).json({ error: 'No se pudieron listar los ids.' });
