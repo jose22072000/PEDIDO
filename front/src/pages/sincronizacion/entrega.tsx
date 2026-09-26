@@ -1,5 +1,6 @@
 import { NavigationHeading } from "@/components/navigation-heading";
 import { EntregaEnviosPanel } from "@/components/sincronizacion/entrega-envios-panel";
+import { WebhookDomicilio } from "@/components/configuracion/webhook-domicilio";
 
 /**
  * Lo que manda la APK de Entrega, en su propia pantalla.
@@ -17,6 +18,13 @@ export default function SincronizacionEntregaPage() {
         paragraph="Cada folio que la APK de Entrega intenta cobrar, con el motivo por el que entra o no, cuántas veces lo ha reintentado y qué tenemos nosotros de ese folio. Se refresca solo cada minuto."
         title="Sincronización · Envíos de Entrega"
       />
+      {/* La configuración del canal va AQUÍ, con lo que entra por él, y no suelta en
+          Configuración: el secret, la URL de entrada y los folios que llegan son la
+          misma conversación. Buscar por qué no entra un folio y tener que irse a otra
+          pantalla a ver si el canal está activo es la mitad del problema. */}
+      <div className="mb-6">
+        <WebhookDomicilio />
+      </div>
       <EntregaEnviosPanel />
     </section>
   );
