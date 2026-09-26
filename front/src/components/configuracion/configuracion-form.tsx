@@ -470,6 +470,12 @@ export const ConfiguracionForm = () => {
                   "Qué folios intenta cobrar la APK de domicilio, por qué entran o no, cuántas veces lo ha reintentado y qué tenemos nosotros de cada folio.",
                 href: "/panel/sincronizacion/entrega",
               },
+              {
+                titulo: "Reparto",
+                texto:
+                  "Las dos direcciones con el reparto: lo que se le avisa cuando un pedido ya se puede repartir, y el estado de las entregas que escribe de vuelta.",
+                href: "/panel/sincronizacion/reparto",
+              },
             ].map((s) => (
               <div
                 key={s.href}
