@@ -1,7 +1,7 @@
 import { camposParaCompletar } from '../lib/autocompletado';
 import { Router } from 'express';
 import prisma from '../prismaClient';
-import { avisarAlReparto } from '../lib/avisoAlReparto';
+import { avisarAlReparto, DONDE_ES_PARA_EL_REPARTO } from '../lib/avisoAlReparto';
 import { aplicarEstadosDeEntrega, comoVengan, TOPE_POR_LLAMADA } from '../lib/estadoEntrega';
 import { INCLUDE_COMPLETO, mapearParaIntegracion } from '../lib/pedidoParaIntegracion';
 import { catalogosDeSucursales } from '../lib/catalogoSucursal';
@@ -328,6 +328,144 @@ router.get('/orders', async (req, res) => {
   const nextCursor = hayMas ? pedidos[pedidos.length - 1].id : null;
 
   res.json({ count: orders.length, orders, hayMas, nextCursor });
+});
+
+/**
+ * GET /integration/orders/resumen?desde=&hasta=   (x-api-key)
+ *
+ * CUÁNTOS PEDIDOS REPARTIBLES HAY POR DÍA, y cuándo se tocó el último de cada día.
+ *
+ * # Para qué, que es lo que importa
+ *
+ * El espejo del reparto se bajó HOY 101.445 pedidos para no encontrar nada. En PEDIDO
+ * hay 67.971 en total: se releyó el año entero una vez y media, por la conexión de allá
+ * y contra esta base, sólo para comprobar que los dos lados dicen lo mismo.
+ *
+ * Eso tenía sentido cuando el ciclo era LO ÚNICO que traía cambios. Con los avisos
+ * funcionando ya no es una red, es un trabajo continuo que no lleva a nada. Jose, el
+ * 26/09/2026: «un barrido para que chequee si están iguales los espejos, sólo eso. No
+ * que ande buscando y busque lo que tiene PEDIDO que él no tiene».
+ *
+ * Con esto, comparar un año son **unas 420 filas** en vez de 100.000 pedidos. Los días
+ * que cuadran no se tocan; del que no cuadre se piden los ids (`/orders/ids`) y sólo de
+ * los que falten se pide el pedido entero.
+ *
+ * # Por qué `maxUpdatedAt` y no sólo la cuenta
+ *
+ * Porque el caso normal es que un pedido CAMBIE, no que aparezca uno nuevo: una factura
+ * que llega, un domicilio que se cotiza. Eso no mueve el total, así que contando no se
+ * ve. La marca de agua sí.
+ *
+ * # Sólo los repartibles
+ *
+ * Los mismos que se avisan —a domicilio y con factura—, con la MISMA regla
+ * (`DONDE_ES_PARA_EL_REPARTO`). Si aquí saliera un universo y por el aviso otro, el
+ * reparto vería descuadres eternos de pedidos que nunca le van a llegar.
+ */
+router.get('/orders/resumen', async (req, res) => {
+  try {
+    const desde = typeof req.query.desde === 'string' ? new Date(req.query.desde) : null;
+    const hasta = typeof req.query.hasta === 'string' ? new Date(req.query.hasta) : null;
+
+    if ((desde && isNaN(desde.getTime())) || (hasta && isNaN(hasta.getTime()))) {
+      return res.status(400).json({ error: 'Fechas inválidas. Se esperan ISO: ?desde=2025-08-01&hasta=2026-09-26' });
+    }
+
+    const rango: Record<string, Date> = {};
+
+    if (desde) rango.gte = desde;
+    // `hasta` se entiende INCLUSIVE: quien pide «hasta el 26» quiere el 26 entero, no
+    // hasta su medianoche. Pedir un día y que salga vacío es el fallo más tonto de éstos.
+    if (hasta) rango.lte = new Date(hasta.getTime() + 24 * 60 * 60 * 1000 - 1);
+
+    const filas = await prisma.pedido.findMany({
+      where: { ...DONDE_ES_PARA_EL_REPARTO, ...(desde || hasta ? { fecha: rango } : {}) },
+      select: { fecha: true, updatedAt: true },
+    });
+
+    /*
+     * El día se saca en UTC, y es seguro AQUÍ: `fecha` se guarda a mediodía —12:00,
+     * 16:00, 17:00 o 18:00 según de dónde venga el CSV—, nunca cerca de medianoche, así
+     * que el día en UTC y el día en Cuba son el mismo. El día que alguien guarde una
+     * fecha a las 23:00, esto hay que revisarlo.
+     */
+    const porDia = new Map<string, { pedidos: number; maxUpdatedAt: Date }>();
+
+    for (const f of filas) {
+      const dia = f.fecha.toISOString().slice(0, 10);
+      const previo = porDia.get(dia);
+
+      if (!previo) porDia.set(dia, { pedidos: 1, maxUpdatedAt: f.updatedAt });
+      else {
+        previo.pedidos++;
+        if (f.updatedAt > previo.maxUpdatedAt) previo.maxUpdatedAt = f.updatedAt;
+      }
+    }
+
+    res.json(
+      [...porDia.entries()]
+        .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+        .map(([dia, v]) => ({ dia, pedidos: v.pedidos, maxUpdatedAt: v.maxUpdatedAt })),
+    );
+  } catch (e) {
+    console.error('[integration] resumen falló:', (e as Error).message);
+    res.status(500).json({ error: 'No se pudo armar el resumen.' });
+  }
+});
+
+/**
+ * GET /integration/orders/ids?dia=YYYY-MM-DD   (o ?desde=&hasta=)   (x-api-key)
+ *
+ * Los ids de un día, con su marca de agua. DOS CAMPOS y nada más.
+ *
+ * Es el segundo paso de la comparación: del día que no cuadró en `/orders/resumen`, esto
+ * dice EXACTAMENTE qué pedidos hay y cuándo se tocó cada uno, para poder pedir enteros
+ * sólo los que falten o hayan cambiado. Un día son doscientas filas de dos campos en vez
+ * de doscientos pedidos con sus clientes y sus renglones.
+ *
+ * Mismo universo que el resumen: sólo los repartibles.
+ */
+router.get('/orders/ids', async (req, res) => {
+  try {
+    const dia = typeof req.query.dia === 'string' ? req.query.dia.trim() : '';
+    let desde: Date | null = null;
+    let hasta: Date | null = null;
+
+    if (dia) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dia)) {
+        return res.status(400).json({ error: 'El día va como YYYY-MM-DD.' });
+      }
+      desde = new Date(`${dia}T00:00:00.000Z`);
+      hasta = new Date(`${dia}T23:59:59.999Z`);
+    } else {
+      desde = typeof req.query.desde === 'string' ? new Date(req.query.desde) : null;
+      hasta = typeof req.query.hasta === 'string' ? new Date(req.query.hasta) : null;
+      if (hasta) hasta = new Date(hasta.getTime() + 24 * 60 * 60 * 1000 - 1);
+    }
+
+    if ((desde && isNaN(desde.getTime())) || (hasta && isNaN(hasta.getTime()))) {
+      return res.status(400).json({ error: 'Fechas inválidas.' });
+    }
+    if (!desde && !hasta) {
+      return res.status(400).json({ error: 'Hace falta ?dia= o ?desde=&hasta=. Sin rango esto devolvería el año entero.' });
+    }
+
+    const rango: Record<string, Date> = {};
+
+    if (desde) rango.gte = desde;
+    if (hasta) rango.lte = hasta;
+
+    const filas = await prisma.pedido.findMany({
+      where: { ...DONDE_ES_PARA_EL_REPARTO, fecha: rango },
+      select: { id: true, updatedAt: true },
+      orderBy: { id: 'asc' },
+    });
+
+    res.json(filas);
+  } catch (e) {
+    console.error('[integration] ids falló:', (e as Error).message);
+    res.status(500).json({ error: 'No se pudieron listar los ids.' });
+  }
 });
 
 /**

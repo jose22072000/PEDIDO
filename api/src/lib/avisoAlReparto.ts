@@ -204,6 +204,23 @@ export interface PedidoParaDecidir {
  * deja pedidos sin repartir sin que nadie se entere. Las dos formas de fallar son caras
  * y ninguna avisa.
  */
+/**
+ * LA MISMA REGLA, en forma de `where` de Prisma.
+ *
+ * Va pegada a `esParaElReparto` a propósito y no en la ruta que la usa: son la misma
+ * decisión escrita dos veces —una para un objeto que ya está en memoria y otra para la
+ * base— y separarlas es cómo se llega a que el resumen cuente unos pedidos y el aviso
+ * mande otros. Si cambia una, cambia la otra, y están a la vista la una de la otra.
+ */
+export const DONDE_ES_PARA_EL_REPARTO: {
+  AND: Array<Record<string, unknown>>;
+} = {
+  AND: [
+    { OR: [{ requiere_domicilio: true }, { facturaDomicilio: { gt: 0 } }] },
+    { OR: [{ facturaNumero: { not: null } }, { facturaEstado: { in: ['igual', 'cambiado'] } }] },
+  ],
+};
+
 export function esParaElReparto(p: PedidoParaDecidir | null | undefined): boolean {
   if (!p) return false;
 
