@@ -114,6 +114,16 @@ export async function aplicarEstadosDeEntrega(
      */
   }
 
+  /*
+   * Pero a la PANTALLA sí. Esto no es un eco: la sincronización enseña «recibidos hoy»
+   * y el último que entró, y esos dos números sólo se mueven aquí.
+   *
+   * Va UNA vez por lote y no una por pedido: un lote de quinientos son quinientos
+   * eventos por un contador que se lee de una sola consulta, y con la red de las
+   * sucursales eso es justo lo que no se puede mandar.
+   */
+  if (tocados.length) emitEvent('reparto', { accion: 'entrada' });
+
   return { ok: rechazados.length === 0, recibidos: pedidos.length, aplicados, rechazados };
 }
 

@@ -90,6 +90,7 @@
  */
 import { xaddReparto, STREAM_REPARTO } from './redis';
 import { encolarAvisoWebhook } from './queues';
+import { emitEvent } from './events';
 
 /**
  * El pedido entero, pedido tarde y sin poder romper nada.
@@ -279,6 +280,10 @@ export async function ponerAvisos(activo: boolean): Promise<boolean> {
   });
 
   _cache = { at: Date.now(), activo: fila.activo };
+  // El interruptor es global, no de una sucursal: va sin `sucursalId` para que lo vean
+  // todas las pantallas abiertas. Quien lo pulsó ya lo tiene pintado; esto es para la
+  // segunda pestaña, que si no se queda diciendo lo contrario.
+  emitEvent('reparto', { accion: 'interruptor' });
 
   return fila.activo;
 }
@@ -347,6 +352,11 @@ export function avisarAlReparto(cambio: CambioParaElReparto): void {
         aviso: { ...aviso, avisoId: idDelAviso || `${aviso.motivo}:${aviso.id || aviso.sucursalId || 'tanda'}:${aviso.ts}` },
         ...(await loQueLleva(cambio, aviso)),
       });
+
+      // Y que la pantalla lo vea AHORA. Va al final a propósito: se avisa de lo que ya
+      // salió, no de lo que se iba a intentar. Sin datos —los contadores los recalcula
+      // el endpoint— así que el front hace un refresco de fondo, sin esqueleto.
+      emitEvent('reparto', { id: cambio.id ?? null, sucursalId: cambio.sucursalId ?? null, accion: 'salida' });
     } catch (e) {
       console.error('[aviso-reparto] no se pudo avisar:', (e as Error).message);
     }

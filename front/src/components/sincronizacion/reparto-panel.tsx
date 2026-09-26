@@ -2,6 +2,7 @@ import { Button, Card, CardBody, CardHeader, Chip, Input, Snippet, Spinner, Swit
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { getApiBaseUrl } from "@/config";
+import { useLiveEvents, useLiveStatus } from "@/hooks/use-live-events";
 
 /**
  * Las DOS direcciones entre PEDIDO y el reparto: configurarlas y ver si están vivas.
@@ -92,8 +93,8 @@ export const RepartoSyncPanel = () => {
   const [cargandoAvisos, setCargandoAvisos] = useState(false);
 
   // El formulario del webhook. Separado de `estado` a propósito: `estado` se recarga
-  // solo cada 30 s, y si de paso reescribiera el formulario, un refresco mientras se
-  // teclea la URL la borraría de debajo de las manos.
+  // cuando llega un evento, y si de paso reescribiera el formulario, un refresco
+  // mientras se teclea la URL la borraría de debajo de las manos.
   const [form, setForm] = useState({ url: "", key: "", secret: "" });
   const [tocado, setTocado] = useState(false);
   const [ocupado, setOcupado] = useState<string | null>(null);
@@ -104,8 +105,8 @@ export const RepartoSyncPanel = () => {
   const base = getApiBaseUrl();
   const cabeceras = () => ({ Authorization: `Bearer ${localStorage.getItem("auth_token")}` });
 
-  // El refresco de cada 30 s vive en un intervalo que se creó una vez, así que leer
-  // `tocado` directamente le daría siempre el valor del montaje. La ref ve el de ahora.
+  // `cargar` se pasa a un listener que se registra una vez, así que leer `tocado`
+  // directamente le daría siempre el valor del montaje. La ref ve el de ahora.
   const tocadoRef = useRef(false);
 
   useEffect(() => {
@@ -159,16 +160,34 @@ export const RepartoSyncPanel = () => {
     [base],
   );
 
-  // Se refresca solo: es una pantalla para mirar mientras pasa algo. Los avisos NO se
-  // refrescan con el reloj a propósito: si se está leyendo la lista con tres páginas
-  // abiertas, recargarla sola por debajo es perder el sitio.
   useEffect(() => {
     void cargar();
     void cargarAvisos();
-    const t = setInterval(() => void cargar(), 30_000);
-
-    return () => clearInterval(t);
   }, [cargar, cargarAvisos]);
+
+  /*
+   * EN VIVO POR SSE, no con un reloj.
+   *
+   * Aquí había un `setInterval` de 30 s, o sea sondeo contra nuestra propia API
+   * teniendo el SSE montado al lado desde hace meses. Dos cosas malas por el precio de
+   * una: una pantalla abierta toda la tarde pedía el estado 120 veces por hora aunque
+   * no se moviera nada —y estas sucursales van por enlaces lentos—, y cuando SÍ se
+   * movía había que esperar hasta medio minuto para verlo. Justo al revés de lo que
+   * hace falta en una pantalla que se abre para mirar mientras pasa algo.
+   *
+   * Se escuchan dos tipos:
+   *   `reparto`  un aviso que sale, el interruptor, y lo que el reparto escribe de vuelta
+   *   `webhook`  el worker entregó uno, que es lo que mueve «esperando salir»
+   *
+   * El hook ya agrupa las ráfagas (1,5 s), así que una importación de CSV que dispara
+   * cuatrocientos avisos recarga el estado UNA vez, al final y con todo aplicado.
+   *
+   * Los avisos NO se recargan solos, ni antes ni ahora: si se está leyendo la lista con
+   * tres páginas abiertas, moverla por debajo es perder el sitio. Para eso está
+   * «Actualizar».
+   */
+  useLiveEvents(["reparto", "webhook"], () => void cargar());
+  const enVivo = useLiveStatus();
 
   const cambiarInterruptor = async (activo: boolean) => {
     setGuardando(true);
@@ -697,8 +716,10 @@ export const RepartoSyncPanel = () => {
       </Card>
 
       <p className="text-center text-[11px] text-default-400">
-        Los contadores se actualizan solos cada 30 segundos. La lista, con «Actualizar»:
-        así no se mueve de debajo mientras se lee.
+        {enVivo
+          ? "Los contadores se mueven en vivo, en cuanto pasa algo."
+          : "Sin conexión en vivo: los contadores son de la última carga. Se reconecta solo."}{" "}
+        La lista, con «Actualizar»: así no se mueve de debajo mientras se lee.
       </p>
     </div>
   );

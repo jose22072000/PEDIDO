@@ -17,7 +17,12 @@ export type EntidadEvento =
   // La tasa de cambio. La trae el worker cada 12 h, así que sin aviso una pantalla
   // abierta se queda con la de cuando se cargó — y con el selector CUP en gris diciendo
   // que no hay tasa cuando ya la hay.
-  | 'tasa';
+  | 'tasa'
+  // El canal con el reparto: la cola de salida, el interruptor y lo que entra de
+  // vuelta. La pantalla de Sincronización › Reparto se refrescaba con un `setInterval`
+  // de 30 s — o sea sondeo contra nuestra propia API, teniendo el SSE montado al lado,
+  // y con el retardo de que un aviso que sale se ve medio minuto después.
+  | 'reparto';
 
 /** Qué le pasó a la entidad. Determina cómo la aplica el front sin recargar. */
 export type AccionEvento = 'create' | 'update' | 'delete' | 'bulk' | 'change' | string;

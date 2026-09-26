@@ -22,6 +22,21 @@ export type LiveEvent = {
 // escucharlo el indicador dependía solo del evento `open` del navegador — que si
 // no llegaba dejaba el cartel en "Conectando…" para siempre aunque el stream
 // estuviera funcionando.
+//
+// ESTA LISTA TIENE QUE LLEVAR TODOS LOS TIPOS QUE EMITE EL SERVIDOR.
+//
+// `EventSource` entrega por NOMBRE de evento: el servidor manda `event: webhook` y si
+// nadie registró un listener para «webhook», el mensaje llega al navegador y se tira a
+// la basura sin que nada falle. No hay error, no hay aviso: la pantalla simplemente no
+// se entera nunca.
+//
+// Faltaban TRES, y las tres pantallas llevaban desde entonces creyéndose en vivo:
+//
+//   apikey   Configuración › API keys, el «usada hace un momento»
+//   webhook  Configuración › Webhook de domicilio, sus contadores
+//   tasa     la lista de pedidos, que se quedaba con la tasa de cuando se cargó
+//
+// Al añadir un tipo en `EntidadEvento` (api/src/lib/events.ts) hay que añadirlo aquí.
 const TODOS = [
   "ready",
   "pedido",
@@ -32,6 +47,10 @@ const TODOS = [
   "sucursal",
   "config",
   "reporte",
+  "apikey",
+  "webhook",
+  "tasa",
+  "reparto",
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────

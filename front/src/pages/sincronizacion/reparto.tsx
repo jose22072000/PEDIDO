@@ -14,7 +14,7 @@ export default function SincronizacionRepartoPage() {
       <NavigationHeading
         cta={{ href: "/panel/configuracion", label: "Volver a Configuración" }}
         icon="reports"
-        paragraph="Lo que PEDIDO le avisa al reparto cuando un pedido ya se puede repartir, y lo que el reparto escribe de vuelta con el estado de cada entrega. Se refresca solo cada 30 segundos."
+        paragraph="Lo que PEDIDO le avisa al reparto cuando un pedido ya se puede repartir, y lo que el reparto escribe de vuelta con el estado de cada entrega. Se mueve en vivo, en cuanto pasa algo."
         title="Sincronización · Reparto"
       />
       <RepartoSyncPanel />
