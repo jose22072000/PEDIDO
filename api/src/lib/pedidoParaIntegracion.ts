@@ -16,8 +16,20 @@
  *
  * Lo que NO lleva es lo que no se puede congelar: el estado de la entrega lo escribe él.
  */
-import prisma from '../prismaClient';
+import { almacenDelPedido } from './almacenDelPedido';
 import { catalogosDeSucursales, unidadesDeVenta } from './catalogoSucursal';
+
+/**
+ * Prisma se pide cuando hace falta, no al importar el módulo.
+ *
+ * `prismaClient` abre la conexión en cuanto se carga, así que importarlo arriba obligaba
+ * a tener base en pie para probar `almacenDelPedido`, que es una función pura sobre un
+ * texto. Es la segunda vez que pasa —ya ocurrió con `avisoAlReparto`—: lo que decide
+ * algo importante tiene que poder probarse sin levantar medio sistema.
+ */
+async function base() {
+  return (await import('../prismaClient')).default;
+}
 
 /** Todo lo que hay que traer de la base para poder armar la forma de arriba. */
 export const INCLUDE_COMPLETO = {
@@ -198,6 +210,19 @@ export function mapearParaIntegracion(pedidos: any[], catalogos: Map<string, any
     estadoEntregaNota: p.estadoEntregaNota,
     /** Lo que dice la FACTURA, al lado del pedido. JSON en texto, o nulo. */
     lineasFactura: p.lineasFactura,
+    /**
+     * DE DÓNDE SALE. `{ codigo, nombre, sucursalCodigo, mezclado }`, o `null` si el
+     * pedido todavía no tiene factura.
+     *
+     * El código NO identifica por sí solo: `2` es AURORA en Santiago, PV CAMAGUEY en
+     * Camagüey y PV GTMO en Guantánamo. Va con la sucursal al lado porque lo que
+     * identifica es la pareja.
+     */
+    almacen: (() => {
+      const a = almacenDelPedido(p.lineasFactura);
+
+      return a ? { ...a, sucursalCodigo: p.sucursal?.codigo ?? null } : null;
+    })(),
     // Para que la tablet sepa por dónde seguir: se guarda el mayor de la tanda y se
     // manda como `since` en la siguiente sync.
     updatedAt: p.updatedAt,
@@ -264,6 +289,19 @@ export function mapearParaIntegracion(pedidos: any[], catalogos: Map<string, any
         descripcion: i.descripcion,
         pesoKg,
         pesoLineaKg: pesoKg != null ? Number((pesoKg * cantidad).toFixed(3)) : null,
+        /*
+         * De qué almacén sale ESTA línea.
+         *
+         * Va por renglón además de en el resumen del pedido porque un pedido puede
+         * llevar mercancía de dos —en Santiago conviven AURORA y PV-STGO— y eso son dos
+         * recogidas de verdad, no un detalle. Con el resumen solo, quien carga el camión
+         * iría a un almacén y se dejaría la mitad.
+         *
+         * Nulo cuando la línea viene del PEDIDO y no de la factura: sin facturar no se
+         * sabe de dónde va a salir.
+         */
+        almacenCodigo: (i as { almacenCodigo?: string | null }).almacenCodigo ?? null,
+        almacenNombre: (i as { almacenNombre?: string | null }).almacenNombre ?? null,
       };
     }),
   }));
@@ -276,7 +314,7 @@ export function mapearParaIntegracion(pedidos: any[], catalogos: Map<string, any
  * decide qué hacer con eso: para un borrado, mandar el aviso a secas es lo correcto.
  */
 export async function pedidoCompletoPorId(id: string): Promise<Record<string, unknown> | null> {
-  const p = await prisma.pedido.findUnique({ where: { id }, include: INCLUDE_COMPLETO as any });
+  const p = await (await base()).pedido.findUnique({ where: { id }, include: INCLUDE_COMPLETO as any });
 
   if (!p) return null;
 
@@ -318,5 +356,5 @@ export function clienteParaIntegracion(c: any): Record<string, unknown> | null {
 
 /** UN cliente, entero, por su id. Es lo que va en el aviso de «se movió». */
 export async function clienteCompletoPorId(id: string): Promise<Record<string, unknown> | null> {
-  return clienteParaIntegracion(await prisma.cliente.findUnique({ where: { id } }));
+  return clienteParaIntegracion(await (await base()).cliente.findUnique({ where: { id } }));
 }

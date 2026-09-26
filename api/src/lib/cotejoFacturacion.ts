@@ -369,6 +369,9 @@ function paraPintar(r: Cotejo): unknown[] {
       importe: null,
       marca: 'falta',
       pedido: f.pedido,
+      // No salió de ningún almacén: no se facturó.
+      almacenCodigo: null,
+      almacenNombre: null,
     })),
   ];
 }
@@ -452,6 +455,8 @@ async function cotejarUnPedido(
     productoNombre: v.productoNombre,
     cantidad: v.cantidad,
     precioUsd: v.precioUsd,
+    almacenCodigo: v.almacenCodigo,
+    almacenNombre: v.almacenNombre,
   }));
 
   const r = cotejar(p.items as LineaPedido[], suyas);

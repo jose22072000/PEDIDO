@@ -172,6 +172,19 @@ export interface LineaVentaVentra {
    * dos pedidos — así acabó la misma factura pegada a dos pedidos distintos.
    */
   nota: string | null;
+  /**
+   * DE QUÉ ALMACÉN SALIÓ, que en Ventra se llama «object».
+   *
+   * Es el dato que le faltaba al reparto para medir bien: la distancia se mide desde el
+   * almacén y de ahí sale el costo del domicilio. Hasta hoy se medía todo desde el
+   * principal de la sucursal, y en Santiago DOS DE CADA TRES pedidos salen de AURORA,
+   * no de PV-STGO. Un kilometraje creíble y equivocado.
+   *
+   * El código NO identifica por sí solo: `2` es AURORA en Santiago, PV CAMAGUEY en
+   * Camagüey y PV GTMO en Guantánamo. Lo que identifica es sucursal + código.
+   */
+  almacenCodigo: string | null;
+  almacenNombre: string | null;
 }
 
 /**
@@ -292,6 +305,8 @@ async function leerVentas(ruta: string, etiqueta: string, tope: number): Promise
       precioUsd: numero(f, 'priceOut', 'precioUsd'),
       // Varios nombres posibles: es un ERP y no siempre llama igual a la misma columna.
       nota: texto(f, 'note', 'nota', 'observaciones', 'observacion', 'comment', 'comentario', 'description'),
+      almacenCodigo: texto(f, 'objectCode', 'almacenCodigo'),
+      almacenNombre: texto(f, 'objectName', 'almacenNombre'),
     }))
     .filter((l) => l.id && l.productoNombre);
 }

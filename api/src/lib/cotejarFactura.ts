@@ -49,6 +49,9 @@ export interface LineaFactura {
   cantidad: number
   /** Lo que se cobró por esa línea. Sólo se usa para la del domicilio. */
   precioUsd?: number | null
+  /** De qué almacén salió. Ver `LineaVentaVentra`. */
+  almacenCodigo?: string | null
+  almacenNombre?: string | null
 }
 
 export type EstadoFactura = 'igual' | 'cambiado' | 'sin_factura'
@@ -91,6 +94,15 @@ export interface LineaCotejada {
   marca: MarcaLinea
   /** Cuántos formatos se pidieron de ese producto. Nulo cuando no se pidió. */
   pedido: number | null
+  /**
+   * De qué almacén salió esta línea.
+   *
+   * Va por renglón y no sólo por pedido porque un pedido puede llevar mercancía de dos:
+   * en Santiago conviven AURORA y PV-STGO, y eso son dos recogidas de verdad. Nulo en
+   * las líneas marcadas `falta`, que no salieron de ningún sitio porque no se facturaron.
+   */
+  almacenCodigo: string | null
+  almacenNombre: string | null
 }
 
 export interface Cotejo {
@@ -303,7 +315,10 @@ export function cotejar(lineasPedido: LineaPedido[], suyas: LineaFactura[]): Cot
    * «cambiado» siempre, y la mitad de los pedidos se quedarían fuera de la ruta.
    */
   const numero = [...new Set(suyas.map((f) => f.operNumber))].sort().join(', ')
-  const facturado = new Map<string, { codigo: string | null; cantidad: number; importe: number | null }>()
+  const facturado = new Map<
+    string,
+    { codigo: string | null; cantidad: number; importe: number | null; almacenCodigo: string | null; almacenNombre: string | null }
+  >()
 
   for (const f of mercancia) {
     const previo = facturado.get(f.productoNombre)
@@ -318,6 +333,11 @@ export function cotejar(lineasPedido: LineaPedido[], suyas: LineaFactura[]): Cot
       codigo: previo?.codigo ?? f.productoCodigo ?? null,
       cantidad: (previo?.cantidad ?? 0) + f.cantidad,
       importe: suma == null ? (previo?.importe ?? null) : (previo?.importe ?? 0) + suma,
+      // El primero que traiga almacén manda. Si el MISMO producto saliera de dos, aquí
+      // se queda uno solo — y eso se ve arriba, en el resumen del pedido, que marca
+      // `mezclado` en cuanto hay más de un almacén entre todas sus líneas.
+      almacenCodigo: previo?.almacenCodigo ?? f.almacenCodigo ?? null,
+      almacenNombre: previo?.almacenNombre ?? f.almacenNombre ?? null,
     })
   }
 
@@ -334,6 +354,8 @@ export function cotejar(lineasPedido: LineaPedido[], suyas: LineaFactura[]): Cot
     // es, literalmente, lo que la factura trae de más.
     marca: 'nuevo' as MarcaLinea,
     pedido: null as number | null,
+    almacenCodigo: v.almacenCodigo,
+    almacenNombre: v.almacenNombre,
   }))
   const diferencias: string[] = []
   const faltantes: Faltante[] = []
