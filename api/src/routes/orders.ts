@@ -2079,6 +2079,9 @@ export async function processBulkImport(
     : [];
   const borrados = clavesDeBorrados(filasBorradas);
 
+  // De qué sucursales entró algo de verdad: es lo que se le avisa al reparto al final.
+  const sucursalesTocadas = new Set<string>();
+
   const parcial = () => ({ creados: results.created, actualizados: results.updated, fallidos: results.failed });
 
   avisar?.(0, mappedRecords.length, parcial());
@@ -2119,6 +2122,7 @@ export async function processBulkImport(
     try {
       await processOrderRecord(record, results, resolved.seller.id, resolved.sucursalId, borrados);
       if (resolved.sucursalId === null) results.sinAsignar++;
+      else sucursalesTocadas.add(resolved.sucursalId);
     } catch (error) {
       results.failed++;
       results.errors.push({
@@ -2134,8 +2138,22 @@ export async function processBulkImport(
 
   if (results.created > 0 || results.updated > 0) {
     emitEvent('pedido', { sucursalId: uploaderSucursalId ?? null, accion: 'bulk' });
-    // Entró una tanda: el reparto repasa esa sucursal en vez de pedir pedido a pedido.
-    avisarAlReparto({ sucursalId: uploaderSucursalId ?? null, motivo: 'importacion', accion: 'bulk' });
+    /**
+     * Entró una tanda: el reparto repasa esas sucursales en vez de pedir pedido a pedido.
+     *
+     * La sucursal sale de los pedidos que ENTRARON, no de quien subió el archivo. Los CSV
+     * los mete la ingesta con una cuenta sin sucursal, así que con `uploaderSucursalId` el
+     * aviso salía siempre en blanco —y un aviso en blanco le dice al reparto «repasa las
+     * ocho», que es justo el barrido que veníamos a quitar. Un aviso por sucursal tocada.
+     */
+    for (const sid of sucursalesTocadas) {
+      avisarAlReparto({ sucursalId: sid, motivo: 'importacion', accion: 'bulk' });
+    }
+    // Si no se pudo saber de quién era ninguno, se avisa sin sucursal: es peor que el
+    // reparto no se entere que un repaso de más.
+    if (sucursalesTocadas.size === 0) {
+      avisarAlReparto({ sucursalId: uploaderSucursalId ?? null, motivo: 'importacion', accion: 'bulk' });
+    }
     emitEvent('cliente', { sucursalId: uploaderSucursalId ?? null, accion: 'bulk' });
   }
   return { ok: true, results };
