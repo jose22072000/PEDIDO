@@ -237,10 +237,34 @@ function arrancarWebhooks() {
       payload: { aviso?: { id?: string; sucursalId?: string; motivo?: string } };
     };
 
-    // `entregarWebhook` LANZA si no se pudo entregar, y eso es lo que hace que Bull
-    // reintente. Tragarse el error aquí sería tener una cola con reintentos que no
-    // reintenta nunca, que es peor que no tenerla: parece que hay red debajo.
-    const respuesta = await entregarWebhook(destino, payload);
+    /*
+     * `entregarWebhook` LANZA si no se pudo entregar, y eso es lo que hace que Bull
+     * reintente. Tragarse el error aquí sería tener una cola con reintentos que no
+     * reintenta nunca, que es peor que no tenerla: parece que hay red debajo.
+     *
+     * Pero NO todo se arregla reintentando, y ésa es la mitad que faltaba:
+     *
+     *   401 / 403  la clave o la firma están mal. Es configuración: los tres intentos
+     *              se gastan contra lo mismo y el aviso acaba en `fallados` como si
+     *              fuera un problema de red.
+     *   404        la URL no existe. Igual — y es justo lo que pasa el día que se
+     *              configura antes de que el otro lado esté montado.
+     *   422        el cuerpo no se entiende. Mandarlo otra vez no lo va a entender.
+     *   5xx        ahí sí: base caída, reinicio, un pico. Se reintenta.
+     *
+     * `job.discard()` le dice a Bull que no lo reintente: falla una vez, queda a la
+     * vista con su motivo, y quien mira sabe que tiene que tocar algo en vez de esperar.
+     */
+    let respuesta: unknown;
+
+    try {
+      respuesta = await entregarWebhook(destino, payload);
+    } catch (e) {
+      const status = (e as { status?: number }).status;
+
+      if (status && status >= 400 && status < 500) job.discard();
+      throw e;
+    }
 
     avisarPantallas(payload.aviso?.id || payload.aviso?.sucursalId || 'tanda', false);
 

@@ -131,7 +131,7 @@ export async function encolarWebhook(
  * noticias, y deduplicarlos por pedido perdería la segunda.
  */
 export async function encolarAvisoWebhook(carga: {
-  aviso: { id: string; sucursalId: string; ts: string; motivo: string };
+  aviso: { id: string; sucursalId: string; ts: string; motivo: string; avisoId: string };
   /** El pedido entero, o el cliente entero, según de qué hable el aviso. */
   pedido?: unknown;
   cliente?: unknown;
@@ -144,7 +144,7 @@ export async function encolarAvisoWebhook(carga: {
 
     await q.add(
       { destino: 'reparto', payload: carga },
-      { jobId: `reparto:${aviso.id || aviso.sucursalId || 'tanda'}:${aviso.ts}`, removeOnComplete: true },
+      { jobId: `reparto:${aviso.avisoId}`, removeOnComplete: true },
     );
   } catch (e) {
     console.error('[queues] encolarAvisoWebhook falló:', (e as Error).message);

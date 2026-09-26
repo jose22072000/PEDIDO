@@ -325,7 +325,7 @@ export function avisarAlReparto(cambio: CambioParaElReparto): void {
       // A la COLA va el aviso pelado. Quien la lee tiene la API al lado y puede pedir lo
       // que quiera; meterle el pedido entero a cada mensaje sería llenar Redis de copias
       // de lo que ya está en la base.
-      await xaddReparto(plano);
+      const idDelAviso = await xaddReparto(plano);
 
       /*
        * Al WEBHOOK va el pedido ENTERO, que es lo contrario y también a propósito.
@@ -340,7 +340,11 @@ export function avisarAlReparto(cambio: CambioParaElReparto): void {
        * exactamente lo que dice, «quítalo del camión».
        */
       await encolarAvisoWebhook({
-        aviso,
+        // Con su identificador, para que el reparto descarte los repetidos: sus
+        // reintentos sobre un aviso ya aplicado tienen que salirle «sin efecto», no
+        // aplicarse otra vez. Si no hubo Redis no hay id, y entonces se compone uno
+        // estable con lo que sí se sabe: el mismo aviso reintentado da el mismo.
+        aviso: { ...aviso, avisoId: idDelAviso || `${aviso.motivo}:${aviso.id || aviso.sucursalId || 'tanda'}:${aviso.ts}` },
         ...(await loQueLleva(cambio, aviso)),
       });
     } catch (e) {

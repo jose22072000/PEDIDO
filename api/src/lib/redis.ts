@@ -90,13 +90,26 @@ const TOPE_STREAM = Number(process.env.DELIVERY_STREAM_MAXLEN || 20000);
  *
  * Los campos van planos (texto) porque un stream de Redis es pares campo/valor, no JSON.
  */
-export async function xaddReparto(campos: Record<string, string>): Promise<void> {
-  if (!connection) return;
+export async function xaddReparto(campos: Record<string, string>): Promise<string | null> {
+  if (!connection) return null;
   try {
     const pares = Object.entries(campos).flat();
-    await connection.xadd(STREAM_REPARTO, 'MAXLEN', '~', String(TOPE_STREAM), '*', ...pares);
+
+    /*
+     * Devuelve el id de la entrada, que es EL identificador de ese aviso.
+     *
+     * Lo pide el reparto para poder descartar repetidos: sus tres reintentos sobre un
+     * aviso que ya aplicó tienen que salirle como «sin efecto» y no aplicarse dos veces
+     * —en `factura`, aplicarlo dos veces es reescribir un pedido que ya estaba bien—.
+     *
+     * Y es el MISMO id por los dos caminos, la cola y el webhook, así que mientras
+     * convivan puede cruzarlos sin tener dos numeraciones que casar.
+     */
+    return String(await connection.xadd(STREAM_REPARTO, 'MAXLEN', '~', String(TOPE_STREAM), '*', ...pares));
   } catch (e) {
     console.error(`[redis] xadd ${STREAM_REPARTO} falló:`, (e as Error).message);
+
+    return null;
   }
 }
 

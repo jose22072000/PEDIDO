@@ -100,9 +100,16 @@ export async function entregarWebhook(destino: Destino, payload: unknown): Promi
   // el sistema operativo se aburra. Con la cola llena, eso es la cola parada.
   const corta = AbortSignal.timeout(Number(process.env.WEBHOOK_TIMEOUT_MS || 15000));
   const res = await fetch(url, { method: 'POST', headers, body, signal: corta });
+
   if (!res.ok) {
     const detalle = (await res.text().catch(() => '')).slice(0, 200);
-    throw new Error(`${url} -> ${res.status} ${detalle}`);
+    const fallo = new Error(`${url} -> ${res.status} ${detalle}`) as Error & { status?: number };
+
+    // El código viaja con el error para que quien reintenta pueda decidir. Sin él, un
+    // 401 de firma mala se reintenta tres veces y se tira, exactamente igual que una
+    // base caída — y son cosas opuestas: una no se arregla esperando y la otra sí.
+    fallo.status = res.status;
+    throw fallo;
   }
 
   return await res.json().catch(() => null);
