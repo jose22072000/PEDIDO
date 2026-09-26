@@ -58,6 +58,48 @@ export function redisEnabled(): boolean {
   return enabled;
 }
 
+/**
+ * La bandeja de entrada del REPARTO: una cola de verdad, no un grito.
+ *
+ * `CH_EVENTS` es pub/sub: quien no está escuchando en ese instante se lo pierde. Vale
+ * para refrescar una pantalla abierta —si te pierdes uno, el siguiente te pone al día—,
+ * pero no para avisar a otro sistema: si el reparto está reiniciándose cuando entra un
+ * pedido, ese pedido no llega nunca y nadie se entera.
+ *
+ * Por eso esto es un STREAM. Lo publicado se queda hasta que alguien lo lee, sobrevive a
+ * que el consumidor se caiga, y con un grupo de consumidores se sabe qué se ha procesado
+ * y qué no.
+ *
+ * El nombre lleva el prefijo de DELIVERY y no el de PEDIDO a propósito: es su bandeja,
+ * nosotros sólo dejamos ahí el correo. Ya estaba escrito así en `.env.vps.example`.
+ */
+export const STREAM_REPARTO = (process.env.DELIVERY_STREAM || 'procovar-delivery:in:orders').trim();
+
+/**
+ * Cuántos avisos se guardan como mucho.
+ *
+ * Con `MAXLEN ~` Redis recorta por lo aproximado, que es mucho más barato que el corte
+ * exacto y da igual: el tope está para que un consumidor apagado una semana no se coma
+ * la memoria del servidor, no para cuadrar un número. 20.000 avisos son varios días de
+ * movimiento de las ocho sucursales.
+ */
+const TOPE_STREAM = Number(process.env.DELIVERY_STREAM_MAXLEN || 20000);
+
+/**
+ * Deja un aviso en la bandeja del reparto. No-op si Redis está deshabilitado. Nunca lanza.
+ *
+ * Los campos van planos (texto) porque un stream de Redis es pares campo/valor, no JSON.
+ */
+export async function xaddReparto(campos: Record<string, string>): Promise<void> {
+  if (!connection) return;
+  try {
+    const pares = Object.entries(campos).flat();
+    await connection.xadd(STREAM_REPARTO, 'MAXLEN', '~', String(TOPE_STREAM), '*', ...pares);
+  } catch (e) {
+    console.error(`[redis] xadd ${STREAM_REPARTO} falló:`, (e as Error).message);
+  }
+}
+
 /** Publica un evento JSON. No-op si Redis está deshabilitado. Nunca lanza. */
 export async function publishJSON(channel: string, payload: unknown): Promise<void> {
   if (!connection) return;
