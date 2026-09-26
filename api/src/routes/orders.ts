@@ -2090,8 +2090,10 @@ export async function processBulkImport(
     : [];
   const borrados = clavesDeBorrados(filasBorradas);
 
-  // De qué sucursales entró algo de verdad: es lo que se le avisa al reparto al final.
+  // De qué sucursales entró algo de verdad, y QUÉ pedidos: es lo que se le avisa al
+  // reparto al final, sin volver a buscar por folio.
   const sucursalesTocadas = new Set<string>();
+  const pedidosTocados = new Set<string>();
 
   const parcial = () => ({ creados: results.created, actualizados: results.updated, fallidos: results.failed });
 
@@ -2131,7 +2133,7 @@ export async function processBulkImport(
     }
 
     try {
-      await processOrderRecord(record, results, resolved.seller.id, resolved.sucursalId, borrados);
+      await processOrderRecord(record, results, resolved.seller.id, resolved.sucursalId, borrados, pedidosTocados);
       if (resolved.sucursalId === null) results.sinAsignar++;
       else sucursalesTocadas.add(resolved.sucursalId);
     } catch (error) {
@@ -2149,7 +2151,7 @@ export async function processBulkImport(
 
   if (results.created > 0 || results.updated > 0) {
     emitEvent('pedido', { sucursalId: uploaderSucursalId ?? null, accion: 'bulk' });
-    await avisarDeLaTanda(mappedRecords, sucursalesTocadas);
+    await avisarDeLaTanda(pedidosTocados, sucursalesTocadas);
     emitEvent('cliente', { sucursalId: uploaderSucursalId ?? null, accion: 'bulk' });
   }
   return { ok: true, results };
@@ -2163,8 +2165,9 @@ export async function processBulkImport(
  * y los veinticinco eran eso — tandas, sin un pedido dentro que el reparto pudiera
  * llevar—. Un aviso que no lleva a ninguna acción es el barrido de antes con otro nombre.
  *
- * Ahora se mira qué entró de verdad: de los folios del archivo, los que van a domicilio y
- * ya tienen factura. Una sola consulta para toda la tanda, no una por pedido.
+ * Ahora se mira qué entró de verdad: de los pedidos que la tanda TOCÓ —apuntados por su
+ * id mientras se escribían, no casados por folio después—, los que van a domicilio y ya
+ * tienen factura. Una sola consulta para toda la tanda, no una por pedido.
  *
  * Y con tope: si pasan más de `TOPE`, se manda un aviso por sucursal en vez de mil
  * sueltos. Mil avisos y «mira esta sucursal» le cuestan al reparto lo mismo —los va a
@@ -2173,26 +2176,16 @@ export async function processBulkImport(
 const TOPE_AVISOS_POR_TANDA = 50;
 
 async function avisarDeLaTanda(
-  mappedRecords: Array<{ order: { folio: string } }>,
+  pedidosTocados: Set<string>,
   sucursalesTocadas: Set<string>,
 ): Promise<void> {
-  const folios = [...new Set(mappedRecords.map((r) => r.order.folio).filter(Boolean))];
-
-  if (folios.length === 0) return;
+  if (pedidosTocados.size === 0) return;
 
   try {
     const candidatos = await prisma.pedido.findMany({
-      /*
-       * El folio SOLO no identifica un pedido: la clave es (sucursal, folio, vendedor).
-       * Buscando por folio a secas se cuelan los pedidos que otra sucursal tiene con ese
-       * mismo número —X-2992 existe en varias—, y entonces esta tanda avisaría de
-       * pedidos que no entraron en ella y además llenaría el cupo de 50 con los ajenos,
-       * justo hasta caer al aviso de sucursal que veníamos a quitar.
-       */
-      where: {
-        folio: { in: folios },
-        ...(sucursalesTocadas.size ? { sucursalId: { in: [...sucursalesTocadas] } } : {}),
-      },
+      // Por ID, que es lo único que identifica un pedido. Casarlos por folio no vale:
+      // la clave es (sucursal, folio, vendedor) y el sufijo es significativo.
+      where: { id: { in: [...pedidosTocados] } },
       select: { id: true, sucursalId: true, ...CAMPOS_PARA_DECIDIR },
     });
     const suyos = candidatos.filter((p) => esParaElReparto(p));
@@ -2232,6 +2225,17 @@ async function processOrderRecord(
   sucursalId: string | null,
   // Las llaves de los pedidos borrados a mano. Vacío si nadie borró nada.
   borrados: Set<string> = new Set(),
+  /**
+   * Los ids de los pedidos que esta tanda tocó, para poder avisar al reparto de los
+   * suyos sin tener que volver a casar folios.
+   *
+   * El folio NO identifica un pedido: la clave es (sucursal, folio, vendedor), y encima
+   * el sufijo es significativo —`X-2992` y `X-2992-2` son DOS pedidos, y cruzarlos sin él
+   * ya costó una vuelta en julio—. Buscando por folio se juntan pedidos que no son el
+   * mismo, y avisar de uno callándose el otro es peor que avisar de más. Aquí el id está
+   * delante: se apunta y se acabó la adivinanza.
+   */
+  tocados: Set<string> | null = null,
 ) {
   const seller = { id: sellerId };
 
@@ -2474,10 +2478,22 @@ async function processOrderRecord(
       });
     }
 
+    /*
+     * Sólo si CAMBIÓ algo de verdad.
+     *
+     * Una tanda vuelve a traer el mismo pedido muchas veces —los CSV se resuben enteros—
+     * y apuntarlo sin mirar haría salir un aviso por pedido en cada importación aunque no
+     * se hubiera movido un dato. Eso es el ruido de antes con un id dentro, que encima
+     * parece trabajo bien hecho.
+     *
+     * `invalidarCosto` cubre lo de los renglones: es lo que se enciende cuando una línea
+     * cambia de cantidad o entra una nueva.
+     */
+    if (Object.keys(updateData).length > 0 || invalidarCosto) tocados?.add(existingOrder.id);
     results.updated++;
   } else {
     // Create new order with item
-    await prisma.pedido.create({
+    const creado = await prisma.pedido.create({
       data: {
         folio: finalFolio,
         sucursalId,
@@ -2504,6 +2520,8 @@ async function processOrderRecord(
         },
       },
     });
+
+    tocados?.add(creado.id);
     results.created++;
   }
 }
