@@ -133,3 +133,34 @@ test('los nulos de la base no cuentan como un sí', () => {
     false,
   );
 });
+
+// ------------------------------------------------------ comparar ids de un stream
+//
+// Los ids son `<milisegundos>-<n>`. Se comparan para saber si lo que el tope tiró
+// incluía avisos que el reparto no había leído, y ahí un `>` entre cadenas miente:
+// `"9-0" > "10-0"` es cierto en texto y falso de verdad. Con milisegundos eso pasa en
+// cuanto cambia el número de cifras, o sea el día que menos se espera.
+
+test('un id de stream se compara por número, no como texto', () => {
+  const mayorQue = (a: string, b: string): boolean => {
+    const [am, an] = a.split('-').map(Number);
+    const [bm, bn] = b.split('-').map(Number);
+
+    if (!Number.isFinite(am) || !Number.isFinite(bm)) return false;
+
+    return am !== bm ? am > bm : (an || 0) > (bn || 0);
+  };
+
+  // El que caza el fallo: en texto, "9" va después de "10".
+  assert.equal(mayorQue('9-0', '10-0'), false);
+  assert.equal(mayorQue('10-0', '9-0'), true);
+  // Mismo milisegundo: manda el contador.
+  assert.equal(mayorQue('1790443186657-2', '1790443186657-1'), true);
+  assert.equal(mayorQue('1790443186657-1', '1790443186657-2'), false);
+  // Iguales no es mayor: si lo tirado es justo lo último entregado, se leyó.
+  assert.equal(mayorQue('1790443186657-0', '1790443186657-0'), false);
+  // `0-0` es «no se ha tirado nada»: nunca puede ser mayor que algo entregado.
+  assert.equal(mayorQue('0-0', '1790443186657-0'), false);
+  // Basura no dispara la alarma.
+  assert.equal(mayorQue('', '1-0'), false);
+});

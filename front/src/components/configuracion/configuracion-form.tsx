@@ -434,14 +434,16 @@ export const ConfiguracionForm = () => {
           resumen, historial y tabla paginada— entre los parámetros del sistema y el
           botón de borrar la base. Y el de facturación no tenía entrada por ningún lado:
           se añadió a `panel-links.tsx`, que resultó ser código muerto —nadie lo
-          importa; el panel escribe sus tarjetas a mano en `panel.tsx`— así que el enlace
-          no se veía en ninguna parte.
+          importaba; el panel escribe sus tarjetas a mano en `panel.tsx`— así que el
+          enlace no se veía en ninguna parte.
 
           Van todos aquí, en un bloque, porque son lo mismo: pantallas de COMPROBAR que
           algo corre solo. Y como enlaces, no incrustados: cada una tiene su ruta.
 
-          OJO al añadir una nueva: `panel-links.tsx` NO vale, es código muerto. Esta lista
-          es la que se ve. */}
+          ESTA LISTA ES LA QUE SE VE. `panel-links.tsx` ya no existe: el 26/09/2026
+          volvió a pasar lo mismo —se añadió ahí la entrada del Reparto y no aparecía por
+          ningún lado—, así que se borró. Un fichero muerto que parece el menú cuesta una
+          vuelta cada vez que alguien lo encuentra, y avisar en un comentario no bastó. */}
       <Card className={cards()}>
         <CardBody>
           <div className="flex flex-col gap-1 mb-4">

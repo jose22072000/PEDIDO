@@ -25,6 +25,7 @@ type Estado = {
     hay: number | null;
     sinTerminar: number | null;
     masViejoSinTerminar: number | null;
+    tiradosSinLeer: boolean;
     ultimoAviso: number | null;
     grupoCreado: boolean;
     regla: string;
@@ -325,7 +326,11 @@ export const RepartoSyncPanel = () => {
    * El semáforo del envío. Tres estados que quieren decir cosas distintas y no se
    * pueden mezclar: apagado, encendido sin nadie escuchando, y funcionando.
    */
-  const salud = !enviar.encendido
+  const salud = enviar.tiradosSinLeer
+    ? // Manda sobre todo lo demás: si se tiraron avisos sin leer, hay pedidos que el
+      // reparto no va a ver nunca, y eso no puede quedar debajo de un «funcionando».
+      { color: "danger" as const, texto: "Se perdieron avisos" }
+    : !enviar.encendido
     ? { color: "default" as const, texto: "Apagado" }
     : !enviar.redis
       ? { color: "danger" as const, texto: "Sin Redis" }
@@ -554,6 +559,15 @@ export const RepartoSyncPanel = () => {
                 ))}
               </ul>
             </div>
+
+            {enviar.tiradosSinLeer && (
+              <p className="rounded-medium bg-danger-50 p-3 text-xs text-danger">
+                La cola llegó a su tope y borró avisos que el reparto <b>no había leído</b>.
+                Esos pedidos no le van a llegar por aquí: los recogerá su repaso de los
+                días atrás, que va cada tres horas. Pasa si el reparto estuvo caído mucho
+                tiempo; si se repite, hay que subir <span className="font-mono">DELIVERY_STREAM_MAXLEN</span>.
+              </p>
+            )}
 
             {!enviar.grupoCreado && enviar.encendido && (
               <p className="text-[11px] text-warning">

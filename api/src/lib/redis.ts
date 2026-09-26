@@ -120,10 +120,25 @@ export async function xaddReparto(campos: Record<string, string>): Promise<strin
  * no es cero: un cero dice «todo procesado» y tranquiliza, y «no se sabe» es otra cosa
  * muy distinta que en pantalla tiene que verse distinta.
  */
+/**
+ * Compara dos ids de stream (`<ms>-<n>`). No vale `>` entre cadenas: `"9-0"` saldría
+ * mayor que `"10-0"`, y con milisegundos eso pasa en cuanto cambia el número de cifras.
+ */
+function mayorQue(a: string, b: string): boolean {
+  const [am, an] = a.split('-').map(Number);
+  const [bm, bn] = b.split('-').map(Number);
+
+  if (!Number.isFinite(am) || !Number.isFinite(bm)) return false;
+
+  return am !== bm ? am > bm : (an || 0) > (bn || 0);
+}
+
 export async function infoStream(clave: string, grupo: string): Promise<{
   hay: number | null;
   sinTerminar: number | null;
   masViejoSinTerminar: number | null;
+  /** `true` si el tope de la cola llegó a tirar avisos que el reparto NO había leído. */
+  tiradosSinLeer: boolean;
   ultimoAviso: number | null;
   grupoCreado: boolean;
   redis: boolean;
@@ -132,6 +147,7 @@ export async function infoStream(clave: string, grupo: string): Promise<{
     hay: null,
     sinTerminar: null,
     masViejoSinTerminar: null,
+    tiradosSinLeer: false,
     ultimoAviso: null,
     grupoCreado: false,
     redis: false,
@@ -155,6 +171,7 @@ export async function infoStream(clave: string, grupo: string): Promise<{
     let sinTerminar: number | null = null;
     let masViejoSinTerminar: number | null = null;
     let grupoCreado = false;
+    let tiradosSinLeer = false;
     try {
       const p = (await connection.xpending(clave, grupo)) as unknown as [number, string | null, ...unknown[]];
 
@@ -177,11 +194,37 @@ export async function infoStream(clave: string, grupo: string): Promise<{
       const ms = Number(String(p?.[1] ?? '').split('-')[0]);
 
       if (Number.isFinite(ms) && ms > 0) masViejoSinTerminar = ms;
+
+      /*
+       * ¿EL TOPE DE LA COLA LLEGÓ A TIRAR ALGO QUE EL REPARTO NO HABÍA LEÍDO?
+       *
+       * La cola está topada a ~20.000 avisos (`DELIVERY_STREAM_MAXLEN`). El tope hace
+       * falta —sin él, un consumidor caído una semana llena el Redis— pero recortar es
+       * BORRAR, y hasta ahora se borraba en silencio: un aviso tirado antes de leerse es
+       * un pedido que el reparto no ve nunca, y desde fuera se parece a que no pasó nada.
+       *
+       * Redis guarda `max-deleted-entry-id`. Si es MAYOR que el último que el grupo
+       * llegó a entregar, entonces lo que se tiró incluía avisos sin leer. Con el ritmo
+       * de hoy —decenas al día— harían falta más de un mes de caída para llegar ahí,
+       * pero «es improbable» no es «se vería».
+       */
+      const info = (await connection.xinfo('STREAM', clave)) as unknown as unknown[];
+      const grupos = (await connection.xinfo('GROUPS', clave)) as unknown as unknown[][];
+      const campo = (filas: unknown[], nombre: string): string => {
+        for (let i = 0; i < filas.length; i += 2) if (filas[i] === nombre) return String(filas[i + 1]);
+
+        return '';
+      };
+      const nuestro = grupos.find((g) => campo(g, 'name') === grupo);
+      const tirado = campo(info, 'max-deleted-entry-id');
+      const entregado = nuestro ? campo(nuestro, 'last-delivered-id') : '';
+
+      tiradosSinLeer = Boolean(tirado) && Boolean(entregado) && mayorQue(tirado, entregado);
     } catch {
       sinTerminar = null;
     }
 
-    return { hay, sinTerminar, masViejoSinTerminar, ultimoAviso, grupoCreado, redis: true };
+    return { hay, sinTerminar, masViejoSinTerminar, tiradosSinLeer, ultimoAviso, grupoCreado, redis: true };
   } catch (e) {
     console.error(`[redis] no se pudo leer ${clave}:`, (e as Error).message);
     return { ...vacio, redis: true };

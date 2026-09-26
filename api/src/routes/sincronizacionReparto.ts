@@ -84,7 +84,8 @@ router.get('/reparto', async (req, res) => {
           fallados,
         },
         // `null` cuando no hay Redis: no es cero, es «no se sabe», y en pantalla se
-        // tiene que ver distinto — un cero tranquiliza y un «no se sabe» no.
+        // tiene que ver distinto — un cero tranquiliza y un «no se sabe» no. Y
+        // `tiradosSinLeer` es la alarma: el tope llegó a borrar avisos sin leer.
         ...cola,
         // Qué dispara un aviso. Va en la respuesta y no escrito en la pantalla para
         // que no se queden en dos sitios distintos diciendo cosas distintas.
