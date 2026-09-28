@@ -159,29 +159,37 @@ export const useAuthStore = create<AuthState>()(
 
           const data = await response.json();
 
-            set({
-              user: data.user,
-              token: data.token || null,
-              session: {
-                rol: data.user?.role
-                  ? String(data.user.role).toUpperCase()
-                  : undefined,
-                sucursalId: data.user?.sucursalId || undefined,
-                usuarioId: data.user?.id || undefined,
-                isGlobalAdmin:
-                  String(data.user?.username || "").toLowerCase() === "admin" ||
-                  esRolGlobal(data.user?.role),
-              },
+          /*
+           * SE LIMPIA PRIMERO, antes de escribir NADA de la sesión nueva.
+           *
+           * Antes se limpiaba después del `set`, y con el borrado por lista colaba de
+           * milagro. Ahora se vacía el almacenamiento entero, así que limpiar después
+           * borraría lo que se acaba de guardar —el store se persiste en el `set`— y el
+           * siguiente arranque no encontraría al usuario.
+           *
+           * Y el orden correcto es éste de todas formas: lo del anterior se va COMPLETO
+           * antes de que entre nada del nuevo. Al revés siempre queda una rendija.
+           */
+          if (typeof window !== 'undefined') limpiarSesion();
+
+          set({
+            user: data.user,
+            token: data.token || null,
+            session: {
+              rol: data.user?.role
+                ? String(data.user.role).toUpperCase()
+                : undefined,
+              sucursalId: data.user?.sucursalId || undefined,
+              usuarioId: data.user?.id || undefined,
+              isGlobalAdmin:
+                String(data.user?.username || "").toLowerCase() === "admin" ||
+                esRolGlobal(data.user?.role),
+            },
             isAuthenticated: true,
             error: null,
           });
 
           if (data.token && typeof window !== 'undefined') {
-            // Se limpia ANTES de guardar la sesion nueva, por si la anterior no
-            // se cerro bien (pestania cerrada, corte de luz, token caducado).
-            // Si no, la sucursal enfocada del usuario anterior sigue puesta y el
-            // nuevo manda la sucursal de otro en cada peticion -> 400 en todo.
-            limpiarSesion();
             localStorage.setItem('auth_token', data.token);
           }
 

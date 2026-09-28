@@ -684,7 +684,7 @@ router.patch('/:id/completar', async (req, res) => {
     const quienPide = getRequesterContext(req);
 
     if (!quienPide.puedeCompletarPedidos) {
-      return res.status(403).json({ error: porQueNoPuede('completar pedidos', quienPide.role) });
+      return res.status(403).json({ error: porQueNoPuede('completar pedidos', quienPide.role, quienPide.username) });
     }
 
     const { where, error: sucursalError } = alcancePedido(req);
@@ -749,7 +749,7 @@ router.delete('/:id', async (req, res) => {
     const quienBorra = getRequesterContext(req);
 
     if (!quienBorra.puedeBorrarPedidos) {
-      return res.status(403).json({ error: porQueNoPuede('borrar pedidos', quienBorra.role) });
+      return res.status(403).json({ error: porQueNoPuede('borrar pedidos', quienBorra.role, quienBorra.username) });
     }
 
     const { where, error: sucursalError } = alcancePedido(req);
@@ -1233,7 +1233,7 @@ router.patch('/:id/estado', async (req, res) => {
     const quienCambia = getRequesterContext(req);
 
     if (!quienCambia.puedeCompletarPedidos) {
-      return res.status(403).json({ error: porQueNoPuede('cambiar el estado de los pedidos', quienCambia.role) });
+      return res.status(403).json({ error: porQueNoPuede('cambiar el estado de los pedidos', quienCambia.role, quienCambia.username) });
     }
 
     const { where, error: sucursalError } = alcancePedido(req);

@@ -23,14 +23,46 @@ import { SUCURSAL_ACTIVA_KEY } from "./sucursal-activa";
  * cubre el caso de que la sesión anterior no se cerrara bien: se cerró la
  * pestaña, se fue la corriente, caducó el token. Limpiar en los dos sitios sale
  * gratis y no deja ese hueco.
+ *
+ * # Por qué se borra TODO y no una lista de claves
+ *
+ * Porque la lista se quedó corta y volvió a pasar. Borraba `auth_token` y la sucursal
+ * enfocada, y **el usuario con su rol se guardaba en otra clave** —`auth-storage`, la del
+ * store— que nadie tocaba. El 28/09/2026 una operadora no pudo completar un pedido: la
+ * pantalla le dijo «tu rol no puede», su cuenta era Operador y sí podía. Había entrado
+ * antes otra persona en ese navegador. Jose: «cuando tú das cerrar sesión tienes que
+ * borrar todo para que esto no ocurra».
+ *
+ * Una lista de claves hay que acordarse de ampliarla cada vez que alguien guarda algo
+ * nuevo, y nadie se acuerda — ya van dos veces. Se vacía el almacenamiento entero: lo que
+ * se pierde son preferencias de este navegador (el tema, la moneda), que se vuelven a
+ * poner en un clic; lo que se evita es que la identidad de una persona se quede pegada a
+ * la pantalla de otra.
  */
 export function limpiarSesion() {
   if (typeof window !== "undefined") {
-    for (const clave of ["auth_token", SUCURSAL_ACTIVA_KEY]) {
+    /*
+     * Primero las claves de la sesión, una a una.
+     *
+     * `clear()` puede fallar entero —modo privado, almacenamiento bloqueado por política,
+     * la cuota— y si falla la primera línea, lo demás no se ejecuta. Quitando estas dos
+     * antes, aunque el borrado general se caiga, el token y la sucursal ya no están: es
+     * lo mínimo que no puede quedarse.
+     */
+    for (const clave of ["auth_token", SUCURSAL_ACTIVA_KEY, "auth-storage"]) {
       try {
         localStorage.removeItem(clave);
       } catch {
         /* navegador sin almacenamiento: no hay nada que limpiar */
+      }
+    }
+
+    // Y ahora todo lo demás, sin lista que mantener.
+    for (const almacen of [() => localStorage, () => sessionStorage]) {
+      try {
+        almacen().clear();
+      } catch {
+        /* idem */
       }
     }
   }
