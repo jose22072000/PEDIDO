@@ -176,16 +176,36 @@ export function clavesDeProducto(nombre: string): Set<string> {
 /**
  * Cuántas unidades trae un formato, leído del NOMBRE del producto.
  *
- * Casi siempre lo dice: «CAJA 24U», «BLISTER 6U», «PACA 10U». Y a veces en dos pisos —
- * «PACA 12P DE 4U» son doce paquetes de cuatro, o sea cuarenta y ocho.
+ * Casi siempre lo dice: «CAJA 24U», «BLISTER 6U», «PACA 10U», «CAJA 72 P». Y a veces en
+ * dos pisos — «PACA 12P DE 4U» son doce paquetes de cuatro, o sea cuarenta y ocho.
  *
  * Hace falta para los productos que la factura trae y el pedido no: de ésos no hay
  * ninguna línea de la que copiar la proporción, y sin esto salían con las unidades en
  * blanco. El dato estaba escrito ahí delante todo el tiempo.
  *
- * Devuelve `null` cuando el nombre no lo dice. Suponer «1» sería inventarse una cifra que
- * después alguien suma.
+ * # LA «P» CONTABA IGUAL QUE LA «U», y se estaba perdiendo
+ *
+ * Medido el 28/09/2026 sobre 20 días: **445 líneas de factura sin unidades, y este
+ * parser salvaba CERO**. No porque el nombre no lo dijera, sino porque lo decía con otra
+ * letra: `SOPA DE POLLO CAJA 72 P`, `SERVILLETA PROSITO PACA 24P`, `SERVILLETA AZAHAR
+ * CAJA 60P`, `PAQUETE DE HOJAS 4 P`. Son 218 líneas que llevaban el dato escrito delante
+ * y se leían como si no lo tuvieran.
+ *
+ * Jose lo dijo con esas palabras: «CAJA 72 P = 72». Y no hay ambigüedad con los dos
+ * pisos, que se miran primero.
+ *
+ * # LOS QUE SE VENDEN DE UNO EN UNO son 1, no «no se sabe»
+ *
+ * `ARROZ BLANCO 25 KG SACO`, `QUESO GOUDA LITUANO BARRA`: el saco y la barra SON la
+ * unidad de venta, y no llevan número porque no hace falta. Otras 206 líneas. Devolver
+ * `null` ahí era tratar «un saco es un saco» como si fuera un dato que falta.
+ *
+ * Sigue devolviendo `null` cuando de verdad no se sabe —`PAPEL HIGIENICO MINIJUMBO HS
+ * 275`, que ese 275 no se sabe si son hojas, metros o el modelo—. Inventarse un 1 ahí es
+ * una cifra que después alguien suma.
  */
+const DE_UNO_EN_UNO = /\b(SACO|BARRA|GALON|GALÓN|POMO|BOTELLA|LATA|PIEZA|UNIDAD)\b/
+
 export function unidadesPorFormato(nombre: string): number | null {
   const n = (nombre || '').toUpperCase()
 
@@ -194,14 +214,24 @@ export function unidadesPorFormato(nombre: string): number | null {
 
   if (dosPisos) return Number(dosPisos[1]) * Number(dosPisos[2])
 
-  // Y el corriente: «CAJA 24U», «BLISTER 6U», «PACA 10U».
-  const simple = /(\d+)\s*U\b/.exec(n)
+  /*
+   * El corriente, con las DOS letras: «CAJA 24U», «BLISTER 6U», «PACA 10U», «CAJA 72 P».
+   *
+   * El `\b` del final es lo que evita el falso positivo: en «EXHIBIDOR … 13 PIES», la P
+   * va pegada a «IES» y no hay frontera de palabra, así que no cuenta como formato. Sin
+   * él, un exhibidor pasaría a traer trece unidades.
+   */
+  const simple = /(\d+)\s*[UP]\b/.exec(n)
 
   if (simple) {
     const v = Number(simple[1])
 
-    return v > 0 ? v : null
+    if (v > 0) return v
   }
+
+  // Y los que se venden de uno en uno. Va DESPUÉS: «PACA 12P» manda sobre cualquier
+  // palabra suelta que aparezca en el mismo nombre.
+  if (DE_UNO_EN_UNO.test(n)) return 1
 
   return null
 }

@@ -222,11 +222,40 @@ describe('cuantas unidades trae un formato, leido del nombre', () => {
     assert.equal(unidadesPorFormato('PAPEL HIGIENICO LIRIO 44 M PACA 12P DE 4U'), 48);
   });
 
-  it('lo que no lo dice se queda en nulo, no en uno', () => {
-    // Suponer «1» es inventarse una cifra que despues alguien suma.
-    assert.equal(unidadesPorFormato('ARROZ BLANCO 25 KG SACO'), null);
-    assert.equal(unidadesPorFormato('QUESO GOUDA LITUANO BARRA'), null);
+  it('la «P» cuenta igual que la «U», y se estaba perdiendo', () => {
+    // Medido el 28/09/2026: 445 lineas de factura sin unidades y este parser salvaba
+    // CERO. No porque el nombre no lo dijera: lo decia con otra letra. Son 218 lineas.
+    assert.equal(unidadesPorFormato('SOPA DE POLLO CAJA 72 P'), 72);
+    assert.equal(unidadesPorFormato('SERVILLETA PROSITO PACA 24P'), 24);
+    assert.equal(unidadesPorFormato('SERVILLETA AZAHAR CAJA 60P'), 60);
+    assert.equal(unidadesPorFormato('PAQUETE DE HOJAS 4 P A4'), 4);
+  });
+
+  it('pero «13 PIES» no son trece unidades', () => {
+    // El falso positivo que se evita con la frontera de palabra: la P de PIES va pegada
+    // a IES. Sin eso, un exhibidor pasaria a traer trece unidades.
+    assert.equal(unidadesPorFormato('EXHIBIDOR VERTICAL ICOOL 1 PUERTA 13 PIES'), null);
+  });
+
+  it('los que se venden de uno en uno son 1, que no es lo mismo que «no se sabe»', () => {
+    // CAMBIO DE CRITERIO, 28/09/2026. Antes devolvian null con el argumento de que
+    // suponer «1» es inventarse una cifra. Pero el saco y la barra SON la unidad de
+    // venta: no llevan numero porque no hace falta. Eran 206 lineas tratando «un saco es
+    // un saco» como un dato que falta.
+    assert.equal(unidadesPorFormato('ARROZ BLANCO 25 KG SACO'), 1);
+    assert.equal(unidadesPorFormato('QUESO GOUDA LITUANO BARRA'), 1);
+  });
+
+  it('y lo que de verdad no se sabe SIGUE en nulo', () => {
+    // Ese 275 no se sabe si son hojas, metros o el modelo. Inventarse un 1 ahi es una
+    // cifra que despues alguien suma.
+    assert.equal(unidadesPorFormato('PAPEL HIGIENICO MINIJUMBO HS 275'), null);
     assert.equal(unidadesPorFormato(''), null);
+  });
+
+  it('un formato con numero manda sobre la palabra suelta', () => {
+    // «PACA 12P» decide, aunque en el mismo nombre aparezca «BOTELLA».
+    assert.equal(unidadesPorFormato('AGUA BOTELLA 500 ML PACA 12P'), 12);
   });
 });
 
