@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import prisma from '../prismaClient';
 import { esConsumoPropio } from '../lib/consumoPropio';
 import { avisarAlReparto, esParaElReparto, CAMPOS_PARA_DECIDIR } from '../lib/avisoAlReparto';
+import { porQueNoPuede } from '../lib/porQueNoPuede';
 import { catalogoDeSucursal, unidadesDeVenta } from '../lib/catalogoSucursal';
 import {
   mapCsvRecords,
@@ -680,10 +681,10 @@ router.patch('/:id/completar', async (req, res) => {
     // facturo", y eso lo dice quien factura (Operador) o quien manda en la
     // sucursal. La pantalla ya no le ensena el boton; esta comprobacion es la
     // que de verdad lo impide.
-    if (!getRequesterContext(req).puedeCompletarPedidos) {
-      return res.status(403).json({
-        error: 'Tu rol no puede completar pedidos. Los completa el Operador o quien lleva la sucursal.',
-      });
+    const quienPide = getRequesterContext(req);
+
+    if (!quienPide.puedeCompletarPedidos) {
+      return res.status(403).json({ error: porQueNoPuede('completar pedidos', quienPide.role) });
     }
 
     const { where, error: sucursalError } = alcancePedido(req);
@@ -745,10 +746,10 @@ router.delete('/:id', async (req, res) => {
     // Esto NO se comprobaba. La lista escondia el boton a los demas roles, pero
     // el endpoint aceptaba el DELETE de cualquiera con sesion: un Gestor o un
     // Operador podian borrar un pedido llamando a la API a mano.
-    if (!getRequesterContext(req).puedeBorrarPedidos) {
-      return res.status(403).json({
-        error: 'Tu rol no puede borrar pedidos.',
-      });
+    const quienBorra = getRequesterContext(req);
+
+    if (!quienBorra.puedeBorrarPedidos) {
+      return res.status(403).json({ error: porQueNoPuede('borrar pedidos', quienBorra.role) });
     }
 
     const { where, error: sucursalError } = alcancePedido(req);
@@ -1229,10 +1230,10 @@ router.patch('/:id/estado', async (req, res) => {
 
     // Mismo permiso que completar: reabrir es tan delicado como cerrar, y quien no
     // puede una cosa no tiene por qué poder la otra.
-    if (!getRequesterContext(req).puedeCompletarPedidos) {
-      return res.status(403).json({
-        error: 'Tu rol no puede cambiar el estado de los pedidos. Lo hace el Operador o quien lleva la sucursal.',
-      });
+    const quienCambia = getRequesterContext(req);
+
+    if (!quienCambia.puedeCompletarPedidos) {
+      return res.status(403).json({ error: porQueNoPuede('cambiar el estado de los pedidos', quienCambia.role) });
     }
 
     const { where, error: sucursalError } = alcancePedido(req);

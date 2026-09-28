@@ -46,9 +46,35 @@ function juntar(previo: FilaCatalogo | undefined, fila: FilaCatalogo): FilaCatal
  * Todo lo que puede salir mal aquí —el desempate del producto duplicado, el orden de las
  * variantes, que el vínculo a mano mande— no necesita una base de datos para fallar.
  */
+/**
+ * UN PESO DE CERO NO ES UN PESO: es un dato que falta disfrazado de número.
+ *
+ * Ventra manda `0` en diez productos, y son **los más pesados del catálogo**: el
+ * congelador Milexus, el exhibidor Icool de 13 pies, el kit de batería e inversor de
+ * 5.000 W, el panel solar de 590 W y cinco cajas de ron. Medido el 28/09/2026: 100 filas
+ * de 1.300.
+ *
+ * Pasarlo tal cual es peor que no tener el dato. Un nulo se lee «no se sabe» y quien
+ * arma la hoja de carga lo marca; un cero **se suma**, y un camión con un congelador y
+ * dos paneles solares sale pesando cero kilos sin que falle nada. Es el número creíble y
+ * equivocado, que es el fallo más caro de esta casa.
+ *
+ * Se convierte al ENTRAR, en un solo sitio, para que ninguna de las dos formas de cargar
+ * el catálogo pueda saltárselo. Y de paso arregla el `juntar` de abajo: con el cero
+ * convertido en nulo, el `??` cae a la fila que sí trae el peso en vez de quedarse con
+ * el cero de la primera.
+ *
+ * Nada de lo que se vende pesa cero. El día que exista algo que sí —un servicio, una
+ * garantía—, no se reparte en un camión y su peso da igual.
+ */
+function sinPesosDeCero(f: FilaCatalogo): FilaCatalogo {
+  return f.pesoKg === 0 ? { ...f, pesoKg: null } : f;
+}
+
 export function indexarCatalogo(filas: FilaCatalogo[], vinculos: Map<string, string>): CatalogoSucursal {
   const porNombre = new Map<string, FilaCatalogo>();
-  for (const f of filas) {
+  for (const cruda of filas) {
+    const f = sinPesosDeCero(cruda);
     const k = normalizarProducto(f.nombre);
     porNombre.set(k, juntar(porNombre.get(k), f));
   }
