@@ -53,6 +53,23 @@ interface RequesterContext {
    * cualquiera que tuviera sesión. Esconder un botón no es un permiso.
    */
   puedeBorrarPedidos: boolean;
+  /**
+   * ¿VENÍA UNA SESIÓN VÁLIDA? Es otra pregunta que «qué puede hacer».
+   *
+   * Sin esto, una sesión caducada y un rol sin permiso se veían IGUAL desde las rutas:
+   * `parseBearerToken` devuelve `null` con cualquier fallo —token vencido, firma mala,
+   * cabecera ausente— y entonces no hay rol, y sin rol todos los permisos son `false`.
+   * Resultado: a quien se le caducó la sesión se le decía **«tu rol no puede completar
+   * pedidos»**, que manda a buscar un problema de permisos que no existe.
+   *
+   * Y pasa SOLO, a todo el mundo, cada siete días: es lo que dura el token. Por eso se
+   * veía suelto y en sucursales distintas, siempre a cuentas viejas con la sesión abierta
+   * de hace una semana. Jose, 28/09/2026: «hay veces que ha pasado en varias sucursales
+   * que no los deja completar y son roles de operadores viejos».
+   *
+   * `false` quiere decir «vuelve a entrar», y eso es un 401, no un 403.
+   */
+  sesionValida: boolean;
 }
 
 interface ResolveScopeOptions {
@@ -149,6 +166,8 @@ export function getRequesterContext(req: Request): RequesterContext {
       // La API key es de LECTURA (el middleware solo la acepta en GET/HEAD).
       puedeCompletarPedidos: false,
       puedeBorrarPedidos: false,
+      // La clave de servicio ES una identidad válida: lo que no tiene son estos permisos.
+      sesionValida: true,
     };
   }
 
@@ -214,6 +233,8 @@ export function getRequesterContext(req: Request): RequesterContext {
     puedeImportarYReportar,
     puedeCompletarPedidos,
     puedeBorrarPedidos,
+    // Hubo token y se pudo verificar. Ver el comentario del campo.
+    sesionValida: !!payload,
   };
 }
 

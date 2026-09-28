@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client';
 import prisma from '../prismaClient';
 import { esConsumoPropio } from '../lib/consumoPropio';
 import { avisarAlReparto, esParaElReparto, CAMPOS_PARA_DECIDIR } from '../lib/avisoAlReparto';
-import { porQueNoPuede } from '../lib/porQueNoPuede';
+import { porQueNoPuede, SESION_CADUCADA } from '../lib/porQueNoPuede';
 import { catalogoDeSucursal, unidadesDeVenta } from '../lib/catalogoSucursal';
 import {
   mapCsvRecords,
@@ -683,6 +683,18 @@ router.patch('/:id/completar', async (req, res) => {
     // que de verdad lo impide.
     const quienPide = getRequesterContext(req);
 
+    /*
+     * PRIMERO si hay sesión, y sólo después si puede.
+     *
+     * Una sesión caducada llegaba aquí sin rol, y sin rol ningún permiso es cierto: se
+     * respondía «tu rol no puede completar pedidos» a alguien cuyo rol sí puede. Y la
+     * sesión caduca sola a los siete días, así que esto pasaba suelto, en sucursales
+     * distintas, a quien llevaba una semana sin volver a entrar.
+     */
+    if (!quienPide.sesionValida) {
+      return res.status(401).json({ error: SESION_CADUCADA });
+    }
+
     if (!quienPide.puedeCompletarPedidos) {
       return res.status(403).json({ error: porQueNoPuede('completar pedidos', quienPide.role, quienPide.username) });
     }
@@ -747,6 +759,10 @@ router.delete('/:id', async (req, res) => {
     // el endpoint aceptaba el DELETE de cualquiera con sesion: un Gestor o un
     // Operador podian borrar un pedido llamando a la API a mano.
     const quienBorra = getRequesterContext(req);
+
+    if (!quienBorra.sesionValida) {
+      return res.status(401).json({ error: SESION_CADUCADA });
+    }
 
     if (!quienBorra.puedeBorrarPedidos) {
       return res.status(403).json({ error: porQueNoPuede('borrar pedidos', quienBorra.role, quienBorra.username) });
@@ -1231,6 +1247,10 @@ router.patch('/:id/estado', async (req, res) => {
     // Mismo permiso que completar: reabrir es tan delicado como cerrar, y quien no
     // puede una cosa no tiene por qué poder la otra.
     const quienCambia = getRequesterContext(req);
+
+    if (!quienCambia.sesionValida) {
+      return res.status(401).json({ error: SESION_CADUCADA });
+    }
 
     if (!quienCambia.puedeCompletarPedidos) {
       return res.status(403).json({ error: porQueNoPuede('cambiar el estado de los pedidos', quienCambia.role, quienCambia.username) });

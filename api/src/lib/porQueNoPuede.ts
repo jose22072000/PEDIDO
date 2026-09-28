@@ -48,3 +48,15 @@ export function porQueNoPuede(
 
   return `Esta sesión entró como ${rol} y ese rol no puede ${accion}. Cierra sesión y vuelve a entrar con tu usuario.`;
 }
+
+/**
+ * Lo que se responde cuando NO hay sesión válida: token vencido, firma mala, o ninguno.
+ *
+ * Va con un 401 y no con un 403. Son cosas distintas y la diferencia no es de forma: un
+ * 403 dice «tú no puedes» y manda a buscar permisos; un 401 dice «vuelve a entrar», que
+ * es lo único que hay que hacer. El token dura siete días, así que esto le pasa a todo el
+ * mundo tarde o temprano, sin que nada se rompa y sin aviso.
+ */
+export const SESION_CADUCADA =
+  'Tu sesión caducó o no es válida. Las sesiones duran 7 días. Cierra sesión y vuelve a entrar; ' +
+  'no es un problema de permisos ni de tu usuario.';
