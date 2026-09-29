@@ -88,7 +88,7 @@
  * vez de cada uno). Es la red debajo del trapecio: con avisos, casi nunca encuentra
  * nada; sin ellos, el espejo sigue funcionando como hasta hoy, sólo que más despacio.
  */
-import { xaddReparto, STREAM_REPARTO } from './redis';
+import { xaddReparto, STREAM_REPARTO, contarEnLaVentana, VENTANA_RAFAGA_S } from './redis';
 import { encolarAvisoWebhook } from './queues';
 import { emitEvent } from './events';
 
@@ -236,6 +236,108 @@ export function esParaElReparto(p: PedidoParaDecidir | null | undefined): boolea
 }
 
 /**
+ * Los campos del pedido que el reparto USA de verdad.
+ *
+ * No es una lista de buena voluntad: salió de mirar qué le manda el webhook
+ * —`mapearParaIntegracion`— y qué hace con ello. Sirve para lo único que hace falta aquí,
+ * que es distinguir «le cambió algo» de «le tocamos el registro», y por eso vive al lado
+ * de la regla y no en el sitio que la usa.
+ *
+ * `items` no es una columna: es la señal de que las líneas se reescribieron. Va en la
+ * lista porque de ahí sale lo que se sube al camión.
+ *
+ * Y lo que NO está, que es la mitad del valor de esto:
+ *
+ *   facturaAt · facturaCorregidoAt   cuándo se comprobó. No le cambia nada a nadie.
+ *   facturaDiferencias               «ARROZ: pedido 24, facturado 54». Es para pintarle
+ *                                    al vendedor lo que la factura le cambió; no altera
+ *                                    la ruta ni la carga.
+ *   itemsOriginal                    las líneas como las pidió el cliente, guardadas
+ *                                    aparte. El reparto carga lo FACTURADO, no aquello.
+ */
+export const CAMPOS_QUE_USA_EL_REPARTO: ReadonlySet<string> = new Set([
+  // De aquí salen sus líneas cuando existe, ya con los pesos: es la carga del camión.
+  'lineasFactura',
+  'items',
+  'facturaNumero',
+  'facturaEstado',
+  'facturaDomicilio',
+  'costoDomicilio',
+  'requiere_domicilio',
+  'estado',
+  // A dónde y a quién: su ruta y su llamada.
+  'direccion',
+  'telefono',
+  'encargado',
+  'fecha_comprometida',
+]);
+
+export type QueLeCambia = 'entra' | 'sale' | 'cambio' | 'nada';
+
+/**
+ * ¿Hay que avisar, y de qué? Por FLANCO, no por nivel.
+ *
+ * # Por qué no basta con «¿es repartible?»
+ *
+ * Porque es lo que había, y es lo que se viene a arreglar. Contado en la cola el
+ * 29/09/2026: de **2.712 pedidos avisados en tres días, sólo 295 se habían creado en esos
+ * tres días**. Los otros ~2.400 ya eran repartibles y ya se habían mandado; se volvieron a
+ * anunciar porque el cotejo les tocó un campo otra vez. Y el 77 % de todo salió en UNA
+ * hora —el 26/09 a las 22:00— cuando este criterio entró en producción y el cotejo repasó
+ * el catálogo viejo entero de golpe.
+ *
+ * Del otro lado, cada aviso dispara un ciclo de sincronización en cada teléfono
+ * conectado: un repaso nuestro se multiplica por la flota. Palabras de Jose: «por el
+ * webhook solo debe mandarse cosas q estan listas para subir a un camion».
+ *
+ * # Y por qué tampoco basta con el flanco de entrada
+ *
+ * Un pedido que ya va en un camión y al que le cambia la factura —otros pesos, otras
+ * líneas, otro costo de domicilio— hay que contarlo igual: el reparto está cargando contra
+ * un dato viejo. Avisar sólo de la entrada dejaría la tarjeta puesta y equivocada, que
+ * hace el mismo daño que la tarjeta fantasma y se ve menos.
+ *
+ * De ahí los cuatro casos. Y `cambio` se mide contra lo que el reparto USA, no contra que
+ * se haya escrito algo: un `facturaAt` nuevo no es una noticia.
+ *
+ * # El regalo de hacerlo por flanco
+ *
+ * `sale` se puede sacar de la regla general, que por nivel no se podía. Mirando el nivel,
+ * «no cumple la regla» es cierto para cada pedido de mostrador que se factura —casi
+ * todos—, así que habría sido el ruido de antes con otro nombre; por eso el `ya_no_va`
+ * está cableado a los dos sitios donde pasa de verdad. Por flanco hace falta que ANTES sí
+ * cumpliera, y un pedido de mostrador nunca cumplió: no dispara nunca.
+ *
+ * # La trampa de llamarla con un objeto incompleto
+ *
+ * `antes` y `despues` tienen que traer los cuatro campos de `CAMPOS_PARA_DECIDIR`. Si
+ * falta `requiere_domicilio` —y faltaba en el tipo del cotejo— los pedidos cuya única
+ * señal de domicilio es la casilla salen `false` a los dos lados, o sea `nada`, y **dejan
+ * de avisarse para siempre sin que nada falle**. Es el fallo por el lado estricto: no
+ * aparece en ninguna pantalla, sólo hay camiones que no salen.
+ *
+ * Puro a propósito: es lo que decide si el reparto se entera, y se prueba solo.
+ */
+export function queLeCambia(
+  antes: PedidoParaDecidir | null | undefined,
+  despues: PedidoParaDecidir | null | undefined,
+  escritos: Iterable<string> = [],
+): QueLeCambia {
+  const era = esParaElReparto(antes);
+  const es = esParaElReparto(despues);
+
+  if (era !== es) return es ? 'entra' : 'sale';
+  // Nunca fue suyo y sigue sin serlo: no hay nada que contar.
+  if (!es) return 'nada';
+
+  for (const campo of escritos) {
+    if (CAMPOS_QUE_USA_EL_REPARTO.has(campo)) return 'cambio';
+  }
+
+  return 'nada';
+}
+
+/**
  * Arma el aviso. Puro y aparte para poder probarlo: lo que se manda importa tanto como
  * que se mande, y un campo con `undefined` dentro rompe el `XADD` entero.
  */
@@ -329,6 +431,78 @@ async function leToca(cambio: CambioParaElReparto): Promise<boolean> {
 }
 
 /**
+ * LA AVALANCHA: cuando una sucursal se pone a avisar de golpe, se dice una vez.
+ *
+ * # De dónde sale esto
+ *
+ * El 26/09/2026 a las 22:00 salieron **2.160 avisos en una hora** —el 77 % de todo lo
+ * mandado en tres días— porque el criterio entró en producción y el cotejo repasó el
+ * catálogo viejo entero. El 28/09 volvieron a salir 516 cuando se arreglaron los pesos de
+ * los empaques y se reescribieron las líneas de cientos de pedidos viejos. Ninguno de los
+ * dos era un error: eran noticias de verdad. El problema es la FORMA.
+ *
+ * Del otro lado, cada aviso dispara un ciclo de sincronización en cada teléfono conectado.
+ * Dos mil avisos por la flota entera es lo que Jose vio y llamó «tantas cosas». Mil avisos
+ * sueltos y un «repasa esa sucursal» le cuestan al reparto lo mismo —va a pedirlos todos
+ * igual— pero los mil tapan lo que venga detrás.
+ *
+ * El estado normal son unos 8 avisos a la hora, así que el tope no se roza trabajando.
+ * Sólo se dispara cuando arreglamos algo del cotejo, que es exactamente cuando debe.
+ *
+ * # Lo que NUNCA se colapsa, y por qué
+ *
+ * Confirmado con la sesión del reparto el 29/09/2026, mirando su código:
+ *
+ *   cliente                un aviso de cliente SIN id lo descartan en silencio: no tiene
+ *                          rama de respaldo. Colapsarlo sería perderlo entero.
+ *   borrado · ya_no_va     igual, y además sin id no hay a quién quitar del camión. Un
+ *                          fantasma es justo lo que estos dos motivos existen para evitar.
+ *
+ * Los tres que sí —`factura`, `domicilio`, `importacion`— tienen su rama: sin `id`, el
+ * espejo repasa esa sucursal. Está en su `AgruparAvisos`.
+ *
+ * # Y sin sucursal tampoco
+ *
+ * Un aviso de tanda sin `sucursalId` significa «repasa las ocho». Eso es más caro que el
+ * aviso suelto que venía a sustituir, así que ahí se deja pasar.
+ */
+const SE_PUEDEN_COLAPSAR = new Set(['factura', 'domicilio', 'importacion']);
+
+/**
+ * Cuántos avisos de una sucursal caben en la ventana antes de agrupar.
+ *
+ * Por encima del tope sale UNO que dice «repasa esa sucursal» y el resto se calla hasta
+ * que la ventana vence. 25 en un minuto es muy por encima de un día de trabajo y muy por
+ * debajo de un repaso del catálogo.
+ */
+export const TOPE_RAFAGA = Number(process.env.DELIVERY_RAFAGA_TOPE || 25);
+
+export type QueHacerConLaRafaga = 'suelto' | 'tanda' | 'callar';
+
+/**
+ * Puro para poder probarlo: decide callar avisos, que es la clase de cosa que hace daño
+ * en silencio si se equivoca. `n` es el número que lleva la sucursal en la ventana, o
+ * `null` si no se pudo contar — y no poder contar **nunca** calla nada.
+ */
+export function queHacerConLaRafaga(
+  cambio: Pick<CambioParaElReparto, 'motivo' | 'sucursalId' | 'id'>,
+  n: number | null,
+  tope: number = TOPE_RAFAGA,
+): QueHacerConLaRafaga {
+  // Sin contador no se sabe, y «no se sabe» se trata como «déjalo pasar». Callar un aviso
+  // porque Redis no conteste es perder un pedido por una avería de otra cosa.
+  if (n == null) return 'suelto';
+  if (!cambio.sucursalId) return 'suelto';
+  // Ya era de tanda: no hay nada que agrupar.
+  if (!cambio.id) return 'suelto';
+  if (!SE_PUEDEN_COLAPSAR.has(cambio.motivo)) return 'suelto';
+  if (n <= tope) return 'suelto';
+
+  // El que cruza el tope manda el «repasa esa sucursal»; los de detrás ya no hacen falta.
+  return n === tope + 1 ? 'tanda' : 'callar';
+}
+
+/**
  * Deja el aviso en la bandeja del reparto, y le toca la puerta si tiene URL.
  *
  * Best-effort de verdad: no se espera, no lanza y no puede tumbar lo que lo llamó. Un
@@ -339,6 +513,29 @@ export function avisarAlReparto(cambio: CambioParaElReparto): void {
     try {
       if (!(await avisosEncendidos())) return;
       if (!(await leToca(cambio))) return;
+
+      /*
+       * ¿Va suelto o esto es una avalancha? Se cuenta sólo lo que se podría agrupar, para
+       * que el contador de la sucursal signifique una cosa sola y no lo muevan los avisos
+       * de cliente, que nunca se colapsan.
+       */
+      const puedeAgruparse = Boolean(cambio.sucursalId) && Boolean(cambio.id) && SE_PUEDEN_COLAPSAR.has(cambio.motivo);
+      const enLaVentana = puedeAgruparse ? await contarEnLaVentana(cambio.sucursalId as string) : null;
+      const rafaga = queHacerConLaRafaga(cambio, enLaVentana);
+
+      if (rafaga === 'callar') return;
+
+      /*
+       * Al cruzar el tope, el aviso deja de hablar de UN pedido y pasa a decir «repasa esa
+       * sucursal»: sin `id` y con `accion: bulk`, que es la forma que el espejo ya sabe
+       * leer desde el 26/09. Y va sin pedido dentro, solo, porque no habla de ninguno.
+       */
+      if (rafaga === 'tanda') {
+        console.warn(
+          `[aviso-reparto] ráfaga en ${cambio.sucursalId}: más de ${TOPE_RAFAGA} en ${VENTANA_RAFAGA_S}s, se agrupa en uno`,
+        );
+        cambio = { ...cambio, id: null, accion: 'bulk' };
+      }
 
       const aviso = armarAviso(cambio);
 

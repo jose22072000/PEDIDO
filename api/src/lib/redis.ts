@@ -114,6 +114,36 @@ export async function xaddReparto(campos: Record<string, string>): Promise<strin
 }
 
 /**
+ * ¿Cuántos avisos lleva esta sucursal en el último minuto?
+ *
+ * Es el cuentagotas de las ráfagas. Devuelve el número DESPUÉS de contar el de ahora, o
+ * `null` si no hay Redis — y `null` significa «no se sabe», que se trata como «déjalo
+ * pasar»: callar un aviso porque el contador esté caído es la dirección peligrosa.
+ *
+ * La llave muere sola al minuto, así que no hay nada que limpiar ni que se quede pegado
+ * si el proceso se cae a la mitad.
+ */
+export const VENTANA_RAFAGA_S = Number(process.env.DELIVERY_RAFAGA_VENTANA_S || 60);
+
+export async function contarEnLaVentana(sucursalId: string): Promise<number | null> {
+  if (!connection) return null;
+  try {
+    const k = `${PREFIX}:reparto:rafaga:${sucursalId}`;
+    const n = await connection.incr(k);
+
+    // Sólo al primero: si se pusiera en cada uno, una ráfaga larga iría empujando el
+    // vencimiento y la ventana no se cerraría nunca.
+    if (n === 1) await connection.expire(k, VENTANA_RAFAGA_S);
+
+    return n;
+  } catch (e) {
+    console.error('[redis] no se pudo contar la ráfaga:', (e as Error).message);
+
+    return null;
+  }
+}
+
+/**
  * Cómo va la bandeja: cuántos avisos hay, cuántos cogidos sin terminar y del último.
  *
  * Devuelve `null` en los números cuando no hay Redis o el stream aún no existe. `null`

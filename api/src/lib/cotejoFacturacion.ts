@@ -50,7 +50,7 @@
  */
 import { camposParaCompletar, conservaSuFactura } from './autocompletado';
 import prisma from '../prismaClient';
-import { avisarAlReparto, avisarQueYaNoVa } from './avisoAlReparto';
+import { avisarAlReparto, avisarQueYaNoVa, queLeCambia } from './avisoAlReparto';
 import { databases, ventasDeSucursal, ventasPorPrefijoDeFolio, type LineaVentaVentra } from './ventra';
 import { baseDeSucursal } from './baseDeVentra';
 import {
@@ -426,6 +426,16 @@ type PedidoConItems = {
   lineasFactura: string | null;
   facturaDiferencias: string | null;
   facturaDomicilio: number | null;
+  /**
+   * La casilla del domicilio, que es la OTRA señal de que el pedido es del reparto.
+   *
+   * Está aquí porque `queLeCambia` compara el antes con el después, y para eso hacen falta
+   * los cuatro campos que deciden. Sin ella, un pedido a domicilio marcado a mano —sin
+   * línea de ENTREGA A DOMICILIO en la factura— sale «no es del reparto» a los dos lados,
+   * y **deja de avisarse sin que nada falle**. La fila la trae entera el `include` de
+   * arriba; lo que faltaba era que el tipo lo dijera.
+   */
+  requiere_domicilio: boolean | null;
   /** El del PEDIDO (`completada` o nulo), no el de la factura. */
   estado: string | null;
   itemsOriginal: string | null;
@@ -663,23 +673,26 @@ async function cotejarUnPedido(
     emitEvent('pedido', { id: p.id, sucursalId: p.sucursalId, accion: 'update' });
 
     /*
-     * Y al REPARTO. En los dos sentidos, que es lo que faltaba.
+     * Y al REPARTO, pero SÓLO SI A ÉL LE CAMBIÓ ALGO.
      *
-     * Un pedido con factura —o con la factura cambiada— es un pedido que ya se puede
-     * cargar. Pero un pedido que TENÍA factura y se queda sin ella deja de ser suyo, y
-     * eso hay que decirlo igual: si sólo se avisa hacia dentro, el reparto se lo queda
-     * para siempre. Antes lo arreglaba solo el barrido, que dejaba de traerlo.
+     * Antes salía un aviso cada vez que se escribía cualquier campo, y eso llenaba la cola
+     * de cosas que el reparto ya tenía: de 2.712 pedidos avisados en tres días, ~2.400 ya
+     * eran suyos desde antes. La decisión está en `queLeCambia`, con el porqué entero.
      *
-     * Se mira contra lo que el pedido tenía ANTES —`p`, que es de antes del update— para
-     * no mandar un `ya_no_va` de algo que el reparto nunca tuvo.
+     * Se compara `p` —que es de ANTES del update— contra `p` con lo escrito encima, y se
+     * mira qué campos se tocaron. `corregido` entra como `items` porque ahí las líneas del
+     * pedido se reescribieron con lo facturado, y eso es justo la carga del camión aunque
+     * `datos` venga vacío.
      */
-    const teniaFactura = Boolean(p.facturaNumero) || p.facturaEstado === 'igual' || p.facturaEstado === 'cambiado';
-    const seQuedaSinFactura =
-      teniaFactura && datos.facturaEstado === 'sin_factura' && !datos.facturaNumero;
+    const escritos = [...Object.keys(datos), ...(corregido ? ['items'] : [])];
+    const que = queLeCambia(p, { ...p, ...datos }, escritos);
 
-    if (seQuedaSinFactura) {
-      avisarQueYaNoVa({ id: p.id, sucursalId: p.sucursalId, accion: 'sin_factura' });
-    } else {
+    if (que === 'sale') {
+      // Dejó de ser suyo: que lo quite. Con el porqué, que aquí se sabe cuál de los dos es.
+      const porQue = datos.facturaEstado === 'sin_factura' ? 'sin_factura' : 'sin_domicilio';
+
+      avisarQueYaNoVa({ id: p.id, sucursalId: p.sucursalId, accion: porQue });
+    } else if (que !== 'nada') {
       avisarAlReparto({ id: p.id, sucursalId: p.sucursalId, motivo: 'factura', accion: r.estado });
     }
   }
