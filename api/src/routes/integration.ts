@@ -621,6 +621,17 @@ router.get('/clients', async (req, res) => {
    * Tope de 200 por llamada: la lista viaja en la URL y una URL sin límite es un 414 el
    * día que alguien pida mil, que además es el día en que más falta hace que funcione.
    */
+  /*
+   * `pidioIds` aparte de la lista, por lo mismo que en `/orders`: **si pidió por ids, se
+   * filtra por ids aunque no quede ninguno válido.**
+   *
+   * Con `ids.length` a secas, un `?ids=` cuyos ids no valgan —o vengan vacíos— dejaba
+   * caer el filtro y devolvía la PÁGINA ENTERA de clientes de la sucursal. Quien preguntó
+   * por tres clientes se lleva doscientos y no tiene forma de notarlo: la respuesta es
+   * válida, tiene la forma buena, y sólo es otra cosa de la que pidió. Es el mismo fallo
+   * que se quitó de los pedidos el 29/09/2026; lo vio work-62 mirando aquel arreglo.
+   */
+  const pidioIds = typeof req.query.ids === 'string';
   const ids = (typeof req.query.ids === 'string' ? req.query.ids : '')
     .split(',')
     .map((x) => x.trim())
@@ -683,7 +694,7 @@ router.get('/clients', async (req, res) => {
   const clientes = await prisma.cliente.findMany({
     where: {
       ...sucursalScope,
-      ...(ids.length ? { id: { in: ids } } : {}),
+      ...(pidioIds ? { id: { in: ids } } : {}),
       ...(soloConGeo ? { latitud: { not: null }, longitud: { not: null } } : {}),
       ...(since ? { updatedAt: { gt: new Date(since) } } : {}),
       // Por vendedor: los que tienen ALGÚN pedido suyo.
