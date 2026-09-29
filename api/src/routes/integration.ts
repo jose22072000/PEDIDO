@@ -153,6 +153,38 @@ router.get('/orders', async (req, res) => {
   const since = typeof req.query.since === 'string' ? req.query.since : '';
   // Buscar UN pedido por su folio, que es como lo nombra todo el mundo: es lo que
   // lleva escrito el papel que tiene el repartidor en la mano.
+  /**
+   * `?ids=a,b,c` — ESTOS pedidos y ninguno más.
+   *
+   * # El fallo que esto corrige, y por qué no daba error
+   *
+   * El espejo del reparto pedía `?ids=<100 ids>&limit=2000` para traerse SÓLO lo que
+   * acababa de cambiar. Esta ruta **no leía `ids`**: Express ignora los parámetros que
+   * nadie mira, así que devolvía la página entera hasta el `limit`.
+   *
+   * Registro del reparto del 29/09/2026: «avisos: 1 · pedidos: 1» y el lote que volvió
+   * traía **2.000 pedidos**. Dos mil por el cable, desde Cuba, para traer uno. Y el
+   * espejo reescribiendo filas que no habían cambiado.
+   *
+   * No fallaba nada: la respuesta era un 200 con datos correctos. Sólo que eran otros.
+   * Un parámetro que no se lee es un filtro que no existe, y desde fuera se ve igual que
+   * uno que sí funciona.
+   *
+   * # Presente pero vacío NO es «tráelo todo»
+   *
+   * Si viene `?ids=` y no queda ni un id válido, se filtra por una lista vacía y sale
+   * vacío. Lo contrario —ignorarlo y devolver la página— es justo el fallo de arriba.
+   *
+   * Tope de 500: la lista viaja en la URL y sin tope es un 414 el día que alguien pida
+   * mil, que además es el día en que más falta hace que funcione.
+   */
+  const pidioIds = typeof req.query.ids === 'string';
+  const ids = (typeof req.query.ids === 'string' ? req.query.ids : '')
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .slice(0, 500);
+
   const folio = typeof req.query.folio === 'string' ? req.query.folio.trim() : '';
   // Por estado. El repartidor sale a la calle con los EN PROCESO: los completados ya
   // se entregaron y los expirados no los va a llevar hoy.
@@ -240,6 +272,8 @@ router.get('/orders', async (req, res) => {
       : {}),
     // Incremental: lo que se movió desde la última sincronización.
     ...(since ? { updatedAt: { gt: new Date(since) } } : {}),
+    // Por ID, que es lo único que identifica un pedido sin ambigüedad. Ver arriba.
+    ...(pidioIds ? { id: { in: ids } } : {}),
     // Por folio: contiene y sin distinguir mayúsculas, porque nadie teclea un folio
     // entero ni respeta las mayúsculas al buscar.
     ...(folio ? { folio: { contains: folio, mode: 'insensitive' as const } } : {}),
