@@ -12,6 +12,22 @@ import { getConnection } from './redis';
 
 export interface SseTicketData {
   sucursalId: string | null;
+  /**
+   * El gestor que escucha, si quien abre el canal ES un gestor.
+   *
+   * El aislamiento era SÓLO por sucursal, y un gestor ve únicamente los pedidos de SUS
+   * vendedores: la lista lo filtra en el servidor, pero el canal en vivo no. Así que a
+   * cada gestor de una sucursal le entraban en la pantalla los pedidos de los demás
+   * gestores de esa sucursal —con su cliente y su vendedor— hasta que la vista volvía a
+   * pedir la lista, y entonces desaparecían.
+   *
+   * El 29/09/2026 Jose lo vio: «a Maylen le salió un pedido de Ernesto, el 1839 de
+   * Leonides Martínez… y al rato ya le apareció a Ernesto como debería». No era la
+   * importación: el pedido nunca fue de Maylen. Era esto.
+   *
+   * `null` para quien no es gestor: el resto ve lo de su sucursal, como hasta ahora.
+   */
+  gestorId: string | null;
 }
 
 const KEY = (id: string) => `procovar-pedido:sse-ticket:${id}`;

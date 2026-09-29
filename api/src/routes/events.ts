@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { resolveSucursalFilter } from '../lib/sucursalContext';
+import { getRequesterContext, resolveSucursalFilter } from '../lib/sucursalContext';
 import { mintSseTicket, consumeSseTicket } from '../lib/sseTickets';
 import { redisEnabled, getSubscriber, CH_EVENTS } from '../lib/redis';
 
@@ -16,7 +16,13 @@ router.post('/sse-ticket', async (req, res) => {
   // reconecta el SSE, así que una pestaña abierta con la sesión caducada generaba
   // decenas de 4xx al día que parecían un fallo de la aplicación.
   if (error) return res.status(status ?? 400).json({ error });
-  const ticket = await mintSseTicket({ sucursalId: sucursalId ?? null });
+
+  // Quién escucha, no sólo dónde. Ver `SseTicketData.gestorId`.
+  const quien = getRequesterContext(req);
+  const ticket = await mintSseTicket({
+    sucursalId: sucursalId ?? null,
+    gestorId: quien.isGestor ? (quien.userId ?? null) : null,
+  });
   return res.json({ ticket });
 });
 
@@ -25,6 +31,7 @@ router.get('/stream', async (req, res) => {
   const ticket = await consumeSseTicket(req.query.ticket as string | undefined);
   if (!ticket) return res.status(401).json({ error: 'Ticket inválido o expirado' });
   const sucursalId = ticket.sucursalId ?? undefined; // undefined = Super Admin: ve TODAS.
+  const gestorId = ticket.gestorId ?? undefined; // undefined = no es gestor: no se filtra.
 
   res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -62,6 +69,23 @@ router.get('/stream', async (req, res) => {
       // Aislamiento: si el que escucha tiene sucursal, solo recibe eventos de ESA sucursal
       // (o globales, sucursalId null). El Super Admin (sucursalId undefined) recibe todos.
       if (sucursalId && ev.sucursalId && ev.sucursalId !== sucursalId) return;
+
+      /*
+       * Y POR GESTOR, que faltaba.
+       *
+       * Un gestor ve sólo los pedidos de SUS vendedores —la lista lo filtra en el
+       * servidor— pero el canal en vivo no lo miraba: a cada gestor le entraban en
+       * pantalla los pedidos de los demás gestores de su sucursal, con su cliente y su
+       * vendedor, hasta que la vista volvía a pedir la lista y desaparecían.
+       *
+       * Se filtra sólo cuando el evento TRAE el pedido dentro (`datos`), que es cuando
+       * hay algo que enseñar y por tanto algo que filtrar. Los eventos sin datos —una
+       * importación, un cambio masivo— sólo provocan que la vista vuelva a pedir la
+       * lista, y esa petición ya va filtrada por el servidor: dejarlos pasar no enseña
+       * nada de nadie y mantiene las pantallas al día.
+       */
+      if (gestorId && ev?.datos?.vendedor?.gestorId && ev.datos.vendedor.gestorId !== gestorId) return;
+
       send(String(ev.tipo || 'change'), ev);
     } catch { /* mensaje inválido: ignora */ }
   };

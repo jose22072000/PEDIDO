@@ -587,8 +587,17 @@ router.get('/productos', async (req, res) => {
 
 router.post('/sse-ticket', async (req, res) => {
   const { sucursalId, error } = resolveSucursalFilter(req);
+
   if (error) return res.status(400).json({ error });
-  const ticket = await mintSseTicket({ sucursalId: sucursalId ?? null });
+
+  // Con el gestor dentro, igual que el de `/events`: el canal aísla por sucursal Y por
+  // gestor, y un ticket sin gestor dejaría pasar los pedidos de los demás.
+  const quien = getRequesterContext(req);
+  const ticket = await mintSseTicket({
+    sucursalId: sucursalId ?? null,
+    gestorId: quien.isGestor ? (quien.userId ?? null) : null,
+  });
+
   return res.json({ ticket });
 });
 
