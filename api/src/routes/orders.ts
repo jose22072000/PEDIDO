@@ -1,9 +1,10 @@
 import { Router, type Request } from 'express';
 import { Prisma } from '@prisma/client';
 import prisma from '../prismaClient';
-import { esConsumoPropio } from '../lib/consumoPropio';
+
 import { avisarAlReparto, esParaElReparto, CAMPOS_PARA_DECIDIR } from '../lib/avisoAlReparto';
 import { porQueNoPuede, SESION_CADUCADA } from '../lib/porQueNoPuede';
+import { esConsumoPropio } from '../lib/consumoPropio';
 import { catalogoDeSucursal, unidadesDeVenta } from '../lib/catalogoSucursal';
 import {
   mapCsvRecords,
@@ -239,6 +240,7 @@ router.get('/', async (req, res) => {
     // filtra por los pedidos de los vendedores que ese usuario gestiona.
     const usuarioId = (req.query.usuarioId || req.query.vendedorId) as string | undefined;
     const incluirArchivados = req.query.incluirArchivados === '1' || req.query.incluirArchivados === 'true';
+    const soloConsumoPropio = req.query.consumoPropio === '1' || req.query.consumoPropio === 'true';
     /**
      * Los OTROS DOS estados del pedido, que no son el suyo.
      *
@@ -411,6 +413,41 @@ router.get('/', async (req, res) => {
     }
 
     // Filter by domicilio (para ver los pedidos con envío a domicilio y su costo)
+    /*
+     * SÓLO LOS DE CONSUMO PROPIO.
+     *
+     * Antes esto era un cajón aparte que enseñaba el último pedido de cada vendedor. Se
+     * quita: lo que hace falta mientras se factura es la LISTA filtrada, con su búsqueda,
+     * sus fechas y su paginación, no una ventana encima que hay que abrir y cerrar.
+     *
+     * Se resuelve en dos pasos porque la regla vive en `esConsumoPropio` y es un patrón,
+     * no un `LIKE`: hay que reconocer `COMSUMO`, `COSUMO` y `CLIENTECONSUMO` todo junto, y
+     * dejar fuera los ochenta «PUNTO DE VENTA …» de Holguín, que son clientes de verdad.
+     *
+     *   1. la base acota: todo lo que lleve «SUMO» o «PDV». Es un superconjunto seguro —
+     *      las tres formas de escribir CONSUMO contienen «SUMO».
+     *   2. la misma función de siempre decide, para que no haya dos reglas.
+     *
+     * Sin el paso 1 habría que traerse los 8.673 clientes en cada página.
+     */
+    if (soloConsumoPropio) {
+      const candidatos = await prisma.cliente.findMany({
+        where: {
+          ...(sucursalId ? { sucursalId } : {}),
+          OR: [
+            { nombre: { contains: 'SUMO', mode: 'insensitive' } },
+            { nombre: { contains: 'PDV', mode: 'insensitive' } },
+          ],
+        },
+        select: { id: true, nombre: true },
+      });
+      const suyos = candidatos.filter((c) => esConsumoPropio(c.nombre)).map((c) => c.id);
+
+      // Si no hay ninguno, se filtra por una lista vacía y sale vacío — que es la verdad.
+      // Dejar el filtro sin poner enseñaría TODOS los pedidos con el botón encendido.
+      conditions.push({ clienteId: { in: suyos } });
+    }
+
     if (domicilio) {
       switch (domicilio) {
         case 'calculado':
@@ -958,134 +995,6 @@ router.delete('/borrados/:id', async (req, res) => {
   }
 });
 
-/**
- * GET /orders/consumo-propio
- *
- * El ÚLTIMO pedido del cliente de consumo propio de cada vendedor de la sucursal.
- *
- * # Para qué
- *
- * El consumo propio es el cajón donde el vendedor mete al que compra poco y no tiene
- * ficha (ver `lib/consumoPropio`). Es el pedido que más se copia al facturar, y hasta
- * ahora había que buscarlo a mano: filtrar por el vendedor, mirar cuál de sus pedidos es
- * el del consumo, abrirlo y copiar. Todo el día, por cada venta suelta.
- *
- * Aquí sale uno por vendedor, ya listo para copiar.
- *
- * # Por qué el último y no «el suyo»
- *
- * Porque no hay un «suyo»: el mismo vendedor tiene hasta cinco fichas de consumo propio
- * —las que se han ido creando al escribir el nombre distinto cada vez— y NIURKA, en Las
- * Tunas, tiene cinco. Cogiendo el último pedido que subió, el cajón enseña solo la que
- * está usando de verdad esta semana, y las viejas desaparecen solas sin tener que
- * limpiar nada.
- *
- * Y por eso es el último POR FECHA DE SUBIDA y no por la fecha del pedido: lo que se
- * reutiliza es el último que entró.
- */
-router.get('/consumo-propio', async (req, res) => {
-  try {
-    const { sucursalId, error, status } = resolveSucursalFilter(req);
-
-    if (error) return res.status(status ?? 400).json({ error });
-
-    // Los clientes se filtran EN MEMORIA y no con un `contains` de Prisma: la regla es
-    // un patrón con faltas de ortografía y una excepción («punto de venta» es un cliente
-    // de verdad), y eso no cabe en un `where`. Son mil clientes por sucursal: una
-    // consulta de dos columnas.
-    const clientes = await prisma.cliente.findMany({
-      where: { ...(sucursalId ? { sucursalId } : {}) },
-      select: { id: true, nombre: true, codigo: true },
-    });
-
-    const deConsumo = clientes.filter((c) => esConsumoPropio(c.nombre));
-
-    if (!deConsumo.length) return res.json({ consumos: [] });
-
-    const clienteIds = deConsumo.map((c) => c.id);
-
-    // El gestor ve lo suyo, igual que en la lista y en la papelera.
-    const suyo = soloLoSuyo(req);
-    let deSusVendedores: string[] | null = null;
-
-    if (suyo) {
-      const vendedores = await prisma.vendedor.findMany({
-        where: { gestorId: suyo.gestorId },
-        select: { id: true },
-      });
-
-      deSusVendedores = vendedores.map((v) => v.id);
-    }
-
-    const base = {
-      clienteId: { in: clienteIds },
-      ...(sucursalId ? { sucursalId } : {}),
-      // Los dos filtros del vendedor van en la MISMA clave a propósito: escritos en dos
-      // líneas, la segunda pisa a la primera y el gestor vería los de todos.
-      vendedorId: deSusVendedores ? { in: deSusVendedores } : { not: null },
-      // Quien está de baja no sale. Su último consumo propio puede ser de hace cuatro
-      // meses —en Las Tunas hay dos así—, y ofrecerlo para facturar sería invitar a
-      // copiar el folio de alguien que ya no vende; la ingesta ni siquiera le acepta
-      // pedidos nuevos.
-      vendedor: { is: { activo: true, bajaEn: null } },
-    };
-
-    /**
-     * Qué vendedores tienen uno. Se pregunta aparte para no traerse los mil pedidos de
-     * consumo de la sucursal y quedarse con diez: Las Tunas lleva 2.600.
-     */
-    const conConsumo = await prisma.pedido.groupBy({
-      by: ['vendedorId'],
-      where: base,
-    });
-
-    const consumos = await Promise.all(
-      conConsumo
-        .map((g) => g.vendedorId)
-        .filter((id): id is string => Boolean(id))
-        .map((vendedorId) =>
-          prisma.pedido.findFirst({
-            where: { ...base, vendedorId },
-            orderBy: [{ createdAt: 'desc' }, { fecha: 'desc' }],
-            select: {
-              id: true,
-              folio: true,
-              fecha: true,
-              createdAt: true,
-              estado: true,
-              vendedor: { select: { id: true, nombre: true, codigo: true } },
-              cliente: { select: { id: true, nombre: true, codigo: true } },
-              _count: { select: { items: true } },
-            },
-          }),
-        ),
-    );
-
-    res.json({
-      consumos: consumos
-        .filter((p): p is NonNullable<typeof p> => Boolean(p))
-        .map((p) => ({
-          pedidoId: p.id,
-          folio: p.folio,
-          fecha: p.fecha,
-          subidoAt: p.createdAt,
-          estado: p.estado,
-          lineas: p._count.items,
-          vendedorId: p.vendedor?.id ?? null,
-          vendedorNombre: p.vendedor?.nombre ?? 'Sin vendedor',
-          clienteId: p.cliente?.id ?? null,
-          clienteNombre: p.cliente?.nombre ?? 'Sin cliente',
-          // Lo que se pega en la factura necesita el CÓDIGO del cliente, igual que el
-          // botón de copiar de la lista; si no lo tiene, su nombre.
-          clienteCodigo: p.cliente?.codigo || p.cliente?.nombre || 'Sin cliente',
-        }))
-        .sort((a, b) => a.vendedorNombre.localeCompare(b.vendedorNombre, 'es')),
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Error al listar los consumos propios' });
-  }
-});
 
 // Resuelve el vendedor del CSV SIN saber la sucursal: se busca por `codigo`
 // (único global, ej. "andy.almanza"). La sucursal se deriva del gestor.

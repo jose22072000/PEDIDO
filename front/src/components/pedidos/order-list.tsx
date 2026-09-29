@@ -51,7 +51,6 @@ import {
   type Moneda,
 } from "@/lib/moneda";
 import { PapeleraBorrados } from "./papelera-borrados";
-import { ConsumoPropio } from "./consumo-propio";
 import { VendedoresCopiar } from "./vendedores-copiar";
 
 import { useAuthStore } from "@/stores/authStore";
@@ -404,6 +403,14 @@ interface FiltrosPedidos {
   vendedor: string;
   producto: string;
   incluirArchivados: boolean;
+  /**
+   * Sólo los pedidos de CONSUMO PROPIO.
+   *
+   * Era un cajón aparte que enseñaba el último de cada vendedor. Ahora es un filtro más
+   * de la lista: con su búsqueda, sus fechas y su paginación, y sin una ventana encima
+   * que hay que abrir y cerrar mientras se factura.
+   */
+  consumoPropio: boolean;
 }
 
 /** La clave de cache: TIENE que llevar todo lo que cambia el resultado. */
@@ -424,6 +431,7 @@ const clavePedidos = (f: FiltrosPedidos, sucursal: string) =>
     f.vendedor,
     f.producto,
     f.incluirArchivados ? "1" : "0",
+    f.consumoPropio ? "1" : "0",
   ].join(":");
 
 const traerPedidos =
@@ -447,6 +455,7 @@ const traerPedidos =
     // Switch: si esta activo, la busqueda incluye tambien los archivados (se
     // distinguen en la tarjeta con el chip "Archivado"). Si no, solo activos.
     if (f.incluirArchivados) params.append("incluirArchivados", "1");
+    if (f.consumoPropio) params.append("consumoPropio", "1");
 
     const r = await fetch(`${getApiBaseUrl()}/orders?${params}`, { signal });
 
@@ -567,6 +576,8 @@ export const OrdersList = () => {
   // Incluir archivados en la búsqueda actual (el usuario elige). No aplica cuando el
   // estado ya es "archivados" (ahí se ven solo archivados).
   const [incluirArchivados, setIncluirArchivados] = useState(false);
+  // Consumo propio: un filtro de la lista, no un cajón. Ver `FiltrosPedidos`.
+  const [soloConsumo, setSoloConsumo] = useState(false);
   // Los productos que existen en esta sucursal, para el selector del filtro. Se piden
   // una vez: cambian cuando entran pedidos nuevos, no mientras se mira la lista.
   const [orderToReabrir, setOrderToReabrir] = useState<Order | null>(null);
@@ -587,7 +598,8 @@ export const OrdersList = () => {
     (productoFilter ? 1 : 0) +
     (domicilioFilter !== "todos" ? 1 : 0) +
     (vendedorFilter !== "todos" ? 1 : 0) +
-    (incluirArchivados ? 1 : 0);
+    (incluirArchivados ? 1 : 0) +
+    (soloConsumo ? 1 : 0);
   const [fechaDesde, setFechaDesde] = useState<string>("");
   const [fechaHasta, setFechaHasta] = useState<string>("");
 
@@ -749,8 +761,6 @@ export const OrdersList = () => {
 
   // Y el de los vendedores, para copiar su `V-NOMBRE;` sin salir de Pedidos.
   const [vendedoresAbierto, setVendedoresAbierto] = useState(false);
-  // El cajón del consumo propio: el último pedido de cada vendedor, para copiarlo.
-  const [consumoAbierto, setConsumoAbierto] = useState(false);
   // La papelera: qué se borró y sigue sin poder volver a entrar con el archivo.
   const [papeleraAbierta, setPapeleraAbierta] = useState(false);
 
@@ -797,6 +807,7 @@ export const OrdersList = () => {
     vendedor: vendedorFilter,
     producto: productoFilter,
     incluirArchivados,
+    consumoPropio: soloConsumo,
   };
 
   // Sin filtros = primera pagina y orden por fecha: ahi SI se puede insertar un
@@ -1161,6 +1172,7 @@ export const OrdersList = () => {
     fechaDesde,
     fechaHasta,
     incluirArchivados,
+    soloConsumo,
   ]);
 
   // Pedidos en tiempo real: lo lleva el store (opcion `aplicar` de arriba). Va por
@@ -1612,8 +1624,8 @@ export const OrdersList = () => {
           {/* CUATRO EN LA FILA, Y DOS SON ATAJOS.
               Un campo de fecha ocupa lo que ocupa una fecha; puestos a mitad de ancho
               cada uno, esta fila era medio panel vacío. Al lado caben los dos atajos que
-              se usan mientras se factura —el consumo propio y los vendedores—, que
-              además es donde se está mirando: el buscador y los filtros.
+              se usan mientras se factura —el filtro de consumo propio y la lista de
+              vendedores—, que además es donde se está mirando: el buscador y los filtros.
               Alto `h-14` para que queden a ras de las fechas, que son `size="lg"`. */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <Input
@@ -1640,11 +1652,15 @@ export const OrdersList = () => {
             />
             <Button
               className="h-14 w-full"
+              color={soloConsumo ? "primary" : "default"}
               startContent={<Icons.users className="size-4" />}
-              variant="bordered"
-              onPress={() => setConsumoAbierto(true)}
+              variant={soloConsumo ? "solid" : "bordered"}
+              onPress={() => {
+                setSoloConsumo((v) => !v);
+                setPage(1);
+              }}
             >
-              Consumo propio
+              {soloConsumo ? "Sólo consumo propio" : "Consumo propio"}
             </Button>
             <Button
               className="h-14 w-full"
@@ -2015,7 +2031,6 @@ export const OrdersList = () => {
         </>
       )}
 
-      <ConsumoPropio isOpen={consumoAbierto} onClose={() => setConsumoAbierto(false)} />
       <VendedoresCopiar isOpen={vendedoresAbierto} onClose={() => setVendedoresAbierto(false)} />
       <PapeleraBorrados isOpen={papeleraAbierta} onClose={() => setPapeleraAbierta(false)} />
 
