@@ -1832,7 +1832,25 @@ router.get('/import-stream', async (req, res) => {
 });
 
 export type BulkImportResults = {
-  created: number; updated: number; failed: number; sinAsignar: number; errors: any[];
+  /**
+   * PEDIDOS distintos creados y actualizados — no renglones.
+   *
+   * Contaban renglones y se llamaban «pedidos». Un archivo de tres líneas que forman dos
+   * pedidos decía «3 pedidos», y peor: `updated` se sumaba DOS veces cuando además
+   * cambiaba la cantidad de un producto, así que un renglón podía contar por dos.
+   *
+   * El 29/09/2026 eso costó media mañana. Un vendedor subió su archivo, el panel dijo
+   * «3 pedidos», en la lista había 2, y todo el mundo se puso a buscar el que faltaba.
+   * No faltaba ninguno: eran 3 renglones —uno de un pedido y dos de otro— y los tres
+   * habían entrado. Un número que miente cuesta más que un número que no está.
+   *
+   * Se cuentan por id, con un conjunto: el mismo pedido tocado por tres renglones es un
+   * pedido, no tres.
+   */
+  created: number; updated: number;
+  /** Renglones del archivo que se procesaron. Es el número que antes se hacía pasar por pedidos. */
+  lineas: number;
+  failed: number; sinAsignar: number; errors: any[];
   /// Los que NO entraron porque alguien los había borrado a mano. Van aparte de
   /// `failed`: no es un fallo del archivo, es una decisión que alguien tomó.
   omitidos: number;
@@ -2007,7 +2025,10 @@ export async function processBulkImport(
     }
   }
 
-  const results: BulkImportResults = { created: 0, updated: 0, failed: 0, sinAsignar: 0, errors: [], omitidos: 0, omitidosDetalle: [] };
+  const results: BulkImportResults = { created: 0, updated: 0, lineas: 0, failed: 0, sinAsignar: 0, errors: [], omitidos: 0, omitidosDetalle: [] };
+  // Los ids, para contar PEDIDOS y no renglones. Ver `BulkImportResults`.
+  const idsCreados = new Set<string>();
+  const idsActualizados = new Set<string>();
   /**
    * Cada 25 filas, no en cada una: avisar por fila serían miles de escrituras en Redis
    * para mover una barra que nadie ve moverse tan fino, y eso sí frenaría la importación.
@@ -2034,7 +2055,17 @@ export async function processBulkImport(
   const sucursalesTocadas = new Set<string>();
   const pedidosTocados = new Set<string>();
 
-  const parcial = () => ({ creados: results.created, actualizados: results.updated, fallidos: results.failed });
+  /*
+   * El parcial sale de los conjuntos, no de los contadores.
+   *
+   * Los contadores sólo se rellenan al final, así que leyéndolos la barra de progreso se
+   * quedaría en cero toda la importación y parecería que no entra nada.
+   */
+  const parcial = () => ({
+    creados: idsCreados.size,
+    actualizados: [...idsActualizados].filter((id) => !idsCreados.has(id)).length,
+    fallidos: results.failed,
+  });
 
   avisar?.(0, mappedRecords.length, parcial());
 
@@ -2072,7 +2103,7 @@ export async function processBulkImport(
     }
 
     try {
-      await processOrderRecord(record, results, resolved.seller.id, resolved.sucursalId, borrados, pedidosTocados);
+      await processOrderRecord(record, results, resolved.seller.id, resolved.sucursalId, borrados, pedidosTocados, idsCreados, idsActualizados);
       if (resolved.sucursalId === null) results.sinAsignar++;
       else sucursalesTocadas.add(resolved.sucursalId);
     } catch (error) {
@@ -2084,6 +2115,16 @@ export async function processBulkImport(
       console.error('Error processing record:', error);
     }
   }
+
+  /*
+   * Los números de verdad, ya en pedidos.
+   *
+   * `actualizados` menos los que además se crearon: un pedido que nace y luego recibe
+   * otro renglón en el mismo archivo es UNO creado, no uno creado y uno actualizado.
+   */
+  results.created = idsCreados.size;
+  results.updated = [...idsActualizados].filter((id) => !idsCreados.has(id)).length;
+  results.lineas = mappedRecords.length;
 
   // Se importaron pedidos: los que pidan domicilio entran en la cola de cotización.
   avisar?.(mappedRecords.length, mappedRecords.length, parcial());
@@ -2175,6 +2216,9 @@ async function processOrderRecord(
    * delante: se apunta y se acabó la adivinanza.
    */
   tocados: Set<string> | null = null,
+  /** Ids de los pedidos creados y actualizados, para contar PEDIDOS y no renglones. */
+  creados: Set<string> | null = null,
+  actualizados: Set<string> | null = null,
 ) {
   const seller = { id: sellerId };
 
@@ -2392,7 +2436,6 @@ async function processOrderRecord(
           },
         });
         invalidarCosto = true; // cambió el peso del pedido -> hay que recotizar
-        results.updated++;
       }
       // If quantities are the same, do nothing (skip)
     } else {
@@ -2429,7 +2472,8 @@ async function processOrderRecord(
      * cambia de cantidad o entra una nueva.
      */
     if (Object.keys(updateData).length > 0 || invalidarCosto) tocados?.add(existingOrder.id);
-    results.updated++;
+    // Por ID: el mismo pedido tocado por tres renglones es UN pedido actualizado.
+    actualizados?.add(existingOrder.id);
   } else {
     // Create new order with item
     const creado = await prisma.pedido.create({
@@ -2461,7 +2505,7 @@ async function processOrderRecord(
     });
 
     tocados?.add(creado.id);
-    results.created++;
+    creados?.add(creado.id);
   }
 }
 

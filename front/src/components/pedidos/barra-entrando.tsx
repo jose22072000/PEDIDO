@@ -318,7 +318,22 @@ export function BarraEntrando({ conectado }: { conectado: boolean }) {
                         <span className="text-xs text-default-500">
                           {a.sucursal !== "Sin sucursal" && <>{a.sucursal} · </>}
                           <span className="tabular-nums">{(a.creados + a.actualizados).toLocaleString("es")}</span>{" "}
-                          pedidos
+                          {a.creados + a.actualizados === 1 ? "pedido" : "pedidos"}
+                          {/* Y los RENGLONES, cuando no son lo mismo.
+
+                              Este número contaba renglones y se llamaba «pedidos». El
+                              29/09/2026 un archivo de 3 renglones que formaban 2 pedidos
+                              decía «3 pedidos», en la lista había 2, y media mañana se fue
+                              en buscar el que faltaba. No faltaba ninguno.
+
+                              Ahora el contador cuenta pedidos de verdad, y el renglonaje
+                              se dice al lado cuando difiere: un pedido puede traer varias
+                              líneas, y quien sube el archivo cuenta líneas. */}
+                          {a.filas != null && a.filas !== a.creados + a.actualizados && (
+                            <span className="text-default-500">
+                              {" "}· {a.filas.toLocaleString("es")} renglones
+                            </span>
+                          )}
                           {a.fallidos > 0 && (
                             <span className="text-warning-600"> · {a.fallidos} con problema</span>
                           )}
